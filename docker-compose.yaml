@@ -1,0 +1,233 @@
+services:
+  # MinIO - S3 Compatible Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - data-lab-playground
+
+  # PostgreSQL for Hive Metastore
+  metastore-db:
+    image: postgres:13
+    container_name: metastore-db
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive123
+    volumes:
+      - metastore_data:/var/lib/postgresql/data
+    networks:
+      - data-lab-playground
+
+  # Hive Metastore
+  hive-metastore:
+    image: datalab-playground/hive-metastore:latest
+    container_name: hive-metastore
+    ports:
+      - "9083:9083"
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      SERVICE_OPTS: "-Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://metastore-db:5432/metastore -Djavax.jdo.option.ConnectionUserName=hive -Djavax.jdo.option.ConnectionPassword=hive123"
+    depends_on:
+      - metastore-db
+    networks:
+      - data-lab-playground
+
+  # Trino Coordinator
+  trino:
+    image: datalab-playground/trino:latest
+    container_name: trino
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./trino/etc:/etc/trino
+    depends_on:
+      - hive-metastore
+      - minio
+    networks:
+      - data-lab-playground
+
+  # Apache Spark Master
+  spark-master:
+    image: datalab-playground/spark:latest
+    container_name: spark-master
+    ports:
+      - "8081:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+    networks:
+      - data-lab-playground
+
+  # Apache Spark Worker
+  spark-worker:
+    image: datalab-playground/spark:latest
+    container_name: spark-worker
+    ports:
+      - "8082:8080"
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_CORES=2
+    depends_on:
+      - spark-master
+    networks:
+      - data-lab-playground
+
+  # Jupyter Notebook with PySpark
+  jupyter:
+    image: datalab-playground/jupyter:latest
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - JUPYTER_ENABLE_LAB=yes
+    volumes:
+      - ./jupyter/notebooks:/home/jovyan/work
+    depends_on:
+      - spark-master
+      - minio
+      - trino
+      - phoenix
+      - qdrant
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - data-lab-playground
+
+  # Phoenix - AI Observability Platform
+  phoenix:
+    image: arizephoenix/phoenix:latest # Must be greater than 4.0 version to work
+    container_name: phoenix
+    depends_on:
+      - db
+    ports:
+      - "6006:6006"  # PHOENIX_PORT
+      - "4317:4317"  # PHOENIX_GRPC_PORT
+      - "9090:9090"  # [Optional] PROMETHEUS PORT IF ENABLED
+    environment:
+      - PHOENIX_SQL_DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006'); print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - data-lab-playground
+
+  # PostgreSQL Database for Phoenix
+  db:
+    image: postgres
+    container_name: phoenix-db
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    ports:
+      - "5432"
+    volumes:
+      - database_data:/var/lib/postgresql/data
+    networks:
+      - data-lab-playground
+
+  # Ollama - Local LLM Server with GPU Support
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - data-lab-playground
+
+  # Qdrant - Vector Database for AI Applications
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      - data-lab-playground
+
+  # Ollama Model Initializer - Pulls gemma3:4b and mxbai-embed-large:latest models on startup
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_data:/root/.ollama
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    command: >
+      sh -c "
+        until curl -f http://ollama:11434/api/tags; do
+          echo 'Waiting for Ollama to be ready...'
+          sleep 5
+        done
+        echo 'Pulling gemma3:4b model...'
+        ollama pull gemma3:4b
+        echo 'Pulling mxbai-embed-large:latest embedding model...'
+        ollama pull mxbai-embed-large:latest
+        echo 'Models ready!'
+      "
+    networks:
+      - data-lab-playground
+    profiles:
+      - init
+
+volumes:
+  minio_data:
+  metastore_data:
+  database_data:
+  ollama_data:
+  qdrant_data:
+
+networks:
+  data-lab-playground:
+    driver: bridge
