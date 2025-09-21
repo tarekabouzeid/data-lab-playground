@@ -34,7 +34,7 @@ RUN wget https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VER
     rm spark-${SPARK_VERSION}-bin-hadoop3.tgz
 
 # Download additional JARs for S3 and Iceberg support
-RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar -o $SPARK_HOME/jars/hadoop-aws-3.3.4.jar && \
+RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar -o $SPARK_HOME/jars/hadoop-aws-${HADOOP_VERSION}.jar && \
     curl -L https://search.maven.org/remotecontent?filepath=org/apache/iceberg/iceberg-spark-runtime-4.0_2.13/1.10.0/iceberg-spark-runtime-4.0_2.13-1.10.0.jar -o $SPARK_HOME/jars/iceberg-spark-runtime-4.0_2.13-1.10.0.jar && \
     curl -L https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.10.0/iceberg-aws-bundle-1.10.0.jar -o $SPARK_HOME/jars/iceberg-aws-bundle-1.10.0.jar && \
     curl -L https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.367/aws-java-sdk-bundle-1.12.367.jar -o $SPARK_HOME/jars/aws-java-sdk-bundle-1.12.367.jar
