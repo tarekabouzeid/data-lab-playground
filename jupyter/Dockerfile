@@ -5,7 +5,7 @@ USER root
 # Install Java 17 and Python 3.12 (required for Spark 4.0)
 RUN apt-get update && apt-get install -y \
     software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa \
+    && add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update && apt-get install -y \
     python3.12 \
     python3.12-venv \
@@ -22,19 +22,21 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 # Set JAVA_HOME
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
-# Download and install Spark 4.0.0
-ENV SPARK_VERSION=4.0.0
+# Download and install Spark 4.0.1
+ENV SPARK_VERSION=4.0.1
 ENV HADOOP_VERSION=3.3.4
 ENV SPARK_HOME=/opt/spark
 ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
 
-RUN wget https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz && \
+RUN wget https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz && \
     tar -xzf spark-${SPARK_VERSION}-bin-hadoop3.tgz && \
     mv spark-${SPARK_VERSION}-bin-hadoop3 $SPARK_HOME && \
     rm spark-${SPARK_VERSION}-bin-hadoop3.tgz
 
-# Download additional JARs for S3 support
-RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar -o $SPARK_HOME/jars/hadoop-aws-3.3.4.jar && \
+# Download additional JARs for S3 and Iceberg support
+RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar -o $SPARK_HOME/jars/hadoop-aws-${HADOOP_VERSION}.jar && \
+    curl -L https://search.maven.org/remotecontent?filepath=org/apache/iceberg/iceberg-spark-runtime-4.0_2.13/1.10.0/iceberg-spark-runtime-4.0_2.13-1.10.0.jar -o $SPARK_HOME/jars/iceberg-spark-runtime-4.0_2.13-1.10.0.jar && \
+    curl -L https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.10.0/iceberg-aws-bundle-1.10.0.jar -o $SPARK_HOME/jars/iceberg-aws-bundle-1.10.0.jar && \
     curl -L https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.367/aws-java-sdk-bundle-1.12.367.jar -o $SPARK_HOME/jars/aws-java-sdk-bundle-1.12.367.jar
 
 # Install pip for Python 3.12 - minimal setup
@@ -45,7 +47,7 @@ USER root
 RUN conda create -n genai python=3.12 -y && \
     /opt/conda/envs/genai/bin/pip install --no-cache-dir \
     ipykernel \
-    pyspark==4.0.0 \
+    pyspark==${SPARK_VERSION} \
     trino \
     boto3 \
     pandas \

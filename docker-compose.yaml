@@ -61,13 +61,14 @@ services:
   spark-master:
     image: datalab-playground/spark:latest
     container_name: spark-master
+    environment:
+      - AWS_REGION=us-east-1
     ports:
       - "8081:8080"
       - "7077:7077"
-    environment:
-      - SPARK_MODE=master
-      - SPARK_MASTER_HOST=spark-master
-      - SPARK_MASTER_PORT=7077
+    command: >
+      sh -c "/opt/spark/sbin/start-master.sh --host 0.0.0.0 --port 7077 --webui-port 8080 &&
+             tail -f /opt/spark/logs/*.out"
     networks:
       - data-lab-playground
 
@@ -78,10 +79,12 @@ services:
     ports:
       - "8082:8080"
     environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
       - SPARK_WORKER_MEMORY=2g
       - SPARK_WORKER_CORES=2
+      - AWS_REGION=us-east-1
+    command: >
+      sh -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 --memory 2g --cores 2 --webui-port 8080 &&
+             tail -f /opt/spark/logs/*.out"
     depends_on:
       - spark-master
     networks:
@@ -96,6 +99,7 @@ services:
     environment:
       - SPARK_MASTER=spark://spark-master:7077
       - JUPYTER_ENABLE_LAB=yes
+      - AWS_REGION=us-east-1
     volumes:
       - ./jupyter/notebooks:/home/jovyan/work
     depends_on:
