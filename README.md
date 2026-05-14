@@ -1,6 +1,29 @@
 # DataLab Playground
 
-A simple Docker-based environment for exploring data analytics and AI tools. Includes basic data processing, storage, and LLM capabilities - all containerized for easy experimentation.
+## 📖 About
+
+**DataLab Playground** is a fully containerised, local data-platform you can spin up with a single command. It bundles a curated set of open-source tools covering every layer of a modern data + AI stack:
+
+| Layer | Tools |
+|-------|-------|
+| **Object Storage** | MinIO (S3-compatible) |
+| **Data Processing** | Apache Spark (master + worker) |
+| **SQL Query Engine** | Trino |
+| **Table Metadata** | Hive Metastore (backed by PostgreSQL) |
+| **Local LLM** | Ollama (gemma3:4b + embedding models) |
+| **Vector Database** | Qdrant |
+| **AI Observability** | Arize Phoenix |
+| **Notebook Environment** | JupyterLab (Python 3.12, GenAI kernel) |
+
+The goal is to give data engineers, data scientists, and ML practitioners a **zero-cloud-cost sandbox** where they can:
+
+- Process and query large datasets with Spark and Trino over S3-compatible storage.
+- Run fully **local LLMs** (no OpenAI API key required) via Ollama.
+- Build and experiment with **RAG (Retrieval-Augmented Generation)** pipelines using Qdrant as the vector store.
+- Monitor and trace AI workloads with Phoenix's observability dashboard.
+- Store and manage data in open table formats (Apache Iceberg supported) on MinIO.
+
+Everything runs locally in Docker, so there are **no cloud dependencies** and **no recurring costs** — just a machine with Docker and an NVIDIA GPU.
 
 ## Architecture Overview
 
