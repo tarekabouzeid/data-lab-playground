@@ -12,7 +12,7 @@ Do not leave these files stale after a change.
 
 ## Project Summary
 
-A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.0, Trino 481, Hive Metastore 4.1.0, MinIO, Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
+A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.0, Trino 481, Hive Metastore 4.0.0, MinIO, Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
 
 ## Key Things to Know
 
@@ -36,6 +36,8 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 3. **NVIDIA GPU required** — Ollama won't start without `nvidia-container-toolkit`.
 4. **Two Postgres instances** — `phoenix-db` on :5432, `metastore-db` on :5433.
 5. **Iceberg JAR** named `iceberg-spark-runtime-4.1_2.13-1.11.0.jar` — artifact ID now correctly matches Spark 4.1 (resolved as of Iceberg 1.11).
+6. **HMS S3A JARs — do NOT download `hadoop-aws ≥ 3.4.x`** into the HMS image. `apache/hive:4.0.0` bundles Hadoop **3.3.6**; `hadoop-aws-3.4.x` requires `BulkDelete` (absent in 3.3.6) → `ClassNotFoundException` → Thrift socket closed. The Dockerfile **symlinks** `/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar` and `aws-java-sdk-bundle-1.12.367.jar` into `/opt/hive/lib/`.
+7. **HMS path validation** — `hive.metastore.path.validation=false` is set in `hive-site.xml`. Without it, `CREATE TABLE ... external_location 's3a://...'` fails if the S3 path doesn't exist yet. Always use `s3a://` (not `s3://`) in external locations.
 
 ## When Modifying Services
 
@@ -50,4 +52,4 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 ## Versions Reference
 
-Spark 4.1.0 · Hive 4.0.0 · Hadoop 3.4.2 · Trino 481 · Python 3.12 · Iceberg 1.11.0 · AWS SDK Bundle 2.41.1
+Spark 4.1.0 · Hive 4.0.0 · Hadoop 3.4.2 (Spark/Trino) / 3.3.6 (HMS bundled) · Trino 481 · Python 3.12 · Iceberg 1.11.0 · AWS SDK Bundle 2.41.1 (Spark/Trino) / 1.12.367 (HMS)

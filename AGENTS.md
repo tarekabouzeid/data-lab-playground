@@ -75,11 +75,13 @@ Jupyter → Phoenix (AI observability, via gRPC :4317) → Postgres (phoenix-db 
 |---|---|
 | Apache Spark | 4.1.0 |
 | Hive Metastore | 4.0.0 (pre-built image; see pitfall #1) |
-| Hadoop | 3.4.2 |
+| Hadoop (Spark/Trino) | 3.4.2 |
+| Hadoop (bundled in HMS image) | 3.3.6 |
 | Trino | 481 |
 | Python | 3.12 |
 | Iceberg runtime | 1.11.0 (artifact: `iceberg-spark-runtime-4.1_2.13`) |
-| AWS SDK bundle | 2.41.1 |
+| AWS SDK bundle (Spark/Trino) | 2.41.1 |
+| AWS SDK bundle (HMS, via symlink) | 1.12.367 (SDK v1, bundled in apache/hive:4.0.0) |
 
 ---
 
@@ -109,6 +111,10 @@ All services use the same hardcoded credentials (intentional for local dev — *
 6. **Iceberg JAR naming**: `iceberg-spark-runtime-4.1_2.13-1.11.0.jar` — the `4.1_2.13` artifact ID now correctly matches Spark 4.1.0. (Prior to Iceberg 1.11, the `4.0_2.13` artifact was used as a workaround.)
 
 7. **Credentials everywhere are plaintext**: Jupyter password (`123456`), MinIO, Hive Postgres, Phoenix Postgres — all hardcoded in Dockerfiles and config files. Intentional for local dev only.
+
+8. **HMS S3A JARs: do NOT download hadoop-aws ≥ 3.4.x into the HMS image**. `apache/hive:4.0.0` bundles Hadoop **3.3.6** in `/opt/hadoop/`. `hadoop-aws-3.4.x` requires `org.apache.hadoop.fs.BulkDelete` (added in Hadoop 3.4.0) — absent in 3.3.6 → `ClassNotFoundException` at runtime, causing HMS to close the Thrift socket mid-request. The HMS Dockerfile instead **symlinks** the already-bundled `/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar` and `aws-java-sdk-bundle-1.12.367.jar` into `/opt/hive/lib/`.
+
+9. **HMS path validation**: `hive.metastore.path.validation=false` is set in `hive-site.xml`. Without it, creating a Hive external table with an `s3a://` location fails when the path doesn't exist yet (e.g., before Spark has written data). Also, always use `s3a://` (not `s3://`) in `external_location` — HMS has `fs.s3a.*` but no plain `s3://` FileSystem implementation.
 
 ---
 

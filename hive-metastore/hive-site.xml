@@ -44,4 +44,8 @@
         <name>fs.s3a.impl</name>
         <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
     </property>
+    <property>
+        <name>hive.metastore.path.validation</name>
+        <value>false</value>
+    </property>
 </configuration>
