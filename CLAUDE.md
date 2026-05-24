@@ -10,6 +10,26 @@
 
 Do not leave these files stale after a change.
 
+## Release Notes Policy
+
+[RELEASE_NOTES.md](RELEASE_NOTES.md) is the versioned changelog for this project. It is **not** updated automatically after every change.
+
+**Rules for agents:**
+- **Never write to `RELEASE_NOTES.md` without explicit user confirmation.**
+- Before touching the file, ask the user: *"Is this feature/change complete and ready to be documented in RELEASE_NOTES.md for the next release?"*
+- Only proceed if the user says yes.
+- When adding a new release entry:
+  - Add it at the **top**, below the template comment block, following the existing format exactly.
+  - Use the version number and tag the user supplies (e.g. `v3.0.0`).
+  - Use `main` as the branch name if merging to main, otherwise use the actual branch name.
+  - Set today's date in `YYYY-MM-DD` format.
+  - Fill every section; do not leave placeholder text.
+
+**Versioning scheme (for reference when suggesting a version bump):**
+- **Major** — breaking changes: service version jumps, architecture changes, removed APIs
+- **Minor** — backward-compatible additions: new services, new notebooks, new catalog connectors
+- **Patch** — bug fixes, config tweaks, dependency security bumps
+
 ## Project Summary
 
 A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.0, Trino 481, Hive Metastore 4.0.0, MinIO, Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
