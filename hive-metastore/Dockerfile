@@ -1,4 +1,4 @@
-FROM openjdk:8-jre-slim
+FROM openjdk:11.0.8-jre-slim
 
 # Install required packages
 RUN apt-get update && apt-get install -y \
