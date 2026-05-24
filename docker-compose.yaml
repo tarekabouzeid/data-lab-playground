@@ -19,12 +19,19 @@ services:
   metastore-db:
     image: postgres:13
     container_name: metastore-db
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_DB: metastore
       POSTGRES_USER: hive
       POSTGRES_PASSWORD: hive123
     volumes:
       - metastore_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d metastore"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - data-lab-playground
 
@@ -42,6 +49,32 @@ services:
       - metastore-db
     networks:
       - data-lab-playground
+#  hive-metastore:
+#    build:
+#      context: ./hive-metastore
+#      dockerfile: Dockerfile
+#    image: datalab-playground/hive-metastore:latest
+#    container_name: hive-metastore
+#    ports:
+#      - "9083:9083"
+#    environment:
+#      SERVICE_NAME: metastore
+#      DB_DRIVER: postgres
+#      IS_RESUME: "false"  # Set to true to skip schema init on restarts
+#      VERBOSE: "true"
+#    depends_on:
+#      metastore-db:
+#        condition: service_healthy
+#      minio:
+#        condition: service_started
+#    healthcheck:
+#      test: ["CMD", "nc", "-z", "localhost", "9083"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 30s
+#    networks:
+#      - data-lab-playground
 
   # Trino Coordinator
   trino:
@@ -118,7 +151,8 @@ services:
     image: arizephoenix/phoenix:latest # Must be greater than 4.0 version to work
     container_name: phoenix
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "6006:6006"  # PHOENIX_PORT
       - "4317:4317"  # PHOENIX_GRPC_PORT
@@ -138,7 +172,7 @@ services:
 
   # PostgreSQL Database for Phoenix
   db:
-    image: postgres
+    image: postgres:17
     container_name: phoenix-db
     restart: always
     environment:
@@ -146,9 +180,14 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=postgres
     ports:
-      - "5432"
+      - "5432:5432"
     volumes:
       - database_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - data-lab-playground
 

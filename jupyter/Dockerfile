@@ -1,52 +1,67 @@
-FROM jupyter/base-notebook:latest
+# Pin specific version with Python 3.12 from quay.io registry
+FROM quay.io/jupyter/base-notebook:python-3.12
 
 USER root
 
-# Install Java 17 and Python 3.12 (required for Spark 4.0)
-RUN apt-get update && apt-get install -y \
-    software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa -y \
-    && apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
+# Install Java 17 and tools in single layer with cleanup
+RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jdk \
     curl \
     wget \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set Python 3.12 as default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Set JAVA_HOME
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
-# Download and install Spark 4.0.1
-ENV SPARK_VERSION=4.0.1
-ENV HADOOP_VERSION=3.3.4
+# Download and install Spark (pinned version for cache stability)
+ENV SPARK_VERSION=4.1.0
+ENV HADOOP_VERSION=3.4.2
 ENV SPARK_HOME=/opt/spark
+ENV HIVE_VERSION=4.1.0
 ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
 
-RUN wget https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz && \
-    tar -xzf spark-${SPARK_VERSION}-bin-hadoop3.tgz && \
-    mv spark-${SPARK_VERSION}-bin-hadoop3 $SPARK_HOME && \
-    rm spark-${SPARK_VERSION}-bin-hadoop3.tgz
+# Download Spark and prepare directories in single layer
+RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz \
+    && tar -xzf spark-${SPARK_VERSION}-bin-hadoop3.tgz \
+    && mv spark-${SPARK_VERSION}-bin-hadoop3 $SPARK_HOME \
+#    && rm -f /opt/spark/jars/hive-* \
+#    && rm -f /opt/spark/jars/spark-hive_* \
+#    && rm -f /opt/spark/jars/hive-metastore-* \
+#    && rm -f /opt/spark/jars/hive-exec-* \
+#    && rm -f /opt/spark/jars/hive-common-* \
+#    && curl -L https://repo1.maven.org/maven2/org/apache/hive/hive-metastore/${HIVE_VERSION}/hive-metastore-${HIVE_VERSION}.jar -o /opt/spark/jars/hive-metastore-${HIVE_VERSION}.jar \
+#    && curl -L https://repo1.maven.org/maven2/org/apache/hive/hive-exec/${HIVE_VERSION}/hive-exec-${HIVE_VERSION}.jar -o /opt/spark/jars/hive-exec-${HIVE_VERSION}.jar \
+#    && curl -L https://repo1.maven.org/maven2/org/apache/hive/hive-common/${HIVE_VERSION}/hive-common-${HIVE_VERSION}.jar -o /opt/spark/jars/hive-common-${HIVE_VERSION}.jar \
+    && rm spark-${SPARK_VERSION}-bin-hadoop3.tgz \
+    && mkdir -p /home/jovyan/.local/share/jupyter/runtime \
+    && mkdir -p /home/jovyan/.jupyter \
+    && mkdir -p /home/jovyan/.ipython \
+    && mkdir -p /home/jovyan/.cache \
+    && chown -R $NB_UID:$NB_GID $SPARK_HOME \
+    && chown -R $NB_UID:$NB_GID /home/jovyan/.local \
+    && chown -R $NB_UID:$NB_GID /home/jovyan/.jupyter \
+    && chown -R $NB_UID:$NB_GID /home/jovyan/.ipython \
+    && chown -R $NB_UID:$NB_GID /home/jovyan/.cache
 
-# Download additional JARs for S3 and Iceberg support
-RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar -o $SPARK_HOME/jars/hadoop-aws-${HADOOP_VERSION}.jar && \
-    curl -L https://search.maven.org/remotecontent?filepath=org/apache/iceberg/iceberg-spark-runtime-4.0_2.13/1.10.0/iceberg-spark-runtime-4.0_2.13-1.10.0.jar -o $SPARK_HOME/jars/iceberg-spark-runtime-4.0_2.13-1.10.0.jar && \
-    curl -L https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.10.0/iceberg-aws-bundle-1.10.0.jar -o $SPARK_HOME/jars/iceberg-aws-bundle-1.10.0.jar && \
-    curl -L https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.367/aws-java-sdk-bundle-1.12.367.jar -o $SPARK_HOME/jars/aws-java-sdk-bundle-1.12.367.jar
+# Download all JARs in single layer for better caching
+RUN curl -fsSL https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar \
+         -o $SPARK_HOME/jars/hadoop-aws-${HADOOP_VERSION}.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.1_2.13/1.11.0/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
+         -o $SPARK_HOME/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.11.0/iceberg-aws-bundle-1.11.0.jar \
+         -o $SPARK_HOME/jars/iceberg-aws-bundle-1.11.0.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.41.1/bundle-2.41.1.jar \
+         -o $SPARK_HOME/jars/aws-java-sdk-bundle-2.41.1.jar
 
-# Install pip for Python 3.12 - minimal setup
-RUN python3.12 -m ensurepip --upgrade
+# Switch to jovyan user for pip installations and Jupyter config
+USER $NB_UID
 
-# Create GenAI conda environment with ALL libraries (no duplication)
-USER root
-RUN conda create -n genai python=3.12 -y && \
-    /opt/conda/envs/genai/bin/pip install --no-cache-dir \
-    ipykernel \
+# Install all Python packages in single layer with --no-cache-dir to reduce size
+# Pin pyyaml>=6.0 first to avoid building old version from source on Python 3.12
+# Note: Elyra removed due to incompatibility with JupyterLab 4.x (base image uses 4.4.5)
+RUN pip install --no-cache-dir \
+    'pyyaml>=6.0' \
     pyspark==${SPARK_VERSION} \
     trino \
     boto3 \
@@ -55,58 +70,36 @@ RUN conda create -n genai python=3.12 -y && \
     matplotlib \
     seaborn \
     plotly \
-    jupyterlab \
     openai \
     ollama \
     arize-phoenix \
-    requests \
-    python-dotenv \
     qdrant-client \
     sentence-transformers \
-    openinference-instrumentation-langchain \
-    langchain_openai \
-    langchain \
-    langchain-qdrant \
-    langchain-ollama \
-    langchain-community \
-    langchain-experimental \
-    && /opt/conda/envs/genai/bin/python -m ipykernel install --user --name genai --display-name "GenAI DEV"
+    langchain==1.2.0 \
+    langchain-classic==1.0.1 \
+    langchain-community==0.4.1 \
+    langchain-core==1.2.6 \
+    langchain-experimental==0.4.1 \
+    langchain-ollama==1.0.1 \
+    langchain-openai==1.1.6 \
+    langchain-qdrant==1.1.0 \
+    langchain-text-splitters==1.1.0 \
+    langgraph==1.0.5 \
+    langgraph-checkpoint==3.0.1 \
+    langgraph-prebuilt==1.0.5 \
+    langgraph-sdk==0.3.1 \
+    langsmith==0.6.0 \
+    openinference-instrumentation-langchain==0.1.66 \
+    && /opt/conda/bin/python -c "from jupyter_server.auth import passwd; print(passwd('123456'))" > /tmp/jupyter_password \
+    && echo "c.ServerApp.password = '$(cat /tmp/jupyter_password)'" > /home/jovyan/.jupyter/jupyter_server_config.py \
+    && echo "c.ServerApp.password_required = True" >> /home/jovyan/.jupyter/jupyter_server_config.py \
+    && echo "c.ServerApp.token = ''" >> /home/jovyan/.jupyter/jupyter_server_config.py \
+    && rm /tmp/jupyter_password
 
-# Set ownership for conda environments
-RUN chown -R $NB_UID:$NB_GID /opt/conda/envs/genai
+# Copy Spark configuration (should be last to avoid cache invalidation on config changes)
+COPY --chown=$NB_UID:$NB_GID spark-defaults.conf $SPARK_HOME/conf/
 
-# Create necessary directories and set ownership
-RUN mkdir -p /home/jovyan/.local/share/jupyter/runtime && \
-    mkdir -p /home/jovyan/.jupyter && \
-    mkdir -p /home/jovyan/.ipython && \
-    mkdir -p /home/jovyan/.cache && \
-    chown -R $NB_UID:$NB_GID $SPARK_HOME && \
-    chown -R $NB_UID:$NB_GID /home/jovyan/.local && \
-    chown -R $NB_UID:$NB_GID /home/jovyan/.jupyter && \
-    chown -R $NB_UID:$NB_GID /home/jovyan/.ipython && \
-    chown -R $NB_UID:$NB_GID /home/jovyan/.cache && \
-    chmod -R 755 /home/jovyan/.local && \
-    chmod -R 755 /home/jovyan/.jupyter && \
-    chmod -R 755 /home/jovyan/.ipython && \
-    chmod -R 755 /home/jovyan/.cache
-
-USER $NB_UID
-
-# Set Jupyter password to "123456"
-RUN mkdir -p /home/jovyan/.jupyter && \
-    /opt/conda/envs/genai/bin/python -c "from jupyter_server.auth import passwd; print(passwd('123456'))" > /tmp/jupyter_password && \
-    echo "c.ServerApp.password = '$(cat /tmp/jupyter_password)'" > /home/jovyan/.jupyter/jupyter_server_config.py && \
-    echo "c.ServerApp.password_required = True" >> /home/jovyan/.jupyter/jupyter_server_config.py && \
-    echo "c.ServerApp.token = ''" >> /home/jovyan/.jupyter/jupyter_server_config.py && \
-    rm /tmp/jupyter_password
-
-# Copy Spark configuration
-COPY spark-defaults.conf $SPARK_HOME/conf/
-
-# Set PySpark environment variables to use GenAI conda environment
-ENV PYSPARK_PYTHON=python3.12
-ENV PYSPARK_DRIVER_PYTHON=python3.12
+# Set PySpark environment variables
+ENV PYSPARK_PYTHON=/opt/conda/bin/python
+ENV PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python
 ENV PYSPARK_DRIVER_PYTHON_OPTS='lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root'
-
-# Set default kernel to GenAI environment
-ENV JUPYTER_DEFAULT_KERNEL=genai
