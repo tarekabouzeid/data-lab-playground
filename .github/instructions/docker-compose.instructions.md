@@ -17,7 +17,7 @@ applyTo: "**/docker-compose.{yaml,yml}"
 | `spark-worker` | `datalab-playground/spark:latest` | 2g RAM, 2 cores |
 | `jupyter` | `datalab-playground/jupyter:latest` | Password: `123456` |
 | `phoenix` | `arizephoenix/phoenix:latest` | AI observability |
-| `db` | `postgres:latest` | Phoenix backend; host port **5432** |
+| `db` | `postgres:17` | Phoenix backend; host port **5432** |
 | `ollama` | `ollama/ollama:latest` | Requires `runtime: nvidia` — GPU mandatory |
 | `ollama-init` | `ollama/ollama:latest` | Profile: `init` — not started by default |
 | `qdrant` | `qdrant/qdrant:latest` | Vector DB |

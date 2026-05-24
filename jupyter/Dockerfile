@@ -16,7 +16,7 @@ ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
 # Download and install Spark (pinned version for cache stability)
 ENV SPARK_VERSION=4.1.0
-ENV HADOOP_VERSION=3.4.1
+ENV HADOOP_VERSION=3.4.2
 ENV SPARK_HOME=/opt/spark
 ENV HIVE_VERSION=4.1.0
 ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
@@ -47,10 +47,10 @@ RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-$
 # Download all JARs in single layer for better caching
 RUN curl -fsSL https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar \
          -o $SPARK_HOME/jars/hadoop-aws-${HADOOP_VERSION}.jar \
-    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.0_2.13/1.10.1/iceberg-spark-runtime-4.0_2.13-1.10.1.jar \
-         -o $SPARK_HOME/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar \
-    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.10.1/iceberg-aws-bundle-1.10.1.jar \
-         -o $SPARK_HOME/jars/iceberg-aws-bundle-1.10.1.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.1_2.13/1.11.0/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
+         -o $SPARK_HOME/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.11.0/iceberg-aws-bundle-1.11.0.jar \
+         -o $SPARK_HOME/jars/iceberg-aws-bundle-1.11.0.jar \
     && curl -fsSL https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.41.1/bundle-2.41.1.jar \
          -o $SPARK_HOME/jars/aws-java-sdk-bundle-2.41.1.jar
 
@@ -89,7 +89,7 @@ RUN pip install --no-cache-dir \
     langgraph-prebuilt==1.0.5 \
     langgraph-sdk==0.3.1 \
     langsmith==0.6.0 \
-    openinference-instrumentation-langchain==0.1.57 \
+    openinference-instrumentation-langchain==0.1.66 \
     && /opt/conda/bin/python -c "from jupyter_server.auth import passwd; print(passwd('123456'))" > /tmp/jupyter_password \
     && echo "c.ServerApp.password = '$(cat /tmp/jupyter_password)'" > /home/jovyan/.jupyter/jupyter_server_config.py \
     && echo "c.ServerApp.password_required = True" >> /home/jovyan/.jupyter/jupyter_server_config.py \

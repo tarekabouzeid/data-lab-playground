@@ -1,4 +1,4 @@
-FROM trinodb/trino:479
+FROM trinodb/trino:481
 
 # Copy configuration files
 COPY etc /etc/trino/

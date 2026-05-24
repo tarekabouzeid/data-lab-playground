@@ -151,7 +151,8 @@ services:
     image: arizephoenix/phoenix:latest # Must be greater than 4.0 version to work
     container_name: phoenix
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "6006:6006"  # PHOENIX_PORT
       - "4317:4317"  # PHOENIX_GRPC_PORT
@@ -171,7 +172,7 @@ services:
 
   # PostgreSQL Database for Phoenix
   db:
-    image: postgres
+    image: postgres:17
     container_name: phoenix-db
     restart: always
     environment:
@@ -182,6 +183,11 @@ services:
       - "5432:5432"
     volumes:
       - database_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - data-lab-playground
 

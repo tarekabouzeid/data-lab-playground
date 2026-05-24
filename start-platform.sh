@@ -140,7 +140,7 @@ fi
 
 echo ""
 echo "🚀 Starting all platform services..."
-docker-compose up -d
+docker compose up -d
 
 echo ""
 echo "⏳ Waiting for services to initialize..."

@@ -38,14 +38,14 @@ ENV PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python
 # -----------------------------------------
 # Add Hadoop AWS + Iceberg (Spark 4.x)
 # -----------------------------------------
-RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.4.1/hadoop-aws-3.4.1.jar \
-      -o /opt/spark/jars/hadoop-aws-3.4.1.jar && \
+RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.4.2/hadoop-aws-3.4.2.jar \
+      -o /opt/spark/jars/hadoop-aws-3.4.2.jar && \
     curl -L https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.41.1/bundle-2.41.1.jar \
       -o /opt/spark/jars/aws-java-sdk-bundle-2.41.1.jar && \
-    curl -L https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.0_2.13/1.10.1/iceberg-spark-runtime-4.0_2.13-1.10.1.jar \
-      -o /opt/spark/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar && \
-    curl -L https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.10.1/iceberg-aws-bundle-1.10.1.jar \
-      -o /opt/spark/jars/iceberg-aws-bundle-1.10.1.jar
+    curl -L https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.1_2.13/1.11.0/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
+      -o /opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar && \
+    curl -L https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.11.0/iceberg-aws-bundle-1.11.0.jar \
+      -o /opt/spark/jars/iceberg-aws-bundle-1.11.0.jar
 
 # -----------------------------------------
 # Add Hive Metastore 4.1 client jars (EXPLICIT)

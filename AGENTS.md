@@ -74,11 +74,11 @@ Jupyter → Phoenix (AI observability, via gRPC :4317) → Postgres (phoenix-db 
 | Component | Version |
 |---|---|
 | Apache Spark | 4.1.0 |
-| Hive Metastore | 4.1.0 (pre-built image; see pitfall #1) |
-| Hadoop | 3.4.1 |
-| Trino | 479 |
+| Hive Metastore | 4.0.0 (pre-built image; see pitfall #1) |
+| Hadoop | 3.4.2 |
+| Trino | 481 |
 | Python | 3.12 |
-| Iceberg runtime | 1.10.1 (artifact: `iceberg-spark-runtime-4.0_2.13`) |
+| Iceberg runtime | 1.11.0 (artifact: `iceberg-spark-runtime-4.1_2.13`) |
 | AWS SDK bundle | 2.41.1 |
 
 ---
@@ -96,7 +96,7 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 ## Pitfalls
 
-1. **Two Hive Metastore Dockerfiles**: `hive-metastore/Dockerfile` (Hive 3.1.3) and `hive-metastore/Dockerfile_4.1` (Hive 4.1.0). The `docker-compose.yaml` build block is **commented out** and uses a **pre-built image** — the active version is 4.1.0.
+1. **Single Hive Metastore Dockerfile**: `hive-metastore/Dockerfile` (Hive **4.0.0**). The `docker-compose.yaml` build block is **commented out** and uses a **pre-built image**. **Do not upgrade past 4.0.0** — HIVE-26537 (merged July 2024, PR #3599) removed the legacy `get_table` Thrift method from HMS **4.0.1 AND 4.1.0** (not just 4.2.0 as commonly documented). Iceberg 1.11's shaded Hive 2.3 client calls `get_table` and receives `TApplicationException: Invalid method name: 'get_table'` from any HMS ≥ 4.0.1. **HMS 4.0.0 is the safe ceiling.** The `standalone-metastore-4.0.0` Docker tag does NOT exist; use `apache/hive:4.0.0` (full image, Debian Bullseye). A permanent fix is tracked in Iceberg PR #12721.
 
 2. **Duplicate `spark-defaults.conf`**: Identical files exist at `spark/conf/spark-defaults.conf` and `jupyter/spark-defaults.conf`. **Keep them in sync** when modifying Spark config.
 
@@ -106,7 +106,7 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 5. **Two Postgres instances**: `phoenix-db` on host port `5432`, `metastore-db` on host port `5433`.
 
-6. **Iceberg JAR naming**: `iceberg-spark-runtime-4.0_2.13-1.10.1.jar` — the `4.0` is the Iceberg release's Spark compatibility version, not an error (actual Spark version is 4.1.0).
+6. **Iceberg JAR naming**: `iceberg-spark-runtime-4.1_2.13-1.11.0.jar` — the `4.1_2.13` artifact ID now correctly matches Spark 4.1.0. (Prior to Iceberg 1.11, the `4.0_2.13` artifact was used as a workaround.)
 
 7. **Credentials everywhere are plaintext**: Jupyter password (`123456`), MinIO, Hive Postgres, Phoenix Postgres — all hardcoded in Dockerfiles and config files. Intentional for local dev only.
 
@@ -118,8 +118,7 @@ All services use the same hardcoded credentials (intentional for local dev — *
 docker-compose.yaml           # All 11 services defined here
 start-platform.sh             # One-command startup + smart rebuild detection
 hive-metastore/
-  Dockerfile                  # Hive 3.1.3 (legacy, not currently used by compose)
-  Dockerfile_4.1              # Hive 4.1.0 (active version as pre-built image)
+  Dockerfile                  # Hive 4.0.0 (apache/hive:4.0.0, Debian Bullseye; held at 4.0.0 for Iceberg compat)
   entrypoint.sh               # Waits for Postgres → initSchema → thrift server
   hive-site.xml               # Postgres JDBC + s3a://warehouse/ config
 spark/
@@ -130,7 +129,7 @@ jupyter/
   spark-defaults.conf         # Same as spark/conf/spark-defaults.conf
   notebooks/                  # Example notebooks
 trino/
-  Dockerfile                  # Trino 479
+  Dockerfile                  # Trino 481
   etc/catalog/lakehouse.properties  # Hive/Iceberg catalog → HMS thrift
 ```
 
