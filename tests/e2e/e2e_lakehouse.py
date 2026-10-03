@@ -12,9 +12,15 @@ Covers:
   6. Trino  `hive` managed CTAS table
   7. Trino  `lakehouse` catalog reads both the Hive and the Iceberg table
   8. Trino  cross-catalog JOIN hive x iceberg
+
+Environment:
+  E2E_SPARK_ICEBERG     "hive" (Thrift HiveCatalog, default) or "rest"
+                        (HMS built-in Iceberg REST catalog, needs HMS >= 4.1)
+  E2E_TRINO_ICEBERG     Trino catalog used for the Iceberg checks (default "iceberg")
 """
 
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -22,6 +28,8 @@ import urllib.request
 from pyspark.sql import SparkSession
 
 TRINO_URL = "http://trino:8080"
+SPARK_ICEBERG = os.environ.get("E2E_SPARK_ICEBERG", "hive")
+TRINO_ICEBERG = os.environ.get("E2E_TRINO_ICEBERG", "iceberg")
 SCHEMA = "e2e"
 ICEBERG_TABLE = f"iceberg_catalog.{SCHEMA}.sales"
 PARQUET_PATH = f"s3a://warehouse/{SCHEMA}/transactions_parquet/"
@@ -59,17 +67,27 @@ def trino(sql):
 
 
 def main():
-    spark = (
+    builder = (
         SparkSession.builder.appName("datalab-e2e")
         .config("spark.sql.extensions",
                 "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
         .config("spark.sql.catalog.iceberg_catalog", "org.apache.iceberg.spark.SparkCatalog")
-        .config("spark.sql.catalog.iceberg_catalog.type", "hive")
-        .config("spark.sql.catalog.iceberg_catalog.uri", "thrift://hive-metastore:9083")
-        .config("spark.sql.catalog.iceberg_catalog.warehouse", "s3a://warehouse/")
-        .getOrCreate()
     )
-    print(f"Spark {spark.version}", flush=True)
+    if SPARK_ICEBERG == "rest":
+        builder = (
+            builder.config("spark.sql.catalog.iceberg_catalog.type", "rest")
+            .config("spark.sql.catalog.iceberg_catalog.uri", "http://hive-metastore:9084/iceberg")
+            .config("spark.sql.catalog.iceberg_catalog.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO")
+        )
+    else:
+        builder = (
+            builder.config("spark.sql.catalog.iceberg_catalog.type", "hive")
+            .config("spark.sql.catalog.iceberg_catalog.uri", "thrift://hive-metastore:9083")
+            .config("spark.sql.catalog.iceberg_catalog.warehouse", "s3a://warehouse/")
+        )
+    spark = builder.getOrCreate()
+    print(f"Spark {spark.version}; spark iceberg catalog={SPARK_ICEBERG}; "
+          f"trino iceberg catalog={TRINO_ICEBERG}", flush=True)
     check("spark version is 4.1.x", spark.version.startswith("4.1."), spark.version)
 
     # ---- clean slate -------------------------------------------------------
@@ -116,17 +134,17 @@ def main():
     check("spark: time travel to first snapshot", tt == 5, str(tt))
 
     # ---- 3. Trino iceberg catalog reads Spark table -----------------------
-    cnt = trino(f"SELECT count(*) FROM iceberg.{SCHEMA}.sales")[0][0]
-    check("trino iceberg: read spark-written table", cnt == 7, str(cnt))
-    disc = trino(f"SELECT discount FROM iceberg.{SCHEMA}.sales WHERE product_id = 7")[0][0]
-    check("trino iceberg: evolved column visible", abs(disc - 0.1) < 1e-9, str(disc))
-    tsnaps = trino(f'SELECT snapshot_id FROM iceberg.{SCHEMA}."sales$snapshots" ORDER BY committed_at')
-    check("trino iceberg: $snapshots", len(tsnaps) == 3, str(len(tsnaps)))
-    tt = trino(f"SELECT count(*) FROM iceberg.{SCHEMA}.sales FOR VERSION AS OF {tsnaps[0][0]}")[0][0]
-    check("trino iceberg: FOR VERSION AS OF", tt == 5, str(tt))
+    cnt = trino(f"SELECT count(*) FROM {TRINO_ICEBERG}.{SCHEMA}.sales")[0][0]
+    check(f"trino {TRINO_ICEBERG}: read spark-written table", cnt == 7, str(cnt))
+    disc = trino(f"SELECT discount FROM {TRINO_ICEBERG}.{SCHEMA}.sales WHERE product_id = 7")[0][0]
+    check(f"trino {TRINO_ICEBERG}: evolved column visible", abs(disc - 0.1) < 1e-9, str(disc))
+    tsnaps = trino(f'SELECT snapshot_id FROM {TRINO_ICEBERG}.{SCHEMA}."sales$snapshots" ORDER BY committed_at')
+    check(f"trino {TRINO_ICEBERG}: $snapshots", len(tsnaps) == 3, str(len(tsnaps)))
+    tt = trino(f"SELECT count(*) FROM {TRINO_ICEBERG}.{SCHEMA}.sales FOR VERSION AS OF {tsnaps[0][0]}")[0][0]
+    check(f"trino {TRINO_ICEBERG}: FOR VERSION AS OF", tt == 5, str(tt))
 
     # ---- 4. Trino writes, Spark reads -------------------------------------
-    trino(f"INSERT INTO iceberg.{SCHEMA}.sales VALUES (8, 'monitor', 'Electronics', 349.99, 'Texas', 0.05)")
+    trino(f"INSERT INTO {TRINO_ICEBERG}.{SCHEMA}.sales VALUES (8, 'monitor', 'Electronics', 349.99, 'Texas', 0.05)")
     spark.sql(f"REFRESH TABLE {ICEBERG_TABLE}")
     cnt = spark.table(ICEBERG_TABLE).count()
     check("spark: reads trino-written iceberg row", cnt == 8, str(cnt))
@@ -166,7 +184,7 @@ def main():
     joined = trino(f"""
         SELECT e.product_name, count(*) AS n
         FROM hive.{SCHEMA}.transactions t
-        JOIN iceberg.{SCHEMA}.sales e ON lower(t.product) = lower(e.product_name)
+        JOIN {TRINO_ICEBERG}.{SCHEMA}.sales e ON lower(t.product) = lower(e.product_name)
         GROUP BY e.product_name ORDER BY e.product_name""")
     check("trino: cross-catalog hive x iceberg join",
           {r[0] for r in joined} == {"camera", "laptop", "monitor", "tablet"}, str(joined))

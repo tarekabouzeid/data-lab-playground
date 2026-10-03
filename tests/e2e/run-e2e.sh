@@ -3,6 +3,7 @@
 # Does NOT need a GPU: Ollama / Phoenix / Qdrant / Jupyter are not started.
 #
 # Usage:  tests/e2e/run-e2e.sh [--build] [--down]
+#   env E2E_SPARK_ICEBERG=hive|rest, E2E_TRINO_ICEBERG=<trino catalog>  (see e2e_lakehouse.py)
 #   --build   (re)build the hive-metastore, trino and spark images first
 #   --down    stop the started services when finished
 set -euo pipefail
@@ -43,6 +44,9 @@ wait_for() {  # name, command, timeout seconds
 wait_for "MinIO" "docker exec minio mc alias set local http://localhost:9000 minioadmin minioadmin123"
 docker exec minio mc mb local/warehouse --ignore-existing
 wait_for "Hive Metastore :9083" "docker exec hive-metastore bash -c 'echo > /dev/tcp/localhost/9083'" 300
+if [ "${E2E_SPARK_ICEBERG:-hive}" = rest ]; then
+  wait_for "HMS Iceberg REST :9084" "docker exec trino curl -sf http://hive-metastore:9084/iceberg/v1/config" 120
+fi
 wait_for "Trino" "docker exec trino curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'" 300
 wait_for "Spark worker registration" "docker exec spark-master curl -sf http://localhost:8080/json/ | grep -q '\"aliveworkers\" *: *[1-9]'" 120
 
@@ -51,7 +55,7 @@ NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}
 echo "🧪 Running e2e test (driver container on network $NETWORK)"
 set +e
 docker run --rm --name e2e-driver --hostname e2e-driver --network "$NETWORK" \
-  -e AWS_REGION=us-east-1 \
+  -e AWS_REGION=us-east-1 -e E2E_SPARK_ICEBERG -e E2E_TRINO_ICEBERG \
   -v "$ROOT/spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro" \
   -v "$ROOT/tests/e2e:/e2e:ro" \
   datalab-playground/spark:latest \

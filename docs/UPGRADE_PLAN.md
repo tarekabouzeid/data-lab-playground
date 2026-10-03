@@ -72,3 +72,65 @@ Caveats from the sandbox the run happened in:
 - **`minio/minio:latest` no longer exists on Docker Hub** (404 for `minio/minio` and `minio/mc`).
   The e2e run used `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` through a local compose override.
   Whether to change the compose default is an open decision (see AGENTS.md pitfall #11).
+
+---
+
+# Phase 2 — Getting past HMS 4.0.0 (designed + spiked 2026-10-03, not applied yet)
+
+## Idea
+Stop sending Spark's Iceberg traffic over the HMS Thrift API, which is where the removed `get_table` hurts.
+HMS **4.1+** ships a **built-in Iceberg REST catalog** (`hive-standalone-metastore-rest-catalog`,
+`metastore.catalog.servlet.*`). Iceberg tables are still stored in HMS, but clients talk Iceberg REST.
+
+```
+Spark  ── Iceberg REST ──► HMS 4.2.1 :9084/iceberg ─┐
+Trino iceberg ── Iceberg REST (or Thrift) ──────────┤
+Trino hive / lakehouse ── Thrift :9083 ─────────────┴─► Postgres + MinIO
+```
+
+| Client | Catalog / connector | Transport |
+|---|---|---|
+| Spark `iceberg_catalog` | `type=rest`, `uri=http://hive-metastore:9084/iceberg`, `io-impl=org.apache.iceberg.hadoop.HadoopFileIO` | REST |
+| Trino `iceberg` | Iceberg connector, `iceberg.catalog.type=rest` (recommended), or keep `hive_metastore` | REST (or Thrift) |
+| Trino `hive` | Hive connector (unchanged) | Thrift (Trino's own client supports HMS 4.2.1) |
+| Trino `lakehouse` | Lakehouse connector (unchanged) | Thrift |
+
+## Spike results (all on `apache/hive:standalone-metastore-4.2.1`)
+
+| Scenario | Result |
+|---|---|
+| A: Spark REST + Trino `iceberg` Thrift | **15/15** |
+| B: Spark REST + Trino `iceberg` REST | **15/15** (and the re-run on existing data passed) |
+| Upgrade: data created on HMS 4.0.0, then the image swapped to 4.2.1 on the same DB volume | DB auto-upgraded `4.0.0 → 4.2.0` by `-initOrUpgradeSchema`; old Hive and Iceberg tables readable via `hive`, `iceberg` Thrift, `iceberg` REST and `lakehouse`; a REST write is visible over Thrift |
+| Control: Spark Thrift `type=hive` on 4.2.1 | Fails (`Invalid method name: 'get_table'`), as expected |
+
+## What the HMS image needs (each item found during the spike)
+1. Base `apache/hive:standalone-metastore-4.2.1`: 1.38 GB vs 2.77 GB, Java 21, Hadoop 3.4.1. Its default template already enables the REST servlet with `auth=none`.
+2. Add the **Postgres JDBC** driver and **AWS SDK v2 `bundle-2.24.6`** (the SDK `hadoop-aws-3.4.1` is built against; the image ships neither).
+   Symlink `/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.4.1.jar` into `/opt/hive/lib` (tools/lib is not on the classpath).
+   This replaces the old Hadoop 3.3.6 / SDK v1 pitfall.
+3. The entrypoint **regenerates** `metastore-site.xml` and `core-site.xml` from `*.xml.template` on every start (envsubst).
+   Ship our config as those **templates**, because a plain `COPY hive-site.xml` is silently overwritten (this is why the earlier
+   `apache/hive:4.2.1` test wrote to `file:/opt/hive/data/warehouse`).
+4. Hive 4 refuses external tables (all Iceberg tables) under the **managed** root, so split them:
+   `metastore.warehouse.dir=s3a://warehouse/managed/`, `metastore.warehouse.external.dir=s3a://warehouse/`.
+   The REST servlet reads the legacy `hive.metastore.warehouse.(external.)dir` keys, so set both spellings.
+   Existing `s3a://warehouse/<db>.db/...` paths are not under `managed/`, so they keep working.
+5. REST port **9084**: the upstream default 9001 collides with the MinIO console host port.
+6. Compose: `hive-metastore.depends_on.metastore-db.condition: service_healthy`. The lighter image starts before Postgres is ready,
+   so `schematool` exits (a latent race in the current compose too).
+
+## Client-side changes
+- `jupyter/notebooks/data_lab_playground.ipynb` Iceberg cell: `type=hive` + Thrift URI → `type=rest` + REST URI + `io-impl`.
+- `trino/etc/catalog/iceberg.properties`: `iceberg.catalog.type=rest`, `iceberg.rest-catalog.uri=http://hive-metastore:9084/iceberg`.
+  The catalog name stays the same, so notebook SQL is unchanged.
+- `tests/e2e`: default to `E2E_SPARK_ICEBERG=rest` (the switch already exists).
+- Docs: rewrite pitfall #1 (HMS ceiling) and #6 (S3A jars); add the REST port; update versions.
+
+## Trade-offs / risks to accept
+- The REST server embeds **Iceberg 1.9.1** and writes table metadata on each REST commit. Fine for format v2 (what we use);
+  newer v3-only features may lag until Hive bumps Iceberg. With Trino on Thrift instead, Trino commits use Trino's own Iceberg library.
+- `auth=none` on the REST endpoint: local-dev only, like every other credential here.
+- HMS logs `NoClassDefFoundError: org/apache/hadoop/yarn/util/SystemClock` for compaction leader tasks (upstream image gap).
+  Harmless here because no Hive ACID tables are used.
+- Spark can no longer use `type=hive` Iceberg catalogs, so any user notebook doing that must switch to REST.
