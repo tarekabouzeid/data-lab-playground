@@ -44,17 +44,20 @@ A simple Docker-based environment for exploring data analytics and AI tools. Inc
 
 ### Component Versions
 
-| Component | Version | Notes |
-|---|---|---|
-| Apache Spark | 4.1.3 | Highest Spark line with an Iceberg runtime (no `iceberg-spark-runtime-4.2` yet) |
-| Apache Iceberg | 1.12.0 | `iceberg-spark-runtime-4.1_2.13` + `iceberg-aws-bundle` |
-| Hive Metastore | 4.2.1 | `apache/hive:standalone-metastore-4.2.1`; Iceberg goes through its built-in REST catalog (`:9084/iceberg`) because the old Thrift `get_table` call is gone |
-| Trino | 483 | Catalogs: `hive` + `lakehouse` (HMS Thrift), `iceberg` (HMS Iceberg REST) |
-| Hadoop (`hadoop-aws`, Spark) | 3.4.2 | Must match Spark's bundled Hadoop client |
-| Hadoop (bundled in HMS) | 3.4.1 | From the HMS image, plus AWS SDK v2 `bundle-2.24.6` |
-| AWS SDK v2 bundle (Spark) | 2.41.1 | |
-| SeaweedFS | 4.48 | `chrislusf/seaweedfs:4.48`, all-in-one `weed server -s3` (S3 on :8333) |
-| Jupyter | `quay.io/jupyter/base-notebook:python-3.12` | Python 3.12 (matches Spark workers), `pyspark==4.1.3` |
+Full matrix (runtimes, bundled libraries, access paths, upgrade blockers): **[docs/VERSIONS.md](docs/VERSIONS.md)**.
+
+| Component | Version | Latest? | Notes |
+|---|---|---|---|
+| Apache Spark | 4.1.3 | ⛔ capped (4.2.0 exists) | Iceberg has no Spark 4.2 runtime yet |
+| Apache Iceberg | 1.12.0 | ✅ | `iceberg-spark-runtime-4.1_2.13` + `iceberg-aws-bundle` |
+| Hive Metastore | 4.2.1 | ✅ | Thrift `:9083` + built-in Iceberg REST catalog `:9084/iceberg` |
+| Trino | 483 | ✅ | `hive` + `lakehouse` → Thrift, `iceberg` → Iceberg REST |
+| SeaweedFS | 4.48 | ✅ | S3 on `:8333` (replaced MinIO) |
+| Java | Spark 21 · Jupyter driver 17 · HMS 21 · Trino 25 | | from the images |
+| Python | 3.12 | | must match between the Jupyter driver and the Spark workers |
+| Hadoop / `hadoop-aws` | 3.4.2 (Spark) · 3.4.1 (HMS) | | each matches its runtime's bundled Hadoop |
+| AWS SDK v2 bundle | 2.41.1 (Spark) · 2.24.6 (HMS) | | |
+| Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark==4.1.3` |
 
 See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
 

@@ -15,10 +15,24 @@ The following two files must always be **identical**:
 
 ## Key Versions
 
-- Spark: **4.1.0**
-- Hadoop: **3.4.1**
-- Iceberg runtime JAR: `iceberg-spark-runtime-4.0_2.13-1.10.1.jar` — the `4.0` in the artifact name is the Iceberg release's Spark compat version, not a version mismatch.
-- AWS SDK bundle: `2.41.1`
+Authoritative list: [docs/VERSIONS.md](../../docs/VERSIONS.md).
+
+- Spark: **4.1.3** (capped: Iceberg has no Spark 4.2 runtime yet)
+- Hadoop / `hadoop-aws`: **3.4.2** (must equal Spark's bundled Hadoop client)
+- Iceberg runtime JAR: `iceberg-spark-runtime-4.1_2.13-1.12.0.jar` (+ `iceberg-aws-bundle-1.12.0.jar`)
+- AWS SDK v2 bundle: `2.41.1`
+- Python 3.12 on driver and executors; Java 21 in the Spark image, 17 in the Jupyter driver
+
+## Iceberg Catalog (Spark)
+
+Use the Hive Metastore's built-in Iceberg REST catalog. Never use `type=hive`: HMS 4.2.1 removed the Thrift `get_table` call it needs.
+
+```
+spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog
+spark.sql.catalog.iceberg_catalog.type=rest
+spark.sql.catalog.iceberg_catalog.uri=http://hive-metastore:9084/iceberg
+spark.sql.catalog.iceberg_catalog.io-impl=org.apache.iceberg.hadoop.HadoopFileIO
+```
 
 ## S3 / SeaweedFS Settings (Do Not Change for Local Dev)
 

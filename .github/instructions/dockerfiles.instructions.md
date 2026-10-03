@@ -22,10 +22,12 @@ applyTo: "**/Dockerfile*"
 
 ## Shared JAR Versions (Must Be Consistent Across Services)
 
+Authoritative matrix: [docs/VERSIONS.md](../../docs/VERSIONS.md).
+
 | JAR | Version |
 |---|---|
-| `hadoop-aws` | `3.4.2` |
-| `aws-java-sdk-bundle` | `2.41.1` |
+| `hadoop-aws` (Spark, Jupyter) | `3.4.2` |
+| AWS SDK v2 `bundle` (Spark, Jupyter; saved as `aws-java-sdk-bundle-2.41.1.jar`) | `2.41.1` |
 | `iceberg-spark-runtime-4.1_2.13` | `1.12.0` |
 | `iceberg-aws-bundle` | `1.12.0` |
 | PostgreSQL JDBC | `42.7.5` (HMS Dockerfile) |

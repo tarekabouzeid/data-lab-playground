@@ -7,6 +7,7 @@
 **After any change to the platform** (versions, services, ports, credentials, architecture, config, or notebooks), you must:
 1. Update [README.md](README.md) to reflect the new state.
 2. Update [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) — versions, pitfalls, and any affected section — so future agents have accurate context.
+3. For any version change, update [docs/VERSIONS.md](docs/VERSIONS.md) (authoritative version matrix) and re-run `tests/e2e/run-e2e.sh`.
 
 Do not leave these files stale after a change.
 
@@ -78,4 +79,6 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 ## Versions Reference
 
-Spark 4.1.3 · Hive Metastore 4.2.1 · Hadoop 3.4.2 (Spark/Trino) / 3.4.1 (HMS bundled) · Trino 483 · Python 3.12 · Iceberg 1.12.0 · SeaweedFS 4.48 · AWS SDK Bundle 2.41.1 (Spark) / 2.24.6 (HMS)
+Full matrix: [docs/VERSIONS.md](docs/VERSIONS.md).
+
+Spark 4.1.3 (capped: no Iceberg Spark 4.2 runtime) · Iceberg 1.12.0 · Hive Metastore 4.2.1 · Trino 483 · SeaweedFS 4.48 · Python 3.12 · Java: Spark 21 / Jupyter driver 17 / HMS 21 / Trino 25 · Hadoop 3.4.2 (Spark) / 3.4.1 (HMS) · AWS SDK bundle 2.41.1 (Spark) / 2.24.6 (HMS)

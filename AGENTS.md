@@ -11,6 +11,7 @@ See [README.md](README.md) for a full overview and service access URLs.
 **After any change to the platform** (versions, services, ports, credentials, architecture, config, or notebooks), you must:
 1. Update [README.md](README.md) to reflect the new state (versions table, service URLs, architecture diagram, or quick-start steps as appropriate).
 2. Update [AGENTS.md](AGENTS.md) — specifically the versions table, pitfalls, and any affected section — so future agents have accurate context.
+3. For any version change, update [docs/VERSIONS.md](docs/VERSIONS.md) (the authoritative version matrix) and re-run `tests/e2e/run-e2e.sh`.
 
 Do not leave these files stale after a change.
 
@@ -100,18 +101,21 @@ Jupyter → Phoenix (AI observability, via gRPC :4317) → Postgres (phoenix-db 
 
 ## Key Component Versions
 
+Authoritative matrix: **[docs/VERSIONS.md](docs/VERSIONS.md)** (runtimes, bundled libraries, access matrix, upgrade blockers). Keep it in sync with this table.
+
 | Component | Version |
 |---|---|
 | Apache Spark | 4.1.3 (capped by Iceberg; see pitfall #10) |
+| Apache Iceberg (Spark runtime) | 1.12.0 (artifact: `iceberg-spark-runtime-4.1_2.13`) |
 | Hive Metastore | 4.2.1 (`apache/hive:standalone-metastore-4.2.1`, pre-built image; see pitfall #1) |
-| Hadoop (Spark/Trino) | 3.4.2 |
-| Hadoop (bundled in HMS image) | 3.4.1 |
-| Trino | 483 |
-| Python | 3.12 |
-| Iceberg runtime | 1.12.0 (artifact: `iceberg-spark-runtime-4.1_2.13`) |
+| Trino | 483 (bundles Iceberg lib 1.11.0) |
+| SeaweedFS | 4.48 (`chrislusf/seaweedfs:4.48`; see pitfall #11) |
+| Java | Spark image 21 · Jupyter driver 17 · HMS 21 · Trino 25 |
+| Python | 3.12 (Jupyter driver and Spark workers must match) |
+| Hadoop / `hadoop-aws` | 3.4.2 (Spark, Jupyter) · 3.4.1 (HMS, bundled) |
+| AWS SDK v2 bundle | 2.41.1 (Spark, Jupyter) · 2.24.6 (HMS) |
+| Postgres JDBC (HMS) | 42.7.5 |
 | Jupyter base image | `quay.io/jupyter/base-notebook:python-3.12` (rolling tag), `pyspark==4.1.3` |
-| AWS SDK bundle (Spark/Trino) | 2.41.1 |
-| AWS SDK bundle (HMS) | 2.24.6 (SDK v2, downloaded; matches HMS's `hadoop-aws-3.4.1`) |
 
 ---
 
@@ -197,6 +201,7 @@ tests/e2e/
   run-e2e.sh                  # Starts core services, runs the e2e test via spark-submit
   e2e_lakehouse.py            # 19 checks: Spark/Trino × hive/iceberg/lakehouse catalogs
 docs/
+  VERSIONS.md                 # Authoritative version matrix (components, runtimes, access paths, blockers)
   UPGRADE_PLAN.md             # Compatibility research + version pins rationale (2026-10 upgrade)
 ```
 

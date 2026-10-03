@@ -1,5 +1,7 @@
 # Upgrade Plan — Iceberg / Spark / Hive Metastore / Trino / Jupyter (2026-10)
 
+> Current versions live in **[VERSIONS.md](VERSIONS.md)**. This file records the research and decisions behind them.
+
 ## Final state (2026-10-03)
 
 | Component | Before | After | Ceiling reason |
