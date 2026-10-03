@@ -1,34 +1,30 @@
-FROM apache/hive:4.0.0
+# Hive Metastore 4.2.1 (standalone image: Java 21, Hadoop 3.4.1)
+#
+# Spark reaches Iceberg tables through the HMS built-in Iceberg REST catalog
+# (http://hive-metastore:9084/iceberg) instead of the Thrift `get_table` call that
+# HMS >= 4.0.1 removed. Trino's hive/lakehouse catalogs keep using Thrift on :9083.
+FROM apache/hive:standalone-metastore-4.2.1
 
-# Switch to root to install dependencies
 USER root
 
-# Set environment variables for dependency versions
-# Note: hadoop-aws and aws-java-sdk-bundle are already bundled inside apache/hive:4.0.0
-# at /opt/hadoop/share/hadoop/tools/lib/ (Hadoop 3.3.6 + AWS SDK v1 1.12.367).
-# Do NOT download hadoop-aws-3.4.x — BulkDelete (required by 3.4.x) does not exist
-# in the bundled Hadoop 3.3.6 jars and causes ClassNotFoundException at runtime.
-ENV POSTGRES_VERSION=42.7.5
+# The standalone image ships hadoop-aws 3.4.1 but neither the AWS SDK v2 bundle it
+# needs nor a Postgres JDBC driver. bundle-2.24.6 is the SDK version hadoop-aws 3.4.1
+# is built against. hadoop-aws lives in tools/lib, which is not on the HMS classpath.
+ENV POSTGRES_JDBC_VERSION=42.7.5 \
+    AWS_SDK_VERSION=2.24.6
 
-# Install PostgreSQL JDBC and symlink the already-bundled Hadoop S3A JARs into
-# Hive's lib dir so HMS classloader picks them up. Using symlinks avoids version
-# drift between hadoop-aws and the bundled hadoop-common.
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://jdbc.postgresql.org/download/postgresql-${POSTGRES_VERSION}.jar \
-       -o /opt/hive/lib/postgresql-${POSTGRES_VERSION}.jar \
-    && chown hive:hive /opt/hive/lib/postgresql-${POSTGRES_VERSION}.jar \
-    && ln -s /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar \
-             /opt/hive/lib/hadoop-aws-3.3.6.jar \
-    && ln -s /opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar \
-             /opt/hive/lib/aws-java-sdk-bundle-1.12.367.jar
+RUN curl -fsSL https://repo1.maven.org/maven2/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/postgresql-${POSTGRES_JDBC_VERSION}.jar \
+        -o /opt/hive/lib/postgresql-${POSTGRES_JDBC_VERSION}.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/${AWS_SDK_VERSION}/bundle-${AWS_SDK_VERSION}.jar \
+        -o /opt/hive/lib/bundle-${AWS_SDK_VERSION}.jar \
+    && ln -s /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.4.1.jar /opt/hive/lib/hadoop-aws-3.4.1.jar \
+    && chown hive:hive /opt/hive/lib/postgresql-${POSTGRES_JDBC_VERSION}.jar /opt/hive/lib/bundle-${AWS_SDK_VERSION}.jar
 
-# Copy custom configuration files
-COPY --chown=hive:hive hive-site.xml /opt/hive/conf/
+# The image entrypoint regenerates metastore-site.xml and core-site.xml from these
+# templates (envsubst) on every start, so config must live in the templates.
+COPY --chown=hive:hive metastore-site.xml.template core-site.xml.template /opt/hive/conf/
 
-# Switch back to hive user
 USER hive
 
-EXPOSE 9083
-
-# Use the official image's entrypoint (no custom override needed)
+# 9083 = Thrift metastore, 9084 = Iceberg REST catalog
+EXPOSE 9083 9084

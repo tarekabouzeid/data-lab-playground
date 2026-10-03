@@ -58,7 +58,7 @@ Thumbs.db
 logs/
 
 # Docker volumes data (keep the structure but ignore data)
-minio_data/
+seaweedfs_data/
 metastore_data/
 
 # Temporary files

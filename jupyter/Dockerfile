@@ -15,24 +15,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
 # Download and install Spark (pinned version for cache stability)
-ENV SPARK_VERSION=4.1.0
+# Must match the cluster (spark/Dockerfile) and the Iceberg runtime's Spark line (4.1).
+# Spark's bundled Hive 2.3.10 client is kept on purpose — Iceberg's HiveCatalog needs it
+# and it is why HMS is pinned to 4.0.0 (see AGENTS.md pitfall #1).
+ENV SPARK_VERSION=4.1.3
 ENV HADOOP_VERSION=3.4.2
 ENV SPARK_HOME=/opt/spark
-ENV HIVE_VERSION=4.1.0
 ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
 
 # Download Spark and prepare directories in single layer
 RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz \
     && tar -xzf spark-${SPARK_VERSION}-bin-hadoop3.tgz \
     && mv spark-${SPARK_VERSION}-bin-hadoop3 $SPARK_HOME \
-#    && rm -f /opt/spark/jars/hive-* \
-#    && rm -f /opt/spark/jars/spark-hive_* \
-#    && rm -f /opt/spark/jars/hive-metastore-* \
-#    && rm -f /opt/spark/jars/hive-exec-* \
-#    && rm -f /opt/spark/jars/hive-common-* \
-#    && curl -L https://repo1.maven.org/maven2/org/apache/hive/hive-metastore/${HIVE_VERSION}/hive-metastore-${HIVE_VERSION}.jar -o /opt/spark/jars/hive-metastore-${HIVE_VERSION}.jar \
-#    && curl -L https://repo1.maven.org/maven2/org/apache/hive/hive-exec/${HIVE_VERSION}/hive-exec-${HIVE_VERSION}.jar -o /opt/spark/jars/hive-exec-${HIVE_VERSION}.jar \
-#    && curl -L https://repo1.maven.org/maven2/org/apache/hive/hive-common/${HIVE_VERSION}/hive-common-${HIVE_VERSION}.jar -o /opt/spark/jars/hive-common-${HIVE_VERSION}.jar \
     && rm spark-${SPARK_VERSION}-bin-hadoop3.tgz \
     && mkdir -p /home/jovyan/.local/share/jupyter/runtime \
     && mkdir -p /home/jovyan/.jupyter \
@@ -47,10 +41,10 @@ RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-$
 # Download all JARs in single layer for better caching
 RUN curl -fsSL https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar \
          -o $SPARK_HOME/jars/hadoop-aws-${HADOOP_VERSION}.jar \
-    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.1_2.13/1.11.0/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
-         -o $SPARK_HOME/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
-    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.11.0/iceberg-aws-bundle-1.11.0.jar \
-         -o $SPARK_HOME/jars/iceberg-aws-bundle-1.11.0.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-4.1_2.13/1.12.0/iceberg-spark-runtime-4.1_2.13-1.12.0.jar \
+         -o $SPARK_HOME/jars/iceberg-spark-runtime-4.1_2.13-1.12.0.jar \
+    && curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.12.0/iceberg-aws-bundle-1.12.0.jar \
+         -o $SPARK_HOME/jars/iceberg-aws-bundle-1.12.0.jar \
     && curl -fsSL https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.41.1/bundle-2.41.1.jar \
          -o $SPARK_HOME/jars/aws-java-sdk-bundle-2.41.1.jar
 

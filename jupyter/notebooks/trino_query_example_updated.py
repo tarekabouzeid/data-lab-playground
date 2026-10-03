@@ -277,6 +277,6 @@ except Exception as e:
     print("🔧 To enable full Trino functionality:")
     print("  1. Ensure Trino service is running")
     print("  2. Verify Hive Metastore 4.2.0 connectivity")
-    print("  3. Check S3/MinIO access permissions")
+    print("  3. Check S3/SeaweedFS access permissions")
     print("  4. Run Spark data generation first")
     print("  5. Lakehouse connector requires Trino 479+")

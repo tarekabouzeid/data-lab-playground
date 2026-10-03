@@ -146,13 +146,17 @@ echo ""
 echo "⏳ Waiting for services to initialize..."
 sleep 15
 
-# Setup MinIO bucket
-echo "📦 Setting up MinIO storage..."
-if docker exec minio mc alias set local http://localhost:9000 minioadmin minioadmin123 2>/dev/null; then
-    docker exec minio mc mb local/warehouse --ignore-existing 2>/dev/null || true
-    echo "✅ MinIO warehouse bucket ready"
+# Setup SeaweedFS bucket
+echo "📦 Setting up SeaweedFS storage..."
+for i in $(seq 1 30); do
+    [ "$(docker inspect -f '{{.State.Health.Status}}' seaweedfs 2>/dev/null)" = "healthy" ] && break
+    sleep 2
+done
+if echo "s3.bucket.create -name warehouse" | docker exec -i seaweedfs weed shell -master=seaweedfs:9333 >/dev/null 2>&1 \
+   || echo "s3.bucket.list" | docker exec -i seaweedfs weed shell -master=seaweedfs:9333 2>/dev/null | grep -q warehouse; then
+    echo "✅ SeaweedFS warehouse bucket ready"
 else
-    echo "⚠️  MinIO setup will be done automatically"
+    echo "⚠️  Could not create the warehouse bucket — check: docker logs seaweedfs"
 fi
 
 # Handle Ollama models
@@ -193,7 +197,8 @@ echo "  📝 Jupyter Notebooks:         http://localhost:8888 (password: 123456)
 echo "  🔍 Phoenix AI Observability:  http://localhost:6006"
 echo "  🤖 Ollama LLM API:            http://localhost:11434"
 echo "  �️  Qdrant Vector Database:   http://localhost:6333"
-echo "  �💾 MinIO Console:             http://localhost:9001 (minioadmin/minioadmin123)"
+echo "  💾 SeaweedFS S3 API:          http://localhost:8333 (seaweedadmin/seaweedadmin123)"
+echo "  💾 SeaweedFS Filer UI:        http://localhost:8889/buckets/warehouse/"
 echo "  ⚡ Spark Master UI:           http://localhost:8081"
 echo "  ⚡ Spark Worker UI:           http://localhost:8082"
 echo ""
