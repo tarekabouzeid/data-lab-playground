@@ -42,6 +42,21 @@ A simple Docker-based environment for exploring data analytics and AI tools. Inc
 - **PostgreSQL**: Database backend 
 - **NVIDIA Docker**: GPU support for AI tools
 
+### Component Versions
+
+| Component | Version | Notes |
+|---|---|---|
+| Apache Spark | 4.1.3 | Highest Spark line with an Iceberg runtime (no `iceberg-spark-runtime-4.2` yet) |
+| Apache Iceberg | 1.12.0 | `iceberg-spark-runtime-4.1_2.13` + `iceberg-aws-bundle` |
+| Hive Metastore | 4.0.0 | Held: HMS ≥ 4.0.1 removed the `get_table` Thrift call that Iceberg's Hive 2.3 client uses |
+| Trino | 483 | Catalogs: `hive`, `iceberg`, `lakehouse` (all → HMS) |
+| Hadoop (`hadoop-aws`, Spark) | 3.4.2 | Must match Spark's bundled Hadoop client |
+| Hadoop (bundled in HMS) | 3.3.6 | From `apache/hive:4.0.0` |
+| AWS SDK v2 bundle (Spark) | 2.41.1 | |
+| Jupyter | `quay.io/jupyter/base-notebook:python-3.12` | Python 3.12 (matches Spark workers), `pyspark==4.1.3` |
+
+See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
+
 
 ## 🚀 Quick Start
 
@@ -100,7 +115,7 @@ Simple steps to explore the tools:
 | **Ollama LLM API** | http://localhost:11434 | None | Local LLM inference endpoint |
 | **Qdrant Vector Database** | http://localhost:6333 | None | Vector storage & similarity search |
 | **Qdrant Web Dashboard** | http://localhost:6333/dashboard | None | Vector database management UI |
-| **Trino Web UI** | http://localhost:8080 | None | SQL query interface |
+| **Trino Web UI** | http://localhost:8080/ui | None | SQL query interface (legacy UI disabled since Trino 483) |
 | **Spark Master UI** | http://localhost:8081 | None | Spark cluster monitoring |
 | **MinIO Console** | http://localhost:9001 | minioadmin/minioadmin123 | S3 storage management |
 
@@ -263,6 +278,20 @@ docker exec ollama ollama pull llama3.2
 # Pull additional embedding models
 docker exec ollama ollama pull all-MiniLM-L6-v2
 ```
+
+## 🧪 End-to-End Lakehouse Test
+
+A GPU-free test of the lakehouse core (MinIO + Hive Metastore + Trino + Spark + Iceberg):
+
+```bash
+tests/e2e/run-e2e.sh --build   # build HMS/Trino/Spark images, start core services, run the test
+tests/e2e/run-e2e.sh --down    # re-run against existing images, then stop the services
+```
+
+It checks 15 things: Spark → Iceberg via HMS (create, insert, schema evolution, snapshots, time travel),
+Trino `iceberg` reads and writes (incl. `$snapshots` and `FOR VERSION AS OF`), Spark reading Trino's writes,
+Spark Parquet → Trino `hive` external table, Trino `hive` CTAS, the `lakehouse` catalog over both
+table types, and a cross-catalog `hive` ⋈ `iceberg` JOIN.
 
 ## 🚦 Startup Order
 

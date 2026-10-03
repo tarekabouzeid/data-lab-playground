@@ -32,12 +32,13 @@ Do not leave these files stale after a change.
 
 ## Project Summary
 
-A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.0, Trino 481, Hive Metastore 4.0.0, MinIO, Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
+A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.3, Iceberg 1.12.0, Trino 483, Hive Metastore 4.0.0, MinIO, Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
 
 ## Key Things to Know
 
 - **Start everything**: `./start-platform.sh` (handles image builds + MinIO bucket + Ollama model pull)
 - **Force rebuild**: `./start-platform.sh --rebuild`
+- **E2E test (no GPU)**: `tests/e2e/run-e2e.sh --build` (15 checks: Spark/Trino × `hive`/`iceberg`/`lakehouse` catalogs)
 - **Jupyter** at http://localhost:8888, password `123456`
 - **All credentials are intentionally hardcoded** (local dev only — MinIO, Postgres, Jupyter)
 
@@ -51,13 +52,16 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 ## Critical Pitfalls
 
-1. **Single Hive Dockerfile** — `hive-metastore/Dockerfile` (**4.0.0**). Compose uses a pre-built image; the `build:` block is commented out. **Do not upgrade past 4.0.0** — HIVE-26537 removed `get_table` from the Thrift IDL in HMS **4.0.1 AND 4.1.0** (not just 4.2.0). Iceberg 1.11's shaded Hive 2.3 client calls `get_table` and gets `TApplicationException: Invalid method name: 'get_table'`. HMS 4.0.0 is the safe ceiling. Use `apache/hive:4.0.0` (full image, Debian Bullseye — no `standalone-metastore-4.0.0` tag exists).
+1. **Single Hive Dockerfile** — `hive-metastore/Dockerfile` (**4.0.0**). Compose uses a pre-built image; the `build:` block is commented out. **Do not upgrade past 4.0.0** — HIVE-26537 removed `get_table` from the Thrift IDL in HMS **4.0.1, 4.1.0, 4.2.0 and 4.2.1** (checked in the Thrift IDL per tag). Iceberg's `HiveCatalog` (still pinned to the Hive **2.3.10** client in Iceberg 1.12.0) calls `get_table` and gets `TApplicationException: Invalid method name: 'get_table'`. Re-verified empirically against `apache/hive:4.2.1` in 2026-10. HMS 4.0.0 is the safe ceiling. Use `apache/hive:4.0.0` (full image, Debian Bullseye — no `standalone-metastore-4.0.0` tag exists).
 2. **Duplicate spark-defaults.conf** — `spark/conf/` and `jupyter/` must stay in sync.
 3. **NVIDIA GPU required** — Ollama won't start without `nvidia-container-toolkit`.
 4. **Two Postgres instances** — `phoenix-db` on :5432, `metastore-db` on :5433.
-5. **Iceberg JAR** named `iceberg-spark-runtime-4.1_2.13-1.11.0.jar` — artifact ID now correctly matches Spark 4.1 (resolved as of Iceberg 1.11).
+5. **Iceberg JAR** named `iceberg-spark-runtime-4.1_2.13-1.12.0.jar`. The artifact ID matches the Spark 4.1 line.
 6. **HMS S3A JARs — do NOT download `hadoop-aws ≥ 3.4.x`** into the HMS image. `apache/hive:4.0.0` bundles Hadoop **3.3.6**; `hadoop-aws-3.4.x` requires `BulkDelete` (absent in 3.3.6) → `ClassNotFoundException` → Thrift socket closed. The Dockerfile **symlinks** `/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar` and `aws-java-sdk-bundle-1.12.367.jar` into `/opt/hive/lib/`.
 7. **HMS path validation** — `hive.metastore.path.validation=false` is set in `hive-site.xml`. Without it, `CREATE TABLE ... external_location 's3a://...'` fails if the S3 path doesn't exist yet. Always use `s3a://` (not `s3://`) in external locations.
+8. **Spark capped at 4.1.x**: Iceberg 1.12.0 has no `iceberg-spark-runtime-4.2_2.13`. Keep `spark/Dockerfile`, `jupyter/Dockerfile` `SPARK_VERSION` (also drives `pyspark==`), and the Iceberg jar's Spark line in lockstep. `hadoop-aws` must equal Spark's bundled Hadoop (3.4.2).
+9. **`minio/minio` is gone from Docker Hub** (404 as of 2026-10). Cached images still work; fresh hosts need a replacement image (e2e was run with `pgsty/minio:RELEASE.2026-08-04T00-00-00Z`).
+10. **Trino 483**: the new Web UI is the default at `/ui`. Breaking changes in 482/483 (Alluxio removal, char/varchar coercion, `$files` bounds type, `s3.auth-type`) don't affect current catalogs. Full research: `docs/UPGRADE_PLAN.md`.
 
 ## When Modifying Services
 
@@ -72,4 +76,4 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 ## Versions Reference
 
-Spark 4.1.0 · Hive 4.0.0 · Hadoop 3.4.2 (Spark/Trino) / 3.3.6 (HMS bundled) · Trino 481 · Python 3.12 · Iceberg 1.11.0 · AWS SDK Bundle 2.41.1 (Spark/Trino) / 1.12.367 (HMS)
+Spark 4.1.3 · Hive 4.0.0 · Hadoop 3.4.2 (Spark/Trino) / 3.3.6 (HMS bundled) · Trino 483 · Python 3.12 · Iceberg 1.12.0 · AWS SDK Bundle 2.41.1 (Spark/Trino) / 1.12.367 (HMS)

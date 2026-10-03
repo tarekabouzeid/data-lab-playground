@@ -58,6 +58,9 @@ docker compose logs -f [service-name]
 
 # Restart a service
 docker compose restart [service-name]
+
+# End-to-end lakehouse test (no GPU needed): MinIO + HMS + Trino + Spark + Iceberg
+tests/e2e/run-e2e.sh --build
 ```
 
 ---
@@ -95,13 +98,14 @@ Jupyter → Phoenix (AI observability, via gRPC :4317) → Postgres (phoenix-db 
 
 | Component | Version |
 |---|---|
-| Apache Spark | 4.1.0 |
+| Apache Spark | 4.1.3 (capped by Iceberg; see pitfall #10) |
 | Hive Metastore | 4.0.0 (pre-built image; see pitfall #1) |
 | Hadoop (Spark/Trino) | 3.4.2 |
 | Hadoop (bundled in HMS image) | 3.3.6 |
-| Trino | 481 |
+| Trino | 483 |
 | Python | 3.12 |
-| Iceberg runtime | 1.11.0 (artifact: `iceberg-spark-runtime-4.1_2.13`) |
+| Iceberg runtime | 1.12.0 (artifact: `iceberg-spark-runtime-4.1_2.13`) |
+| Jupyter base image | `quay.io/jupyter/base-notebook:python-3.12` (rolling tag), `pyspark==4.1.3` |
 | AWS SDK bundle (Spark/Trino) | 2.41.1 |
 | AWS SDK bundle (HMS, via symlink) | 1.12.367 (SDK v1, bundled in apache/hive:4.0.0) |
 
@@ -120,7 +124,9 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 ## Pitfalls
 
-1. **Single Hive Metastore Dockerfile**: `hive-metastore/Dockerfile` (Hive **4.0.0**). The `docker-compose.yaml` build block is **commented out** and uses a **pre-built image**. **Do not upgrade past 4.0.0** — HIVE-26537 (merged July 2024, PR #3599) removed the legacy `get_table` Thrift method from HMS **4.0.1 AND 4.1.0** (not just 4.2.0 as commonly documented). Iceberg 1.11's shaded Hive 2.3 client calls `get_table` and receives `TApplicationException: Invalid method name: 'get_table'` from any HMS ≥ 4.0.1. **HMS 4.0.0 is the safe ceiling.** The `standalone-metastore-4.0.0` Docker tag does NOT exist; use `apache/hive:4.0.0` (full image, Debian Bullseye). A permanent fix is tracked in Iceberg PR #12721.
+1. **Single Hive Metastore Dockerfile**: `hive-metastore/Dockerfile` (Hive **4.0.0**). The `docker-compose.yaml` build block is **commented out** and uses a **pre-built image**. **Do not upgrade past 4.0.0** — HIVE-26537 (merged July 2024, PR #3599) removed the legacy `get_table` Thrift method from HMS **4.0.1 AND 4.1.0** (not just 4.2.0 as commonly documented). Iceberg's `HiveCatalog` (1.11 and 1.12) uses the Hive 2.3.10 client bundled with Spark, which calls `get_table` and receives `TApplicationException: Invalid method name: 'get_table'` from any HMS ≥ 4.0.1. **HMS 4.0.0 is the safe ceiling.** The `standalone-metastore-4.0.0` Docker tag does NOT exist; use `apache/hive:4.0.0` (full image, Debian Bullseye). A permanent fix is tracked in Iceberg PR #12721.
+   - **Re-verified 2026-10 for Iceberg 1.12.0 / HMS 4.2.1**: `hive_metastore.thrift` has no `Table get_table(...)` at tags `rel/release-4.0.1`, `4.1.0`, `4.2.0`, `4.2.1`; Iceberg 1.12.0 still pins the Hive client to `2.3.10` (`hive2 = { strictly = "2.3.10" }`) and has no Hive-4 module. Running `tests/e2e/run-e2e.sh` against `apache/hive:4.2.1` fails at the first Iceberg DDL with `Invalid method name: 'get_table'`. (Trino 483 itself can talk to HMS 4.2.1. Only Spark/Iceberg is blocked.)
+   - Re-check this before any future HMS bump: the blocker is gone only once Iceberg's `HiveCatalog` uses `get_table_req`.
 
 2. **Duplicate `spark-defaults.conf`**: Identical files exist at `spark/conf/spark-defaults.conf` and `jupyter/spark-defaults.conf`. **Keep them in sync** when modifying Spark config.
 
@@ -130,13 +136,21 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 5. **Two Postgres instances**: `phoenix-db` on host port `5432`, `metastore-db` on host port `5433`.
 
-6. **Iceberg JAR naming**: `iceberg-spark-runtime-4.1_2.13-1.11.0.jar` — the `4.1_2.13` artifact ID now correctly matches Spark 4.1.0. (Prior to Iceberg 1.11, the `4.0_2.13` artifact was used as a workaround.)
+6. **Iceberg JAR naming**: `iceberg-spark-runtime-4.1_2.13-1.12.0.jar`. The `4.1_2.13` artifact ID matches the Spark 4.1.x line. (Prior to Iceberg 1.11, the `4.0_2.13` artifact was used as a workaround.)
 
 7. **Credentials everywhere are plaintext**: Jupyter password (`123456`), MinIO, Hive Postgres, Phoenix Postgres — all hardcoded in Dockerfiles and config files. Intentional for local dev only.
 
 8. **HMS S3A JARs: do NOT download hadoop-aws ≥ 3.4.x into the HMS image**. `apache/hive:4.0.0` bundles Hadoop **3.3.6** in `/opt/hadoop/`. `hadoop-aws-3.4.x` requires `org.apache.hadoop.fs.BulkDelete` (added in Hadoop 3.4.0) — absent in 3.3.6 → `ClassNotFoundException` at runtime, causing HMS to close the Thrift socket mid-request. The HMS Dockerfile instead **symlinks** the already-bundled `/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar` and `aws-java-sdk-bundle-1.12.367.jar` into `/opt/hive/lib/`.
 
 9. **HMS path validation**: `hive.metastore.path.validation=false` is set in `hive-site.xml`. Without it, creating a Hive external table with an `s3a://` location fails when the path doesn't exist yet (e.g., before Spark has written data). Also, always use `s3a://` (not `s3://`) in `external_location` — HMS has `fs.s3a.*` but no plain `s3://` FileSystem implementation.
+
+10. **Spark is capped by the Iceberg runtime**: Iceberg 1.12.0 publishes runtimes only for Spark 3.5, 4.0 and 4.1 (no `iceberg-spark-runtime-4.2_2.13` on Maven Central). Do **not** move to Spark 4.2.x until that artifact exists. Keep `spark/Dockerfile` (`apache/spark:<ver>`), `jupyter/Dockerfile` (`SPARK_VERSION`, used for both the tarball and `pyspark==`) and the Iceberg jar's Spark line in lockstep. `hadoop-aws` must stay at the Hadoop version Spark bundles (3.4.2 for Spark 4.1.3).
+
+11. **MinIO image removed from Docker Hub**: as of 2026-10, `docker pull minio/minio:latest` fails with `repository does not exist` (Docker Hub returns 404 for `minio/minio` and `minio/mc`). Hosts that already have the image cached still work. On a fresh host, `docker-compose.yaml`'s `minio` service must point at another image. `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` (a community rebuild of MinIO, includes `mc`) was used to run the e2e test. Changing the compose default is still an open decision.
+
+12. **Trino 482/483 breaking changes** (none affect current configs): Alluxio FS removed; `char`→`varchar` coercion reversed; `hive.max-initial-split*` removed; Iceberg `$files.lower_bounds/upper_bounds` are now typed rows; `s3.iam-role` now needs `s3.auth-type=IAM_ROLE`; the new Web UI is the default at `/ui` (legacy at `/ui/legacy`, disabled by default).
+
+13. **Docker builds need network access**: the Dockerfiles fetch jars from Maven Central (`curl -fsSL`, so they fail loudly on a 404 or 429) and packages via `apt`. The HMS image fetches the Postgres JDBC driver from `jdbc.postgresql.org`.
 
 ---
 
@@ -150,15 +164,22 @@ hive-metastore/
   entrypoint.sh               # Waits for Postgres → initSchema → thrift server
   hive-site.xml               # Postgres JDBC + s3a://warehouse/ config
 spark/
-  Dockerfile                  # Spark 4.1.0 + Hadoop/Iceberg/AWS JARs
+  Dockerfile                  # Spark 4.1.3 + Hadoop/Iceberg 1.12.0/AWS JARs
   conf/spark-defaults.conf    # Spark cluster config (keep in sync with jupyter/)
 jupyter/
   Dockerfile                  # JupyterLab + PySpark + full GenAI stack
   spark-defaults.conf         # Same as spark/conf/spark-defaults.conf
   notebooks/                  # Example notebooks
 trino/
-  Dockerfile                  # Trino 481
-  etc/catalog/lakehouse.properties  # Hive/Iceberg catalog → HMS thrift
+  Dockerfile                  # Trino 483
+  etc/catalog/hive.properties       # Hive connector → HMS thrift
+  etc/catalog/iceberg.properties    # Iceberg connector (hive_metastore catalog type)
+  etc/catalog/lakehouse.properties  # Lakehouse connector (Hive + Iceberg tables) → HMS thrift
+tests/e2e/
+  run-e2e.sh                  # Starts core services, runs the e2e test via spark-submit
+  e2e_lakehouse.py            # 15 checks: Spark/Trino × hive/iceberg/lakehouse catalogs
+docs/
+  UPGRADE_PLAN.md             # Compatibility research + version pins rationale (2026-10 upgrade)
 ```
 
 ---
