@@ -20,12 +20,12 @@ The following two files must always be **identical**:
 - Iceberg runtime JAR: `iceberg-spark-runtime-4.0_2.13-1.10.1.jar` — the `4.0` in the artifact name is the Iceberg release's Spark compat version, not a version mismatch.
 - AWS SDK bundle: `2.41.1`
 
-## S3 / MinIO Settings (Do Not Change for Local Dev)
+## S3 / SeaweedFS Settings (Do Not Change for Local Dev)
 
 ```
-spark.hadoop.fs.s3a.endpoint=http://minio:9000
-spark.hadoop.fs.s3a.access.key=minioadmin
-spark.hadoop.fs.s3a.secret.key=minioadmin123
+spark.hadoop.fs.s3a.endpoint=http://seaweedfs:8333
+spark.hadoop.fs.s3a.access.key=seaweedadmin
+spark.hadoop.fs.s3a.secret.key=seaweedadmin123
 spark.hadoop.fs.s3a.path.style.access=true
 spark.hadoop.fs.s3a.connection.ssl.enabled=false
 ```

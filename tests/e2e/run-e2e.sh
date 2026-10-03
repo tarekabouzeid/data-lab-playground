@@ -1,5 +1,5 @@
 #!/bin/bash
-# End-to-end test for the lakehouse core: MinIO + HMS + Trino + Spark + Iceberg.
+# End-to-end test for the lakehouse core: SeaweedFS (S3) + HMS + Trino + Spark + Iceberg.
 # Does NOT need a GPU: Ollama / Phoenix / Qdrant / Jupyter are not started.
 #
 # Usage:  tests/e2e/run-e2e.sh [--build] [--down]
@@ -20,7 +20,7 @@ for arg in "$@"; do
   esac
 done
 
-SERVICES=(minio metastore-db hive-metastore trino spark-master spark-worker)
+SERVICES=(seaweedfs metastore-db hive-metastore trino spark-master spark-worker)
 
 if [ "$BUILD" = true ]; then
   for svc in hive-metastore trino spark; do
@@ -41,8 +41,9 @@ wait_for() {  # name, command, timeout seconds
   echo " ✅"
 }
 
-wait_for "MinIO" "docker exec minio mc alias set local http://localhost:9000 minioadmin minioadmin123"
-docker exec minio mc mb local/warehouse --ignore-existing
+wait_for "SeaweedFS S3" "[ \"\$(docker inspect -f '{{.State.Health.Status}}' seaweedfs)\" = healthy ]"
+echo "s3.bucket.create -name warehouse" | docker exec -i seaweedfs weed shell -master=seaweedfs:9333 >/dev/null 2>&1 || true
+wait_for "warehouse bucket" "echo s3.bucket.list | docker exec -i seaweedfs weed shell -master=seaweedfs:9333 | grep -q warehouse" 60
 wait_for "Hive Metastore :9083" "docker exec hive-metastore bash -c 'echo > /dev/tcp/localhost/9083'" 300
 if [ "${E2E_SPARK_ICEBERG:-hive}" = rest ]; then
   wait_for "HMS Iceberg REST :9084" "docker exec trino curl -sf http://hive-metastore:9084/iceberg/v1/config" 120

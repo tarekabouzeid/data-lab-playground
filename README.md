@@ -20,14 +20,14 @@ A simple Docker-based environment for exploring data analytics and AI tools. Inc
                         └────────────────┘
                                 │
                       ┌─────────────┐    ┌─────────────┐
-                      │   MinIO     │    │   Qdrant    │
+                      │  SeaweedFS  │    │   Qdrant    │
                       │  (S3 API)   │    │ Vector DB   │
                       └─────────────┘    └─────────────┘
 ```
 
 
 ### Data Processing & Storage
-- **MinIO**: S3-compatible storage for files
+- **SeaweedFS**: S3-compatible object storage (`s3a://warehouse/`); data is stored as plain Parquet files, plus Iceberg tables whose data files are also Parquet
 - **Apache Spark**: Basic data processing capabilities  
 - **Hive Metastore**: Simple metadata management
 - **Trino**: SQL query interface
@@ -53,6 +53,7 @@ A simple Docker-based environment for exploring data analytics and AI tools. Inc
 | Hadoop (`hadoop-aws`, Spark) | 3.4.2 | Must match Spark's bundled Hadoop client |
 | Hadoop (bundled in HMS) | 3.3.6 | From `apache/hive:4.0.0` |
 | AWS SDK v2 bundle (Spark) | 2.41.1 | |
+| SeaweedFS | 4.48 | `chrislusf/seaweedfs:4.48`, all-in-one `weed server -s3` (S3 on :8333) |
 | Jupyter | `quay.io/jupyter/base-notebook:python-3.12` | Python 3.12 (matches Spark workers), `pyspark==4.1.3` |
 
 See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
@@ -76,7 +77,7 @@ See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research 
 # This script will:
 # 1. Build all custom Docker images (if not already built)
 # 2. Start all services
-# 3. Setup MinIO storage
+# 3. Create the SeaweedFS `warehouse` bucket
 # 4. Pull the gemma3:4b LLM model
 ./start-platform.sh
 ```
@@ -117,7 +118,9 @@ Simple steps to explore the tools:
 | **Qdrant Web Dashboard** | http://localhost:6333/dashboard | None | Vector database management UI |
 | **Trino Web UI** | http://localhost:8080/ui | None | SQL query interface (legacy UI disabled since Trino 483) |
 | **Spark Master UI** | http://localhost:8081 | None | Spark cluster monitoring |
-| **MinIO Console** | http://localhost:9001 | minioadmin/minioadmin123 | S3 storage management |
+| **SeaweedFS S3 API** | http://localhost:8333 | seaweedadmin/seaweedadmin123 | S3-compatible object storage |
+| **SeaweedFS Filer UI** | http://localhost:8889/buckets/warehouse/ | None | Browse buckets/files |
+| **SeaweedFS Master UI** | http://localhost:9333 | None | Cluster/volume status |
 
 ## 🤖 AI Tools
 
@@ -235,9 +238,9 @@ from pyspark.sql import SparkSession
 spark = SparkSession.builder \
     .appName("DataLab-Playground") \
     .master("spark://spark-master:7077") \
-    .config("spark.hadoop.fs.s3a.endpoint", "http://minio:9000") \
-    .config("spark.hadoop.fs.s3a.access.key", "minioadmin") \
-    .config("spark.hadoop.fs.s3a.secret.key", "minioadmin123") \
+    .config("spark.hadoop.fs.s3a.endpoint", "http://seaweedfs:8333") \
+    .config("spark.hadoop.fs.s3a.access.key", "seaweedadmin") \
+    .config("spark.hadoop.fs.s3a.secret.key", "seaweedadmin123") \
     .getOrCreate()
 
 # Process data and prepare for AI workloads
@@ -248,7 +251,7 @@ df.write.mode("overwrite").parquet("s3a://warehouse/processed/ai_training_data")
 ## 🛠️ Basic Configuration
 
 ### Default Settings
-- **MinIO**: minioadmin/minioadmin123
+- **SeaweedFS (S3)**: seaweedadmin/seaweedadmin123, endpoint `http://seaweedfs:8333` (inside Docker)
 - **Spark**: spark://spark-master:7077  
 - **Ollama Models**: Stored in persistent volume
 
@@ -281,22 +284,23 @@ docker exec ollama ollama pull all-MiniLM-L6-v2
 
 ## 🧪 End-to-End Lakehouse Test
 
-A GPU-free test of the lakehouse core (MinIO + Hive Metastore + Trino + Spark + Iceberg):
+A GPU-free test of the lakehouse core (SeaweedFS + Hive Metastore + Trino + Spark + Iceberg):
 
 ```bash
 tests/e2e/run-e2e.sh --build   # build HMS/Trino/Spark images, start core services, run the test
 tests/e2e/run-e2e.sh --down    # re-run against existing images, then stop the services
 ```
 
-It checks 15 things: Spark → Iceberg via HMS (create, insert, schema evolution, snapshots, time travel),
+It checks 19 things: Spark → Iceberg via HMS (create, insert, schema evolution, snapshots, time travel),
 Trino `iceberg` reads and writes (incl. `$snapshots` and `FOR VERSION AS OF`), Spark reading Trino's writes,
 Spark Parquet → Trino `hive` external table, Trino `hive` CTAS, the `lakehouse` catalog over both
-table types, and a cross-catalog `hive` ⋈ `iceberg` JOIN.
+table types, a cross-catalog `hive` ⋈ `iceberg` JOIN, and that the objects on SeaweedFS are plain Parquet
+(`PAR1` magic; Spark reads Trino-written Hive files and Iceberg data files directly by path, with no catalog).
 
 ## 🚦 Startup Order
 
 Services start automatically in the right order:
-1. Storage & databases (PostgreSQL, MinIO)
+1. Storage & databases (PostgreSQL, SeaweedFS)
 2. Data processing (Spark, Trino, Hive)  
 3. AI services (Ollama, Phoenix)
 4. Jupyter notebooks

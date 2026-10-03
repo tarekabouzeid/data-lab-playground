@@ -1,4 +1,4 @@
-"""End-to-end lakehouse test: Spark + Iceberg + Hive Metastore + Trino + MinIO.
+"""End-to-end lakehouse test: Spark + Iceberg + Hive Metastore + Trino + SeaweedFS.
 
 Run via tests/e2e/run-e2e.sh (submitted with spark-submit inside the
 datalab-playground/spark image, on the platform's Docker network).
@@ -8,10 +8,12 @@ Covers:
   2. Spark  -> Iceberg snapshots + time travel
   3. Trino  `iceberg` catalog reads the Spark-written table, $snapshots, FOR VERSION AS OF
   4. Trino  `iceberg` INSERT, read back by Spark (bidirectional)
-  5. Spark  -> plain Parquet on MinIO; Trino `hive` external table over it
+  5. Spark  -> plain Parquet on SeaweedFS; Trino `hive` external table over it
   6. Trino  `hive` managed CTAS table
   7. Trino  `lakehouse` catalog reads both the Hive and the Iceberg table
   8. Trino  cross-catalog JOIN hive x iceberg
+  + Storage checks: objects on SeaweedFS are plain Parquet (PAR1 magic) and Spark reads the
+    Trino-written Hive files and the Iceberg data files directly, without any catalog
 
 Environment:
   E2E_SPARK_ICEBERG     "hive" (Thrift HiveCatalog, default) or "rest"
@@ -157,7 +159,7 @@ def main():
         ["customer_id", "product", "total_amount", "city"],
     )
     tx.write.mode("overwrite").parquet(PARQUET_PATH)
-    check("spark: parquet write to MinIO", spark.read.parquet(PARQUET_PATH).count() == 100)
+    check("spark: parquet write to SeaweedFS", spark.read.parquet(PARQUET_PATH).count() == 100)
 
     trino(f"CREATE SCHEMA IF NOT EXISTS hive.{SCHEMA}")
     trino(f"""
@@ -174,6 +176,26 @@ def main():
         FROM hive.{SCHEMA}.transactions GROUP BY city""")
     n = trino(f"SELECT sum(n) FROM hive.{SCHEMA}.city_summary")[0][0]
     check("trino hive: managed CTAS", n == 100, str(n))
+
+    # ---- 6b. Storage holds plain Parquet, readable without any catalog ----
+    def s3a(path):
+        return "s3a://" + path.split("://", 1)[1]
+
+    hive_files = sorted({s3a(r[0]) for r in trino(
+        f'SELECT DISTINCT "$path" FROM hive.{SCHEMA}.city_summary')})
+    magic = spark.read.format("binaryFile").load(hive_files[0]).select("content").first()[0]
+    check("storage: trino-written hive file is Parquet (PAR1 magic)",
+          magic[:4] == b"PAR1" and magic[-4:] == b"PAR1", hive_files[0])
+    n = spark.read.parquet(*hive_files).agg({"n": "sum"}).first()[0]
+    check("spark: reads trino-written hive files as plain parquet", n == 100, str(n))
+
+    ice_files = trino(f'SELECT file_path, file_format, record_count '
+                      f'FROM {TRINO_ICEBERG}.{SCHEMA}."sales$files"')
+    check("trino: iceberg data files are PARQUET",
+          ice_files and all(r[1] == "PARQUET" for r in ice_files), str([r[1] for r in ice_files]))
+    rows = spark.read.parquet(*[s3a(r[0]) for r in ice_files]).count()
+    check("spark: iceberg data files readable as plain parquet",
+          rows == sum(r[2] for r in ice_files) == 8, str(rows))
 
     # ---- 7. Lakehouse catalog reads both table types ----------------------
     a = trino(f"SELECT count(*) FROM lakehouse.{SCHEMA}.transactions")[0][0]

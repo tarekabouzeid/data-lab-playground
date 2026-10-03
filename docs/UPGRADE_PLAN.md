@@ -73,6 +73,36 @@ Caveats from the sandbox the run happened in:
   The e2e run used `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` through a local compose override.
   Whether to change the compose default is an open decision (see AGENTS.md pitfall #11).
 
+
+---
+
+# Phase 1b — Storage: MinIO → SeaweedFS (applied 2026-10-03)
+
+Why: `minio/minio` and `minio/mc` were removed from Docker Hub (404), so fresh installs could not pull the storage layer.
+
+| Item | Value |
+|---|---|
+| Image | `chrislusf/seaweedfs:4.48` (2026-09-28), one container running `weed server -filer -s3` |
+| S3 endpoint | `http://seaweedfs:8333` (host `localhost:8333`), path-style, no TLS |
+| Credentials | `seaweedadmin` / `seaweedadmin123`, identity in `seaweedfs/s3.json` (anonymous → 403) |
+| UIs | Master `:9333`, Filer `:8889` (container 8888; host 8888 is Jupyter) |
+| Bucket | `warehouse`, created with `weed shell` → `s3.bucket.create -name warehouse` |
+
+Clients changed (endpoint + keys only): Spark `spark-defaults.conf` (both copies), HMS `hive-site.xml` (hadoop-aws 3.3.6 / SDK v1),
+Trino `hive`/`iceberg`/`lakehouse` catalogs (native S3), notebooks, and the e2e test.
+
+Issue found and fixed: with `-volume.max=0` SeaweedFS sizes volume slots from free disk (5 GB free → 4 slots). The filer's metadata used
+all of them, and every S3A PUT to the bucket's collection failed with HTTP 500 (`No writable volumes and no free volumes left`).
+`-volume.max=64` fixes it (volumes are sparse; no space is reserved).
+
+Verification (HMS 4.0.0 stack, Spark Thrift HiveCatalog):
+- `tests/e2e/run-e2e.sh`: **19/19**, twice, including the re-run. The 4 new storage checks prove the data on SeaweedFS is plain Parquet:
+  the `PAR1` magic on a Trino-written Hive file; Spark reads the Trino-written Hive files and the Iceberg data files directly by path, with no catalog.
+- Ad-hoc: the notebook's Spark write settings (S3A fast upload, 5 MB multipart) wrote and read back 2,000,000 rows (~130 MB) of Parquet.
+  The notebook's `fs.s3a.committer.name=magic` turns out to be inert: Spark uses `ParquetOutputCommitter`. This is unchanged.
+- Trino access: plain Parquet through `hive` (external table and CTAS) and `lakehouse`; Iceberg through `iceberg` and `lakehouse`.
+- Note: SeaweedFS 4.48 also ships its own Iceberg REST catalog (`-s3.iceberg.*`). It's not used here, but it's an alternative to the HMS REST catalog in Phase 2.
+
 ---
 
 # Phase 2 — Getting past HMS 4.0.0 (designed + spiked 2026-10-03, not applied yet)
@@ -85,7 +115,7 @@ HMS **4.1+** ships a **built-in Iceberg REST catalog** (`hive-standalone-metasto
 ```
 Spark  ── Iceberg REST ──► HMS 4.2.1 :9084/iceberg ─┐
 Trino iceberg ── Iceberg REST (or Thrift) ──────────┤
-Trino hive / lakehouse ── Thrift :9083 ─────────────┴─► Postgres + MinIO
+Trino hive / lakehouse ── Thrift :9083 ─────────────┴─► Postgres + SeaweedFS
 ```
 
 | Client | Catalog / connector | Transport |
@@ -116,7 +146,7 @@ Trino hive / lakehouse ── Thrift :9083 ────────────�
    `metastore.warehouse.dir=s3a://warehouse/managed/`, `metastore.warehouse.external.dir=s3a://warehouse/`.
    The REST servlet reads the legacy `hive.metastore.warehouse.(external.)dir` keys, so set both spellings.
    Existing `s3a://warehouse/<db>.db/...` paths are not under `managed/`, so they keep working.
-5. REST port **9084**: the upstream default 9001 collides with the MinIO console host port.
+5. REST port **9084**, next to Thrift on 9083. The upstream default 9001 collided with the old MinIO console; MinIO has since been replaced by SeaweedFS, but 9084 is kept for clarity.
 6. Compose: `hive-metastore.depends_on.metastore-db.condition: service_healthy`. The lighter image starts before Postgres is ready,
    so `schematool` exits (a latent race in the current compose too).
 

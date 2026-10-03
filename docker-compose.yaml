@@ -1,17 +1,25 @@
 services:
-  # MinIO - S3 Compatible Object Storage
-  minio:
-    image: minio/minio:latest
-    container_name: minio
+  # SeaweedFS - S3 Compatible Object Storage (master + volume + filer + S3 gateway in one container)
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    container_name: seaweedfs
     ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
+      - "8333:8333"  # S3 API
+      - "9333:9333"  # Master UI
+      - "8889:8888"  # Filer UI (browse buckets under /buckets); host 8888 is Jupyter
+    command: >
+      server -dir=/data -ip=seaweedfs -ip.bind=0.0.0.0
+      -master.volumeSizeLimitMB=1024 -volume.max=64
+      -filer -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
     volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
+      - seaweedfs_data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8333/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
     networks:
       - data-lab-playground
 
@@ -46,7 +54,10 @@ services:
       DB_DRIVER: postgres
       SERVICE_OPTS: "-Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://metastore-db:5432/metastore -Djavax.jdo.option.ConnectionUserName=hive -Djavax.jdo.option.ConnectionPassword=hive123"
     depends_on:
-      - metastore-db
+      metastore-db:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
     networks:
       - data-lab-playground
 #  hive-metastore:
@@ -65,8 +76,8 @@ services:
 #    depends_on:
 #      metastore-db:
 #        condition: service_healthy
-#      minio:
-#        condition: service_started
+#      seaweedfs:
+#        condition: service_healthy
 #    healthcheck:
 #      test: ["CMD", "nc", "-z", "localhost", "9083"]
 #      interval: 10s
@@ -86,7 +97,7 @@ services:
       - ./trino/etc:/etc/trino
     depends_on:
       - hive-metastore
-      - minio
+      - seaweedfs
     networks:
       - data-lab-playground
 
@@ -137,7 +148,7 @@ services:
       - ./jupyter/notebooks:/home/jovyan/work
     depends_on:
       - spark-master
-      - minio
+      - seaweedfs
       - trino
       - phoenix
       - qdrant
@@ -265,7 +276,7 @@ services:
       - init
 
 volumes:
-  minio_data:
+  seaweedfs_data:
   metastore_data:
   database_data:
   ollama_data:

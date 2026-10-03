@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "name": "seaweedadmin",
+      "credentials": [
+        { "accessKey": "seaweedadmin", "secretKey": "seaweedadmin123" }
+      ],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}

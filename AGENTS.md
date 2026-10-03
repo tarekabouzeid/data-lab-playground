@@ -1,6 +1,6 @@
 # DataLab Playground — Agent Instructions
 
-A local, Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Combines Apache Spark, Trino, Hive Metastore, MinIO (S3-compatible), and a full GenAI stack (Ollama, LangChain, Phoenix, Qdrant) — all accessible from JupyterLab.
+A local, Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Combines Apache Spark, Trino, Hive Metastore, SeaweedFS (S3-compatible), and a full GenAI stack (Ollama, LangChain, Phoenix, Qdrant) — all accessible from JupyterLab.
 
 See [README.md](README.md) for a full overview and service access URLs.
 
@@ -59,7 +59,7 @@ docker compose logs -f [service-name]
 # Restart a service
 docker compose restart [service-name]
 
-# End-to-end lakehouse test (no GPU needed): MinIO + HMS + Trino + Spark + Iceberg
+# End-to-end lakehouse test (no GPU needed): SeaweedFS + HMS + Trino + Spark + Iceberg
 tests/e2e/run-e2e.sh --build
 ```
 
@@ -73,8 +73,9 @@ tests/e2e/run-e2e.sh --build
 | Spark UI (master) | http://localhost:8081 | — |
 | Spark UI (worker) | http://localhost:8082 | — |
 | Trino | http://localhost:8080 | — |
-| MinIO Console | http://localhost:9001 | `minioadmin` / `minioadmin123` |
-| MinIO S3 API | http://localhost:9000 | — |
+| SeaweedFS S3 API | http://localhost:8333 | `seaweedadmin` / `seaweedadmin123` |
+| SeaweedFS Filer UI | http://localhost:8889 | — (container port 8888; host 8888 is Jupyter) |
+| SeaweedFS Master UI | http://localhost:9333 | — |
 | Ollama API | http://localhost:11434 | — |
 | Qdrant | http://localhost:6333 | — |
 | Phoenix | http://localhost:6006 | — |
@@ -85,8 +86,8 @@ tests/e2e/run-e2e.sh --build
 ## Architecture
 
 ```
-Jupyter → Spark Master/Worker → MinIO (s3a://warehouse/)
-Jupyter → Trino → Hive Metastore → MinIO + Postgres (metastore-db :5433)
+Jupyter → Spark Master/Worker → SeaweedFS S3 (s3a://warehouse/)
+Jupyter → Trino → Hive Metastore → SeaweedFS + Postgres (metastore-db :5433)
 Jupyter → Ollama (gemma3:4b LLM, mxbai-embed-large embeddings)
 Jupyter → Qdrant (vector DB)
 Jupyter → Phoenix (AI observability, via gRPC :4317) → Postgres (phoenix-db :5432)
@@ -111,12 +112,12 @@ Jupyter → Phoenix (AI observability, via gRPC :4317) → Postgres (phoenix-db 
 
 ---
 
-## S3 / MinIO Defaults
+## S3 / SeaweedFS Defaults
 
 All services use the same hardcoded credentials (intentional for local dev — **never promote to production**):
 
-- **Endpoint**: `http://minio:9000` (inside Docker) / `http://localhost:9000` (host)
-- **Access key**: `minioadmin`  **Secret**: `minioadmin123`
+- **Endpoint**: `http://seaweedfs:8333` (inside Docker) / `http://localhost:8333` (host)
+- **Access key**: `seaweedadmin`  **Secret**: `seaweedadmin123` (identity defined in `seaweedfs/s3.json`)
 - **Bucket**: `s3a://warehouse/`
 - Path-style access: `true`, SSL: disabled
 
@@ -138,7 +139,7 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 6. **Iceberg JAR naming**: `iceberg-spark-runtime-4.1_2.13-1.12.0.jar`. The `4.1_2.13` artifact ID matches the Spark 4.1.x line. (Prior to Iceberg 1.11, the `4.0_2.13` artifact was used as a workaround.)
 
-7. **Credentials everywhere are plaintext**: Jupyter password (`123456`), MinIO, Hive Postgres, Phoenix Postgres — all hardcoded in Dockerfiles and config files. Intentional for local dev only.
+7. **Credentials everywhere are plaintext**: Jupyter password (`123456`), SeaweedFS S3, Hive Postgres, Phoenix Postgres — all hardcoded in Dockerfiles and config files. Intentional for local dev only.
 
 8. **HMS S3A JARs: do NOT download hadoop-aws ≥ 3.4.x into the HMS image**. `apache/hive:4.0.0` bundles Hadoop **3.3.6** in `/opt/hadoop/`. `hadoop-aws-3.4.x` requires `org.apache.hadoop.fs.BulkDelete` (added in Hadoop 3.4.0) — absent in 3.3.6 → `ClassNotFoundException` at runtime, causing HMS to close the Thrift socket mid-request. The HMS Dockerfile instead **symlinks** the already-bundled `/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar` and `aws-java-sdk-bundle-1.12.367.jar` into `/opt/hive/lib/`.
 
@@ -146,7 +147,12 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 10. **Spark is capped by the Iceberg runtime**: Iceberg 1.12.0 publishes runtimes only for Spark 3.5, 4.0 and 4.1 (no `iceberg-spark-runtime-4.2_2.13` on Maven Central). Do **not** move to Spark 4.2.x until that artifact exists. Keep `spark/Dockerfile` (`apache/spark:<ver>`), `jupyter/Dockerfile` (`SPARK_VERSION`, used for both the tarball and `pyspark==`) and the Iceberg jar's Spark line in lockstep. `hadoop-aws` must stay at the Hadoop version Spark bundles (3.4.2 for Spark 4.1.3).
 
-11. **MinIO image removed from Docker Hub**: as of 2026-10, `docker pull minio/minio:latest` fails with `repository does not exist` (Docker Hub returns 404 for `minio/minio` and `minio/mc`). Hosts that already have the image cached still work. On a fresh host, `docker-compose.yaml`'s `minio` service must point at another image. `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` (a community rebuild of MinIO, includes `mc`) was used to run the e2e test. Changing the compose default is still an open decision.
+11. **Object storage is SeaweedFS** (`chrislusf/seaweedfs:4.48`, replaced MinIO in 2026-10 after `minio/minio` disappeared from Docker Hub). One container runs master + volume + filer + S3 gateway (`weed server -s3`). Things to know:
+    - S3 identity/keys live in `seaweedfs/s3.json` (mounted read-only). Anonymous requests get 403.
+    - The `warehouse` bucket is created with `weed shell` (`s3.bucket.create -name warehouse`) by `start-platform.sh` and `tests/e2e/run-e2e.sh`. There is no `mc`.
+    - **Keep `-volume.max=64`**: with the default `-volume.max=0`, slots are sized from free disk (5 GB free → 4 slots), the filer's metadata used all of them, and every S3A PUT failed with HTTP 500 (`No writable volumes and no free volumes left`). Volumes are sparse, so 64 slots reserve no disk.
+    - Filer UI container port 8888 is published on host **8889** (host 8888 is Jupyter). Volume server 8080 is not published (host 8080 is Trino).
+    - Compose has a healthcheck on `/healthz`; `hive-metastore` waits for it (`service_healthy`).
 
 12. **Trino 482/483 breaking changes** (none affect current configs): Alluxio FS removed; `char`→`varchar` coercion reversed; `hive.max-initial-split*` removed; Iceberg `$files.lower_bounds/upper_bounds` are now typed rows; `s3.iam-role` now needs `s3.auth-type=IAM_ROLE`; the new Web UI is the default at `/ui` (legacy at `/ui/legacy`, disabled by default).
 
@@ -158,6 +164,8 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 ```
 docker-compose.yaml           # All 11 services defined here
+seaweedfs/
+  s3.json                     # SeaweedFS S3 identity (seaweedadmin / seaweedadmin123)
 start-platform.sh             # One-command startup + smart rebuild detection
 hive-metastore/
   Dockerfile                  # Hive 4.0.0 (apache/hive:4.0.0, Debian Bullseye; held at 4.0.0 for Iceberg compat)
@@ -177,7 +185,7 @@ trino/
   etc/catalog/lakehouse.properties  # Lakehouse connector (Hive + Iceberg tables) → HMS thrift
 tests/e2e/
   run-e2e.sh                  # Starts core services, runs the e2e test via spark-submit
-  e2e_lakehouse.py            # 15 checks: Spark/Trino × hive/iceberg/lakehouse catalogs
+  e2e_lakehouse.py            # 19 checks: Spark/Trino × hive/iceberg/lakehouse catalogs
 docs/
   UPGRADE_PLAN.md             # Compatibility research + version pins rationale (2026-10 upgrade)
 ```
@@ -186,5 +194,5 @@ docs/
 
 ## Notebooks
 
-- [`jupyter/notebooks/data_lab_playground.ipynb`](jupyter/notebooks/data_lab_playground.ipynb) — Full platform demo: Phoenix tracing, Ollama LLM, Spark, MinIO, Trino
+- [`jupyter/notebooks/data_lab_playground.ipynb`](jupyter/notebooks/data_lab_playground.ipynb) — Full platform demo: Phoenix tracing, Ollama LLM, Spark, SeaweedFS, Trino
 - [`jupyter/notebooks/rag_demo.ipynb`](jupyter/notebooks/rag_demo.ipynb) — RAG pipeline: Qdrant + `mxbai-embed-large` embeddings + `gemma3:4b` LLM + LangChain

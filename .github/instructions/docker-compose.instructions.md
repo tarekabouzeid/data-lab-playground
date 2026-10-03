@@ -9,7 +9,7 @@ applyTo: "**/docker-compose.{yaml,yml}"
 
 | Service | Image | Critical Notes |
 |---|---|---|
-| `minio` | `minio/minio:latest` | S3 storage; bucket `warehouse` created by `start-platform.sh` |
+| `seaweedfs` | `chrislusf/seaweedfs:4.48` | S3 storage on :8333 (`weed server -s3`, keys in `seaweedfs/s3.json`); bucket `warehouse` created via `weed shell` by `start-platform.sh`; keep `-volume.max=64` |
 | `metastore-db` | `postgres:13` | Hive Metastore backend; host port **5433** |
 | `hive-metastore` | pre-built (not built by compose) | build block is commented out; see [dockerfiles instructions](.github/instructions/dockerfiles.instructions.md) |
 | `trino` | `datalab-playground/trino:latest` | Single-node; depends on hive-metastore |
@@ -33,7 +33,7 @@ applyTo: "**/docker-compose.{yaml,yml}"
 
 | Service | User | Password |
 |---|---|---|
-| MinIO | `minioadmin` | `minioadmin123` |
+| SeaweedFS S3 | `seaweedadmin` | `seaweedadmin123` |
 | Hive Postgres | `hive` | `hive123` |
 | Phoenix Postgres | `postgres` | `postgres` |
 | Jupyter | — | `123456` |

@@ -32,21 +32,21 @@ Do not leave these files stale after a change.
 
 ## Project Summary
 
-A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.3, Iceberg 1.12.0, Trino 483, Hive Metastore 4.0.0, MinIO, Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
+A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.3, Iceberg 1.12.0, Trino 483, Hive Metastore 4.0.0, SeaweedFS (S3), Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
 
 ## Key Things to Know
 
-- **Start everything**: `./start-platform.sh` (handles image builds + MinIO bucket + Ollama model pull)
+- **Start everything**: `./start-platform.sh` (handles image builds + SeaweedFS `warehouse` bucket + Ollama model pull)
 - **Force rebuild**: `./start-platform.sh --rebuild`
-- **E2E test (no GPU)**: `tests/e2e/run-e2e.sh --build` (15 checks: Spark/Trino × `hive`/`iceberg`/`lakehouse` catalogs)
+- **E2E test (no GPU)**: `tests/e2e/run-e2e.sh --build` (19 checks: Spark/Trino × `hive`/`iceberg`/`lakehouse` catalogs + plain-Parquet storage checks)
 - **Jupyter** at http://localhost:8888, password `123456`
-- **All credentials are intentionally hardcoded** (local dev only — MinIO, Postgres, Jupyter)
+- **All credentials are intentionally hardcoded** (local dev only — SeaweedFS S3 `seaweedadmin`/`seaweedadmin123`, Postgres, Jupyter)
 
 ## Architecture
 
 ```
-Jupyter (8888) → Spark Master (7077/8081) → MinIO s3a://warehouse/
-Jupyter         → Trino (8080) → Hive Metastore (9083) → Postgres (5433) + MinIO
+Jupyter (8888) → Spark Master (7077/8081) → SeaweedFS S3 (8333) s3a://warehouse/
+Jupyter         → Trino (8080) → Hive Metastore (9083) → Postgres (5433) + SeaweedFS
 Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 ```
 
@@ -60,7 +60,7 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 6. **HMS S3A JARs — do NOT download `hadoop-aws ≥ 3.4.x`** into the HMS image. `apache/hive:4.0.0` bundles Hadoop **3.3.6**; `hadoop-aws-3.4.x` requires `BulkDelete` (absent in 3.3.6) → `ClassNotFoundException` → Thrift socket closed. The Dockerfile **symlinks** `/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar` and `aws-java-sdk-bundle-1.12.367.jar` into `/opt/hive/lib/`.
 7. **HMS path validation** — `hive.metastore.path.validation=false` is set in `hive-site.xml`. Without it, `CREATE TABLE ... external_location 's3a://...'` fails if the S3 path doesn't exist yet. Always use `s3a://` (not `s3://`) in external locations.
 8. **Spark capped at 4.1.x**: Iceberg 1.12.0 has no `iceberg-spark-runtime-4.2_2.13`. Keep `spark/Dockerfile`, `jupyter/Dockerfile` `SPARK_VERSION` (also drives `pyspark==`), and the Iceberg jar's Spark line in lockstep. `hadoop-aws` must equal Spark's bundled Hadoop (3.4.2).
-9. **`minio/minio` is gone from Docker Hub** (404 as of 2026-10). Cached images still work; fresh hosts need a replacement image (e2e was run with `pgsty/minio:RELEASE.2026-08-04T00-00-00Z`).
+9. **Storage is SeaweedFS 4.48** (replaced MinIO, whose image left Docker Hub). Endpoint `http://seaweedfs:8333`, keys in `seaweedfs/s3.json`. The bucket is created via `weed shell` (no `mc`). Keep `-volume.max=64`, because auto-sizing from free disk left no writable volumes and S3A PUTs returned 500. Filer UI is on host 8889.
 10. **Trino 483**: the new Web UI is the default at `/ui`. Breaking changes in 482/483 (Alluxio removal, char/varchar coercion, `$files` bounds type, `s3.auth-type`) don't affect current catalogs. Full research: `docs/UPGRADE_PLAN.md`.
 
 ## When Modifying Services
@@ -76,4 +76,4 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 ## Versions Reference
 
-Spark 4.1.3 · Hive 4.0.0 · Hadoop 3.4.2 (Spark/Trino) / 3.3.6 (HMS bundled) · Trino 483 · Python 3.12 · Iceberg 1.12.0 · AWS SDK Bundle 2.41.1 (Spark/Trino) / 1.12.367 (HMS)
+Spark 4.1.3 · Hive 4.0.0 · Hadoop 3.4.2 (Spark/Trino) / 3.3.6 (HMS bundled) · Trino 483 · Python 3.12 · Iceberg 1.12.0 · SeaweedFS 4.48 · AWS SDK Bundle 2.41.1 (Spark/Trino) / 1.12.367 (HMS)
