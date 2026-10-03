@@ -29,7 +29,7 @@ A simple Docker-based environment for exploring data analytics and AI tools. Inc
 ### Data Processing & Storage
 - **SeaweedFS**: S3-compatible object storage (`s3a://warehouse/`); data is stored as plain Parquet files, plus Iceberg tables whose data files are also Parquet
 - **Apache Spark**: Basic data processing capabilities  
-- **Hive Metastore**: Simple metadata management
+- **Hive Metastore 4.2.1**: table metadata. Thrift on `:9083` (Trino `hive`/`lakehouse`) and a built-in **Iceberg REST catalog** on `:9084/iceberg` (Spark, Trino `iceberg`)
 - **Trino**: SQL query interface
 
 ### AI & ML Tools
@@ -48,10 +48,10 @@ A simple Docker-based environment for exploring data analytics and AI tools. Inc
 |---|---|---|
 | Apache Spark | 4.1.3 | Highest Spark line with an Iceberg runtime (no `iceberg-spark-runtime-4.2` yet) |
 | Apache Iceberg | 1.12.0 | `iceberg-spark-runtime-4.1_2.13` + `iceberg-aws-bundle` |
-| Hive Metastore | 4.0.0 | Held: HMS ≥ 4.0.1 removed the `get_table` Thrift call that Iceberg's Hive 2.3 client uses |
-| Trino | 483 | Catalogs: `hive`, `iceberg`, `lakehouse` (all → HMS) |
+| Hive Metastore | 4.2.1 | `apache/hive:standalone-metastore-4.2.1`; Iceberg goes through its built-in REST catalog (`:9084/iceberg`) because the old Thrift `get_table` call is gone |
+| Trino | 483 | Catalogs: `hive` + `lakehouse` (HMS Thrift), `iceberg` (HMS Iceberg REST) |
 | Hadoop (`hadoop-aws`, Spark) | 3.4.2 | Must match Spark's bundled Hadoop client |
-| Hadoop (bundled in HMS) | 3.3.6 | From `apache/hive:4.0.0` |
+| Hadoop (bundled in HMS) | 3.4.1 | From the HMS image, plus AWS SDK v2 `bundle-2.24.6` |
 | AWS SDK v2 bundle (Spark) | 2.41.1 | |
 | SeaweedFS | 4.48 | `chrislusf/seaweedfs:4.48`, all-in-one `weed server -s3` (S3 on :8333) |
 | Jupyter | `quay.io/jupyter/base-notebook:python-3.12` | Python 3.12 (matches Spark workers), `pyspark==4.1.3` |
@@ -118,6 +118,8 @@ Simple steps to explore the tools:
 | **Qdrant Web Dashboard** | http://localhost:6333/dashboard | None | Vector database management UI |
 | **Trino Web UI** | http://localhost:8080/ui | None | SQL query interface (legacy UI disabled since Trino 483) |
 | **Spark Master UI** | http://localhost:8081 | None | Spark cluster monitoring |
+| **Hive Metastore (Thrift)** | thrift://localhost:9083 | None | Trino `hive` / `lakehouse` catalogs |
+| **HMS Iceberg REST catalog** | http://localhost:9084/iceberg | None | Spark + Trino `iceberg` catalog |
 | **SeaweedFS S3 API** | http://localhost:8333 | seaweedadmin/seaweedadmin123 | S3-compatible object storage |
 | **SeaweedFS Filer UI** | http://localhost:8889/buckets/warehouse/ | None | Browse buckets/files |
 | **SeaweedFS Master UI** | http://localhost:9333 | None | Cluster/volume status |
@@ -229,6 +231,18 @@ tracer_provider = register(
     auto_instrument=True,
 )
 
+```
+
+### Spark with Iceberg (via the HMS Iceberg REST catalog)
+```python
+spark = SparkSession.builder \
+    .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
+    .config("spark.sql.catalog.iceberg_catalog", "org.apache.iceberg.spark.SparkCatalog") \
+    .config("spark.sql.catalog.iceberg_catalog.type", "rest") \
+    .config("spark.sql.catalog.iceberg_catalog.uri", "http://hive-metastore:9084/iceberg") \
+    .config("spark.sql.catalog.iceberg_catalog.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO") \
+    .getOrCreate()
+# Do NOT use type=hive (Thrift): HMS 4.2.1 removed the get_table call it relies on.
 ```
 
 ### Spark with S3 Integration

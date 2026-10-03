@@ -11,7 +11,7 @@ applyTo: "**/docker-compose.{yaml,yml}"
 |---|---|---|
 | `seaweedfs` | `chrislusf/seaweedfs:4.48` | S3 storage on :8333 (`weed server -s3`, keys in `seaweedfs/s3.json`); bucket `warehouse` created via `weed shell` by `start-platform.sh`; keep `-volume.max=64` |
 | `metastore-db` | `postgres:13` | Hive Metastore backend; host port **5433** |
-| `hive-metastore` | pre-built (not built by compose) | build block is commented out; see [dockerfiles instructions](.github/instructions/dockerfiles.instructions.md) |
+| `hive-metastore` | pre-built HMS 4.2.1 (not built by compose); ports 9083 Thrift + 9084 Iceberg REST | build block is commented out; see [dockerfiles instructions](.github/instructions/dockerfiles.instructions.md) |
 | `trino` | `datalab-playground/trino:latest` | Single-node; depends on hive-metastore |
 | `spark-master` | `datalab-playground/spark:latest` | Coordinator |
 | `spark-worker` | `datalab-playground/spark:latest` | 2g RAM, 2 cores |

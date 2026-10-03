@@ -45,7 +45,7 @@ wait_for "SeaweedFS S3" "[ \"\$(docker inspect -f '{{.State.Health.Status}}' sea
 echo "s3.bucket.create -name warehouse" | docker exec -i seaweedfs weed shell -master=seaweedfs:9333 >/dev/null 2>&1 || true
 wait_for "warehouse bucket" "echo s3.bucket.list | docker exec -i seaweedfs weed shell -master=seaweedfs:9333 | grep -q warehouse" 60
 wait_for "Hive Metastore :9083" "docker exec hive-metastore bash -c 'echo > /dev/tcp/localhost/9083'" 300
-if [ "${E2E_SPARK_ICEBERG:-hive}" = rest ]; then
+if [ "${E2E_SPARK_ICEBERG:-rest}" = rest ]; then
   wait_for "HMS Iceberg REST :9084" "docker exec trino curl -sf http://hive-metastore:9084/iceberg/v1/config" 120
 fi
 wait_for "Trino" "docker exec trino curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'" 300

@@ -4,7 +4,7 @@ Run via tests/e2e/run-e2e.sh (submitted with spark-submit inside the
 datalab-playground/spark image, on the platform's Docker network).
 
 Covers:
-  1. Spark  -> Iceberg table via HiveCatalog (HMS): create, insert, schema evolution
+  1. Spark  -> Iceberg table via HMS (Iceberg REST catalog): create, insert, schema evolution
   2. Spark  -> Iceberg snapshots + time travel
   3. Trino  `iceberg` catalog reads the Spark-written table, $snapshots, FOR VERSION AS OF
   4. Trino  `iceberg` INSERT, read back by Spark (bidirectional)
@@ -16,8 +16,8 @@ Covers:
     Trino-written Hive files and the Iceberg data files directly, without any catalog
 
 Environment:
-  E2E_SPARK_ICEBERG     "hive" (Thrift HiveCatalog, default) or "rest"
-                        (HMS built-in Iceberg REST catalog, needs HMS >= 4.1)
+  E2E_SPARK_ICEBERG     "rest" (HMS built-in Iceberg REST catalog, default) or "hive"
+                        (Thrift HiveCatalog; only works against HMS 4.0.0, see AGENTS.md)
   E2E_TRINO_ICEBERG     Trino catalog used for the Iceberg checks (default "iceberg")
 """
 
@@ -30,7 +30,7 @@ import urllib.request
 from pyspark.sql import SparkSession
 
 TRINO_URL = "http://trino:8080"
-SPARK_ICEBERG = os.environ.get("E2E_SPARK_ICEBERG", "hive")
+SPARK_ICEBERG = os.environ.get("E2E_SPARK_ICEBERG", "rest")
 TRINO_ICEBERG = os.environ.get("E2E_TRINO_ICEBERG", "iceberg")
 SCHEMA = "e2e"
 ICEBERG_TABLE = f"iceberg_catalog.{SCHEMA}.sales"

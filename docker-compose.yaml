@@ -43,12 +43,13 @@ services:
     networks:
       - data-lab-playground
 
-  # Hive Metastore
+  # Hive Metastore 4.2.1 — Thrift :9083 (Trino hive/lakehouse) + Iceberg REST :9084 (Spark, Trino iceberg)
   hive-metastore:
     image: datalab-playground/hive-metastore:latest
     container_name: hive-metastore
     ports:
       - "9083:9083"
+      - "9084:9084"
     environment:
       SERVICE_NAME: metastore
       DB_DRIVER: postgres
@@ -68,6 +69,7 @@ services:
 #    container_name: hive-metastore
 #    ports:
 #      - "9083:9083"
+#      - "9084:9084"
 #    environment:
 #      SERVICE_NAME: metastore
 #      DB_DRIVER: postgres

@@ -1,5 +1,19 @@
 # Upgrade Plan — Iceberg / Spark / Hive Metastore / Trino / Jupyter (2026-10)
 
+## Final state (2026-10-03)
+
+| Component | Before | After | Ceiling reason |
+|---|---|---|---|
+| Spark | 4.1.0 | **4.1.3** | Spark 4.2.0 exists, but Iceberg has no `iceberg-spark-runtime-4.2` yet |
+| Iceberg | 1.11.0 | **1.12.0** | latest release |
+| Hive Metastore | 4.0.0 | **4.2.1** | latest release; Iceberg goes through the HMS built-in REST catalog (Phase 2) |
+| Trino | 481 | **483** | latest release |
+| Object storage | MinIO (gone from Docker Hub) | **SeaweedFS 4.48** | latest release (Phase 1b) |
+
+Verification on the final stack: `tests/e2e/run-e2e.sh` 19/19 on fresh volumes, 19/19 on the re-run, and an in-place upgrade from the
+old HMS 4.0.0 stack on the same DB + SeaweedFS volumes (schema auto-migrated `4.0.0 → 4.2.0`; old Parquet and Iceberg tables
+readable and writable via Trino; then 19/19 on top). An Iceberg table in the `default` namespace (as the notebook does) works on a fresh install.
+
 Plan-first: every target version below was checked against upstream release notes,
 build files, and the HMS Thrift IDL **before** any code was changed.
 
@@ -105,7 +119,7 @@ Verification (HMS 4.0.0 stack, Spark Thrift HiveCatalog):
 
 ---
 
-# Phase 2 — Getting past HMS 4.0.0 (designed + spiked 2026-10-03, not applied yet)
+# Phase 2 — Getting past HMS 4.0.0 (designed + spiked, then **applied** 2026-10-03)
 
 ## Idea
 Stop sending Spark's Iceberg traffic over the HMS Thrift API, which is where the removed `get_table` hurts.
@@ -114,7 +128,7 @@ HMS **4.1+** ships a **built-in Iceberg REST catalog** (`hive-standalone-metasto
 
 ```
 Spark  ── Iceberg REST ──► HMS 4.2.1 :9084/iceberg ─┐
-Trino iceberg ── Iceberg REST (or Thrift) ──────────┤
+Trino iceberg ── Iceberg REST ──────────────────────┤
 Trino hive / lakehouse ── Thrift :9083 ─────────────┴─► Postgres + SeaweedFS
 ```
 
