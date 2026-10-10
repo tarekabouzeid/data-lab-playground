@@ -30,7 +30,7 @@ NVIDIA GPU, and it uses current Kubernetes features where they bring a real bene
 | Topic | Decision |
 |---|---|
 | Spark runtime | **Kubeflow Spark Operator** (chart 2.5.2) replaces the standalone master/worker. |
-| Notebook ↔ Spark | **Chart-managed `SparkConnect` CR** running *our* `datalab-playground/spark` image (Spark 4.1.3). Jupyter connects with pyspark 4.1.3 Spark Connect (`SPARK_REMOTE=sc://…`). Batch jobs and the e2e test run as `SparkApplication`. |
+| Notebook ↔ Spark | **Chart-managed `SparkConnect` CR** running *our* `datalab-playground/spark` image (Spark 4.1.3). Jupyter connects with pyspark 4.1.3 Spark Connect, either through `SPARK_REMOTE=sc://…` or the **Kubeflow SDK 0.5.0 in `connect(base_url=…)` mode** (installed without the `[spark]` extra). Batch jobs and the e2e test run as chart-templated `SparkApplication`s. |
 | GPU for Ollama | **Device plugin by default** (`nvidia.com/gpu`, the path the minikube docs cover). An **optional DRA mode** (`ResourceClaimTemplate`, NVIDIA DRA driver) sits behind a values flag. |
 | Image tags | **Pin everything.** `latest` is resolved to concrete versions in *both* compose and Helm (§3). |
 | Host access | **Gateway API** (`Gateway` + `HTTPRoute`), implemented by **Envoy Gateway v1.9.2**. The setup script installs Envoy Gateway, and `minikube tunnel` exposes it. |
@@ -47,8 +47,35 @@ The Kubeflow SDK 0.5.0 (`kubeflow.spark`) can create a SparkConnect per notebook
 Any of these would break the 4.1.3 / Iceberg 1.12.0 parity rule (CLAUDE.md pitfall 8). Instead, the chart deploys one
 long-lived `SparkConnect` (`sparkoperator.k8s.io/v1alpha1`), and the operator runs it **inside our image**: the controller
 executes `${SPARK_HOME}/sbin/start-connect-server.sh` (spark-operator `internal/controller/sparkconnect/options.go`), so
-the server's Spark version is the one in our image (4.1.3), not the operator's. The SDK is not installed by default.
-It could be added later in `connect(base_url=…)` mode only, if it ever supports a configurable Spark version.
+the server's Spark version is the one in our image (4.1.3), not the operator's.
+
+### Kubeflow SDK: what is used and what is blocked (verified 2026-10-10)
+
+The SDK **is installed** in the Jupyter image, but only the parts that don't depend on a Spark version are used:
+
+| SDK 0.5.0 feature | Status | Reason (source) |
+|---|---|---|
+| `SparkClient().connect(base_url="sc://datalab-spark-server:15002")` | ✅ **used** | It only calls `SparkSession.builder.remote(base_url)` (`kubeflow/spark/api/spark_client.py`), so it works with any server version |
+| `list_sessions()`, `get_session()`, `get_session_logs()` | ✅ **used** | Read-only on SparkConnect CRs and pods. Needs the Jupyter RBAC in §4. |
+| `connect()` **create mode** (a SparkConnect per notebook) | ⛔ **blocked** | `spark_version` is always `DEFAULT_SPARK_VERSION = "4.0.4"` (no parameter on `connect()`). It also injects `spark-connect_2.13-4.0.4.jar` from Maven at runtime, which would clash with our 4.1.3 image. |
+| `submit_job()` (FileJob / FuncJob) | ⛔ **blocked** | `build_spark_application_cr` hardcodes `sparkVersion` and `image: apache/spark:4.0.4`. That image lacks our hadoop-aws/Iceberg jars. |
+| `pip install kubeflow[spark]` | ⛔ **blocked** | The extra pins `pyspark-connect==4.2.0`. pip reports `ResolutionImpossible` next to `pyspark==4.1.3` (tested). |
+
+Install line (tested: resolves, and `from kubeflow.spark import SparkClient` imports with pyspark 4.1.3):
+`pip install 'pyspark[connect]==4.1.3' 'kubeflow==0.5.0' 'kubeflow-spark-api>=2.4.0,<2.5'`. This resolved to `kubeflow-spark-api 2.4.0`. Pin the exact versions you get.
+
+Optional, unverified (Phase 3, don't rely on it): `submit_job(..., options=[PodTemplateOverride(...)])` might be able to override the container image.
+If it works with our image, document it. If not, record it as blocked too.
+
+**On every SDK or operator upgrade**, re-check the blocked rows (the commands are also in `docs/VERSIONS.md` §6):
+```bash
+pip download --no-deps kubeflow==<new> -d /tmp/kf && unzip -o -q /tmp/kf/kubeflow-*.whl -d /tmp/kf/x
+grep -n "DEFAULT_SPARK_VERSION\|DEFAULT_SPARK_IMAGE" /tmp/kf/x/kubeflow/spark/backends/kubernetes/constants.py
+grep -n "spark_version\|image" /tmp/kf/x/kubeflow/spark/api/spark_client.py   # look for new connect()/submit_job() parameters
+grep -n "pyspark" /tmp/kf/x/kubeflow-*.dist-info/METADATA                      # the [spark] extra's pyspark-connect pin
+```
+Unblocked when: `connect()`/`submit_job()` accept a Spark version **and** an image, and the `[spark]` extra allows `pyspark==4.1.x`
+(or the default Spark version equals ours). Then enable create mode and SDK job submission and drop the chart's fixed SparkConnect if it's no longer needed.
 
 ---
 
@@ -81,7 +108,7 @@ Every image is identical between compose and Helm. A single table in `docs/VERSI
 | hive-metastore | `datalab-playground/hive-metastore:latest` (local build, HMS 4.2.1) | — |
 | trino | `datalab-playground/trino:latest` (local build, Trino 483) | — |
 | spark (SparkConnect server, executors, SparkApplications) | `datalab-playground/spark:latest` (local build, Spark 4.1.3) | Possibly add `spark-connect_2.13-4.1.3.jar` at build time; see Phase 1. |
-| jupyter | `datalab-playground/jupyter:latest` (local build) | `pyspark[connect]==4.1.3` instead of `pyspark==4.1.3`, so the Connect client deps (grpcio etc.) are present |
+| jupyter | `datalab-playground/jupyter:latest` (local build) | `pyspark[connect]==4.1.3` instead of `pyspark==4.1.3`, so the Connect client deps (grpcio etc.) are present. Add `kubeflow==0.5.0` + `kubeflow-spark-api` (pinned, **no `[spark]` extra**, §1). |
 | phoenix | `arizephoenix/phoenix:latest` → **`arizephoenix/phoenix:version-20.20.0`** | pin (same digest as `latest` today: `sha256:3a2e5a04…`) |
 | phoenix db | `postgres:17` | — |
 | ollama | `ollama/ollama:latest` → **`ollama/ollama:0.40.2`** | pin (same digest as `latest` today: `sha256:b86366bb…`) |
@@ -135,7 +162,7 @@ and `phoenix:4317`. Everything goes in one namespace, `datalab`.
 | hive-metastore | Deployment (1, `strategy: Recreate`) + Service (9083, 9084) | An initContainer waits for `metastore-db` (`pg_isready`) and `seaweedfs` (`/healthz`), which replaces `depends_on: service_healthy`. The startupProbe is TCP 9083 with a long budget for the schema init. Readiness also checks `GET :9084/iceberg/v1/config`. Same `SERVICE_NAME`, `DB_DRIVER`, `SERVICE_OPTS` env. |
 | trino | Deployment + Service 8080 | Uses the config baked into the image (compose additionally bind-mounts `./trino/etc`). An optional `values.trino.configOverride` renders a ConfigMap. Readiness is `/v1/info` `"starting":false`. Memory request/limit sized for `-Xmx8G` in `jvm.config` (see §11). |
 | spark-master, spark-worker | **removed**. Replaced by the SparkConnect CR `datalab-spark` plus the Spark Operator. | The executors are pods. `spark-defaults.conf` keys move to `sparkConf`/`hadoopConf` rendered from one values block (§5). |
-| jupyter | Deployment + Service 8888 + PVC or hostPath for notebooks | Env `SPARK_REMOTE`, `AWS_REGION`. The notebooks come from `minikube mount` → hostPath (the default for minikube), or from a PVC. |
+| jupyter | Deployment + Service 8888 + PVC or hostPath for notebooks + ServiceAccount `jupyter` + Role/RoleBinding | Env `SPARK_REMOTE`, `AWS_REGION`. The notebooks come from `minikube mount` → hostPath (the default for minikube), or from a PVC. The Role allows the SDK's read-only calls: `get/list/watch` on `sparkoperator.k8s.io` `sparkconnects`, plus `pods` and `pods/log`. The `create`/`delete` verbs stay out until create mode is unblocked (§1). |
 | phoenix | Deployment + Service (6006, 4317, 9090) | An initContainer waits for `db`. `PHOENIX_SQL_DATABASE_URL` comes from a Secret. |
 | db (phoenix-db) | StatefulSet + PVC + Service **`db`**:5432 | Keeps the name `db`, because Phoenix's URL uses it |
 | ollama | Deployment (`Recreate`) + PVC `/root/.ollama` + Service 11434 | GPU via `nvidia.com/gpu: 1` or a DRA claim (§6). Readiness is `exec ollama list` (compose healthcheck). |
@@ -171,6 +198,8 @@ and `phoenix:4317`. Everything goes in one namespace, `datalab`.
    - Cells 8 and 20 use `spark.sparkContext.master` and `.sparkContext.getConf()`. SparkContext does not exist under Spark Connect.
      Guard them with `if not os.environ.get("SPARK_REMOTE")` and print `spark.conf.get(...)` values otherwise.
    - Also grep `rag_demo.ipynb` and `trino_query_example_updated.py` for `.master(`, `sparkContext` and `.rdd`.
+   - Add one short "Spark on Kubernetes" cell to `data_lab_playground.ipynb`, skipped on compose (no `SPARK_REMOTE`). It shows
+     `SparkClient().connect(base_url=os.environ["SPARK_REMOTE"])`, `list_sessions()` and `get_session_logs("datalab-spark")`.
 4. **Batch / e2e**: a `SparkApplication` template (off by default; the e2e enables it) runs `tests/e2e/e2e_lakehouse.py` from a ConfigMap with the same image and `sparkConf`.
    The script is mounted through `spec.volumes` and `driver.volumeMounts`. The operator's mutating webhook does that mounting, so keep `webhook.enable=true`, which is the chart default.
    Caveat: the operator submits with its own `spark-submit` (Spark 4.0.4) against our 4.1.3 image. Phase 2 must prove this works, and §12 lists the fallback.
@@ -361,10 +390,10 @@ Add the Spark Connect server, one 2g executor, Ollama with a 4B model, Jupyter a
 | 1. Parity prep | Pin phoenix/ollama/qdrant in `docker-compose.yaml`. Jupyter: `pyspark[connect]==4.1.3`. Check `ls /opt/spark/jars \| grep connect` in `apache/spark:4.1.3`. It is expected to be present, because Spark's `assembly/pom.xml` depends on `spark-connect_2.13`. Only if `spark-connect_2.13-4.1.3.jar` is missing, add it in `spark/Dockerfile` at build time (no runtime Maven download). Notebook fixes from §5.3. | compose `run-e2e.sh --build` 19/19 still passes, and notebook cells 8/18/20 run on compose |
 | 1b. Cluster tooling | `setup-minikube.sh` (`--gpu-mode none` first), `build-images.sh`, `deploy.sh`, `lint.sh`, `check-parity.sh`. These are needed by every later phase. | a minikube with the Spark Operator and Envoy Gateway running, and the four local images visible in `minikube image ls` |
 | 2. Chart: lakehouse core | seaweedfs (+ bucket Job), metastore-db, hive-metastore, trino, SparkConnect, SparkApplication-e2e. Secrets, probes, PSA labels, schema, `e2e-k8s.sh`. | `lint.sh` clean, and `e2e-k8s.sh` 19/19 on minikube with `--gpu-mode none`. Also the Spark-Connect variant of the e2e. |
-| 3. Chart: AI + Jupyter | jupyter, phoenix + db, qdrant, ollama (device plugin) + pull Job | on the user's GPU host: both notebooks run end to end, and `nvidia-smi` in the ollama pod shows the model |
+| 3. Chart: AI + Jupyter | jupyter (+ SDK ServiceAccount/Role), phoenix + db, qdrant, ollama (device plugin) + pull Job. Try the optional `PodTemplateOverride` image test (§1) and record the result. | the SDK cell works on minikube (`connect(base_url=…)`, `list_sessions`, `get_session_logs`). On the user's GPU host: both notebooks run end to end, and `nvidia-smi` in the ollama pod shows the model. |
 | 4. Gateway + access | GatewayClass/Gateway/HTTPRoutes, `hosts.sh`, `port-forward.sh`, the Trino forwarded-header and Jupyter WebSocket checks from §7, and `helm/README.md` | a fresh-machine run from `helm/README.md` works, and every hostname in §7 answers |
 | 5. DRA (experimental) | ResourceClaimTemplate + `--gpu-mode dra` path | Ollama gets the GPU through a ResourceClaim |
-| 6. Docs | Post-change rule (CLAUDE.md): README, AGENTS.md, CLAUDE.md (new pitfalls: Service names == compose names, `IfNotPresent`, SparkConnect vs SparkContext, SDK 4.0.4 lock-in), `docs/VERSIONS.md` (Kubernetes/minikube/Helm/operator/Envoy/DRA rows and the image pins). RELEASE_NOTES only after you confirm. | docs reviewed |
+| 6. Docs | Post-change rule (CLAUDE.md): README, AGENTS.md, CLAUDE.md (new pitfalls: Service names == compose names, `IfNotPresent`, SparkConnect vs SparkContext, SDK 4.0.4 lock-in), `docs/VERSIONS.md` (Kubernetes/minikube/Helm/operator/Envoy/DRA/**Kubeflow SDK** rows and the image pins). In VERSIONS.md §6 "Upgrade blockers", add a row: *Kubeflow SDK create mode / `submit_job()` / `[spark]` extra — blocked by the hardcoded Spark 4.0.4 version and image and the `pyspark-connect==4.2.0` pin — re-check on every SDK release* with the commands from §1. Add a matching short pitfall to CLAUDE.md and AGENTS.md: "Kubeflow SDK: `base_url` mode only, never install `kubeflow[spark]`". RELEASE_NOTES only after you confirm. | docs reviewed |
 
 ---
 
@@ -376,6 +405,7 @@ Add the Spark Connect server, one 2g executor, Ollama with a 4B model, Jupyter a
 | R2 | `apache/spark:4.1.3` might not ship the Spark Connect server jar (unlikely, because the assembly depends on it) | Phase 1 `ls` check. Add the jar at build time only if it is missing. |
 | R3 | Spark Connect lacks SparkContext/RDD APIs | Notebook guards. Document the limitation. |
 | R4 | SparkConnect CRD is `v1alpha1` (may change) | Pin operator 2.5.2. Re-check on upgrade (add to VERSIONS.md §6). |
+| R4b | Kubeflow SDK's version-dependent features are locked to Spark 4.0.4 | `base_url` mode only. The VERSIONS.md §6 blocker row is re-checked on every SDK release (§1). |
 | R5 | Device plugin + DRA on the same GPU is undocumented | DRA mode disables the device plugin addon. DRA stays experimental. |
 | R6 | `minikube tunnel` address and `/etc/hosts` handling differ per host | `hosts.sh` prints the line rather than editing. `port-forward.sh` is the fallback. |
 | R7 | Trino 8G heap on a small laptop | Minikube sizing in the script. An optional values override for `jvm.config` (it changes only when the user sets it, so the defaults keep parity). |
