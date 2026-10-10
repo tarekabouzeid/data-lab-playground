@@ -96,6 +96,28 @@ helm/scripts/e2e-k8s.sh                 # the 19-check lakehouse e2e on the clus
 `--mode application` has the Spark Operator `spark-submit` the script with our image; `--mode connect` runs it through Spark Connect
 (the notebook path, needs the jupyter image).
 
+## Manual test checklist (first run on a real cluster)
+
+The chart was validated against a real API server and its Spark pieces were run in our images, but **never on a live Kubernetes node**.
+Work through this in order; each step says what "good" looks like and how to look closer when it is not.
+
+| # | Step | Good looks like | If not, look at |
+|---|---|---|---|
+| 1 | `helm/scripts/lint.sh` | `all static checks passed` | the message names the failing variant |
+| 2 | `helm/scripts/setup-minikube.sh --gpu-mode none` (CPU first; add the GPU later) | ends with `Cluster ready`; `kubectl get pods -A` all Running | `kubectl -n spark-operator get pods`, `kubectl -n envoy-gateway-system get pods` |
+| 3 | `helm/scripts/build-images.sh` | `minikube image ls` lists the 4 `datalab-playground/*` images | the Jupyter build needs `quay.io`; a corporate proxy/CA usually shows here |
+| 4 | `helm/scripts/e2e-k8s.sh --mode connect` | `connect mode: 19/19` (this path was run in Docker already) | `kubectl -n datalab-e2e get pods,sparkconnect`; `kubectl -n datalab-e2e logs sparkconnect-pod...` |
+| 5 | `helm/scripts/e2e-k8s.sh --mode application` | `application mode: 19/19` | `kubectl -n datalab-e2e describe sparkapplication datalab-e2e`; the operator's 4.0.4 `spark-submit` against our 4.1.3 image is the least-tested link |
+| 6 | `helm/scripts/deploy.sh --set gpu.mode=none --set ollama.enabled=false` | `helm status datalab` deployed; all pods Ready | `kubectl -n datalab get pods`; `kubectl -n datalab describe pod <name>` |
+| 7 | `minikube tunnel` + `helm/scripts/hosts.sh`, then open Jupyter | http://jupyter.datalab.test loads; a cell runs (WebSocket works); the last notebook cell lists `datalab-spark` | `kubectl -n datalab get gateway,httproute`; if Trino rejects proxied requests see *Configuration notes* |
+| 8 | Run `data_lab_playground.ipynb` | no `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER`; Iceberg/Trino cells pass | Jupyter pod logs; `kubectl -n datalab logs datalab-spark-server` |
+| 9 | Save a notebook | the file appears in `jupyter/notebooks/` on the host | hostPath permission: switch to `--set jupyter.notebooks.mode=pvc` |
+| 10 | GPU: `setup-minikube.sh` (device plugin) then `deploy.sh`; wait for `job/ollama-pull-*` | `kubectl -n datalab exec deploy/ollama -- nvidia-smi` shows the GPU; `rag_demo.ipynb` runs | `kubectl describe node | grep nvidia`; `kubectl -n datalab describe pod -l app.kubernetes.io/name=ollama` |
+| 11 | (optional) `--gpu-mode dra` | Ollama pod has a bound `ResourceClaim` | `kubectl -n datalab get resourceclaim`; DRA is experimental here |
+
+Useful everywhere: `kubectl -n datalab get pods -w`, `kubectl -n datalab get events --sort-by=.lastTimestamp | tail -20`,
+`helm -n datalab get values datalab --all`. Reset everything: `helm -n datalab uninstall datalab && kubectl -n datalab delete pvc --all`.
+
 ## Configuration notes
 
 * `values.yaml` pins every image to the compose tag; `check-parity.sh` fails if they, the Spark config or the e2e script drift apart.

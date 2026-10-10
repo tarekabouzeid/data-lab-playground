@@ -49,7 +49,8 @@ done
 
 if [[ $PULL == true ]]; then
   # third-party images come from values.yaml (the same list check-parity.sh compares with docker-compose.yaml)
-  mapfile -t IMAGES < <(python3 - "$CHART/values.yaml" <<'PY'
+  IMAGES=()
+  while IFS= read -r line; do IMAGES+=("$line"); done < <(python3 - "$CHART/values.yaml" <<'PY'
 import re, sys
 for repo, tag in re.findall(r'repository:\s*([^\s,}]+),\s*tag:\s*"?([^"\s}]+)"?', open(sys.argv[1]).read()):
     if not repo.startswith("datalab-playground/"):

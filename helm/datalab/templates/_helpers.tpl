@@ -32,7 +32,12 @@ app.kubernetes.io/instance: {{ .ctx.Release.Name }}
 enableServiceLinks: false
 {{- end }}
 
-{{/* Spark configuration (spark-defaults.conf mirror), one place for SparkConnect and SparkApplication */}}
+{{/* Spark configuration (spark-defaults.conf mirror) shared by SparkConnect and SparkApplication.
+     args: ctx + executor ({cores, memory}). The executor size is also a CR field, so it is forced into the conf
+     here: two different values for the same property would make the winner depend on spark-submit argument order. */}}
 {{- define "datalab.sparkConf" -}}
-{{- toYaml .Values.spark.sparkConf -}}
+{{- $conf := deepCopy .ctx.Values.spark.sparkConf -}}
+{{- $_ := set $conf "spark.executor.memory" (toString .executor.memory) -}}
+{{- $_ := set $conf "spark.executor.cores" (toString .executor.cores) -}}
+{{- toYaml $conf -}}
 {{- end }}

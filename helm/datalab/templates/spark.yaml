@@ -14,7 +14,7 @@ metadata:
 spec:
   sparkVersion: {{ .Values.spark.sparkVersion | quote }}
   image: {{ $img }}
-  sparkConf: {{- include "datalab.sparkConf" . | nindent 4 }}
+  sparkConf: {{- include "datalab.sparkConf" (dict "ctx" . "executor" .Values.spark.executor) | nindent 4 }}
   {{- if .Values.spark.dynamicAllocation.enabled }}
   dynamicAllocation:
     enabled: true

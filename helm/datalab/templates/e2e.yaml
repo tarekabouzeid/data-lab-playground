@@ -27,7 +27,7 @@ spec:
   imagePullPolicy: {{ .Values.imagePullPolicy }}
   mainApplicationFile: local:///e2e/e2e_lakehouse.py
   restartPolicy: {type: Never}
-  sparkConf: {{- include "datalab.sparkConf" . | nindent 4 }}
+  sparkConf: {{- include "datalab.sparkConf" (dict "ctx" . "executor" .Values.e2e.executor) | nindent 4 }}
   volumes:
     - name: e2e
       configMap: {name: datalab-e2e-script}

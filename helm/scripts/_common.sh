@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034
 # Sourced by the other helm/scripts/*.sh
 set -euo pipefail
 
