@@ -444,3 +444,15 @@ Deviations from the plan above, found while implementing:
 - The init-container/Job commands (bucket Job script, `pg_isready`/`wget` waits, Trino and Qdrant probes) run against the pinned images.
 
 **Not verified (needs a machine with a working Kubernetes node)**: `setup-minikube.sh`, `build-images.sh`, `deploy.sh` end to end; `e2e-k8s.sh` in both modes; the operator launching the Connect server and executor pods with `--master k8s://` (R1: the operator's Spark 4.0.4 `spark-submit` vs our 4.1.3 image, for `--mode application`); Gateway routing (Trino forwarded headers, Jupyter WebSockets, hostPath permissions); GPU and DRA; the Jupyter image build (its `quay.io` base was unreachable here); running both notebooks on Kubernetes.
+
+### Addendum (2026-10-10): Headlamp + Kubeflow plugin, host access
+
+* **Headlamp** 0.45.0 is installed as its own release of the official chart (`helm/headlamp-values.yaml`, `helm/scripts/install-headlamp.sh`), with the
+  `headlamp_kubeflow` 0.2.0-alpha plugin through the chart's plugin-manager sidecar (`@headlamp-k8s/pluginctl@0.1.1`). pluginctl accepts only Artifact Hub sources
+  (`https://artifacthub.io/packages/headlamp/...`), so in-cluster internet access is required. The plugin covers `SparkApplication`/`ScheduledSparkApplication`
+  (v1beta2), **not** `SparkConnect`. Login is a ServiceAccount token (`helm/scripts/headlamp-token.sh`); the chart's own default of giving the pod's ServiceAccount cluster-admin is unchanged.
+  The route lives in the datalab chart (`headlamp.enabled`, `gateway.routes`), same namespace, so no ReferenceGrant is needed.
+* **Host access**: `gateway-forward.sh` port-forwards the Envoy proxy Service (found by Envoy Gateway's `owning-gateway-name/namespace` labels) to `localhost:8080`;
+  `gateway.domain` now defaults to `datalab.localhost` (resolves to 127.0.0.1 without `/etc/hosts`). `minikube tunnel` + `hosts.sh` remains as the standard-port alternative.
+* **Not verified**: Headlamp actually running and loading the plugin (the image registry was unreachable from the build sandbox), and the Artifact Hub package URL itself
+  (inferred from the documented `headlamp-plugins/<package>` pattern and the plugin's `artifacthub-pkg.yml`; check with the `curl` in `helm/README.md` checklist step 9b).

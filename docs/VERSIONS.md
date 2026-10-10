@@ -114,7 +114,11 @@ Same images and Spark config as compose (enforced by `helm/scripts/check-parity.
 | Helm | v4.3 (chart `apiVersion: v2`) | `helm/scripts/versions.env` |
 | Kubeflow Spark Operator | 2.5.2 (chart = app version; its own image is based on Spark 4.0.4, our Spark Connect server uses our 4.1.3 image) | `helm/scripts/versions.env` |
 | Envoy Gateway / Gateway API | v1.9.2 / v1.6.3 (CRDs come with the Envoy Gateway chart) | `helm/scripts/versions.env` |
+| Headlamp (Kubernetes UI) | 0.45.0 (chart = app), image `ghcr.io/headlamp-k8s/headlamp:v0.45.0`; plugin-manager sidecar `node:lts-alpine` (rolling, chart default) running `@headlamp-k8s/pluginctl@0.1.1` | `helm/scripts/versions.env`, `helm/headlamp-values.yaml` |
+| Headlamp Kubeflow plugin | `headlamp_kubeflow` 0.2.0-alpha (Artifact Hub `headlamp-plugins/headlamp_kubeflow`; covers `SparkApplication`/`ScheduledSparkApplication`, not `SparkConnect`; archive SHA-256 `e8d3369b…06ac` verified) | `helm/headlamp-values.yaml` |
 | NVIDIA DRA driver (optional, experimental) | 0.5.0, DeviceClass `gpu.nvidia.com`, `resource.k8s.io/v1` | `helm/scripts/versions.env` |
+
+Headlamp: the official chart renders with our values and is accepted by a real kube-apiserver v1.37.0 (`lint.sh --server-dry-run`); pluginctl 0.1.1 parses our plugin config and reaches the Artifact Hub fetch; the plugin archive matches its published checksum. Not verified: the Headlamp image running and loading the plugin (its registry was unreachable from the build sandbox).
 
 Verification status of the chart: manifests are validated against a real kube-apiserver v1.37.0 with the real CRDs (`helm/scripts/lint.sh --server-dry-run`), the
 Spark Connect server was run in our image with the chart's rendered conf and passed the 19-check e2e through Spark Connect, and the Kubeflow SDK

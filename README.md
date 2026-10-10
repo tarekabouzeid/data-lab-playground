@@ -111,8 +111,10 @@ helm/scripts/setup-minikube.sh      # minikube + Spark Operator + Envoy Gateway 
 helm/scripts/build-images.sh        # build the local images inside minikube
 helm/scripts/deploy.sh              # install the chart
 helm/scripts/e2e-k8s.sh             # the 19-check lakehouse e2e on Kubernetes (no GPU needed)
+helm/scripts/gateway-forward.sh     # Envoy Gateway on localhost:8080 → http://jupyter.datalab.localhost:8080, headlamp.…, trino.…
 ```
 
+Headlamp (with the Kubeflow plugin) is installed as well: `http://headlamp.datalab.localhost:8080`, token from `helm/scripts/headlamp-token.sh`.
 Spark runs on the Kubeflow Spark Operator (a Spark Connect server in our Spark 4.1.3 image plus executor pods); notebooks reach it via `SPARK_REMOTE`.
 Details, GPU modes and access: [helm/README.md](helm/README.md); design: [docs/K8S_HELM_PLAN.md](docs/K8S_HELM_PLAN.md).
 

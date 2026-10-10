@@ -40,6 +40,27 @@ for entry in "${CASES[@]}"; do
   rm -f "$out"
 done
 
+# Headlamp is a separate release of the official chart: render it with our values (needs the chart: either the
+# `headlamp` Helm repo, or HEADLAMP_CHART=<path to a charts/headlamp checkout>).
+HL_CHART="${HEADLAMP_CHART:-}"
+if [[ -z $HL_CHART ]] && helm repo list 2>/dev/null | grep -q '^headlamp'; then HL_CHART=headlamp/headlamp; fi
+if [[ -n $HL_CHART ]]; then
+  out=$(mktemp)
+  hl_args=(); [[ -z ${HEADLAMP_CHART:-} ]] && hl_args=(--version "$HEADLAMP_VERSION")
+  helm template headlamp "$HL_CHART" ${hl_args[@]+"${hl_args[@]}"} -n "$NAMESPACE" -f "$HELM_DIR/headlamp-values.yaml" > "$out" \
+    || die "helm template failed for Headlamp"
+  grep -q 'headlamp_kubeflow' "$out" || die "the Kubeflow plugin entry is missing from the rendered Headlamp config"
+  if [[ $DRY == true ]]; then
+    kubectl apply --dry-run=server -f "$out" -n "$NAMESPACE" >/dev/null || die "server dry-run failed for Headlamp"
+    ok "headlamp: rendered $(grep -c '^kind:' "$out") objects incl. the Kubeflow plugin, server dry-run ok"
+  else
+    ok "headlamp: rendered $(grep -c '^kind:' "$out") objects incl. the Kubeflow plugin"
+  fi
+  rm -f "$out"
+else
+  warn "Headlamp chart not available (helm repo add headlamp $HEADLAMP_REPO, or set HEADLAMP_CHART): skipping its render check"
+fi
+
 log "the capability checks must fire when the APIs are missing"
 if helm template "$RELEASE" "$CHART" -n "$NAMESPACE" >/dev/null 2>&1; then
   die "expected 'helm template' without --api-versions to fail (apiChecks)"

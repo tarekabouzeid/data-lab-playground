@@ -150,13 +150,16 @@ gpu:
 
 gateway:
   enabled: true
-  domain: datalab.test
+  # *.localhost resolves to 127.0.0.1 in browsers and curl, so with helm/scripts/gateway-forward.sh no /etc/hosts edit is needed.
+  # Use another domain (e.g. datalab.test) together with `minikube tunnel` + helm/scripts/hosts.sh.
+  domain: datalab.localhost
   className: datalab
   createClass: true                # false = reuse an existing GatewayClass named gateway.className
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
-  # host = <name>.<domain>. A route is skipped when its component is disabled.
+  # host = <name>.<domain>. A route is skipped when its component is disabled. longLived = no request timeout
+  # (WebSockets / watch streams).
   routes:
-    - {name: jupyter,  component: jupyter,  service: jupyter,                port: 8888}
+    - {name: jupyter,  component: jupyter,  service: jupyter,                port: 8888, longLived: true}
     - {name: trino,    component: trino,    service: trino,                  port: 8080}
     - {name: phoenix,  component: phoenix,  service: phoenix,                port: 6006}
     - {name: ollama,   component: ollama,   service: ollama,                 port: 11434}
@@ -165,6 +168,11 @@ gateway:
     - {name: filer,    component: seaweedfs, service: seaweedfs-http,        port: 8888}
     - {name: seaweed,  component: seaweedfs, service: seaweedfs-http,        port: 9333}
     - {name: spark,    component: spark,    service: "{{ .Values.spark.name }}-server", port: 4040}
+    # Headlamp is its own Helm release in this namespace (helm/scripts/install-headlamp.sh); only the route lives here.
+    - {name: headlamp, component: headlamp, service: headlamp,               port: 80,   longLived: true}
+
+headlamp:
+  enabled: true                    # route headlamp.<gateway.domain> -> Service "headlamp" (release installed by install-headlamp.sh)
 
 # End-to-end test (tests/e2e/e2e_lakehouse.py). Off by default; helm/scripts/e2e-k8s.sh enables it.
 e2e:

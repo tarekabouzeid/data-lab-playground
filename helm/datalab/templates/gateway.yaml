@@ -41,8 +41,8 @@ spec:
   rules:
     - backendRefs:
         - {name: {{ tpl .service $ }}, port: {{ .port }}}
-      {{- if eq .name "jupyter" }}
-      # notebook kernels run over WebSockets and idle for long periods
+      {{- if .longLived }}
+      # WebSockets (notebook kernels, Headlamp exec/log streams) and watch streams outlive any request timeout
       timeouts: {request: "0s"}
       {{- end }}
 {{- end }}

@@ -4,10 +4,10 @@
 # GPU steps follow https://minikube.sigs.k8s.io/docs/tutorials/nvidia/ (docker driver, Linux only).
 #
 # Usage: helm/scripts/setup-minikube.sh [--cpus 8] [--memory 24g] [--disk-size 80g]
-#                                       [--gpu-mode device-plugin|dra|none] [--profile minikube]
+#                                       [--gpu-mode device-plugin|dra|none] [--profile minikube] [--no-headlamp]
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-CPUS=8; MEMORY=24g; DISK=80g; GPU_MODE=device-plugin
+CPUS=8; MEMORY=24g; DISK=80g; GPU_MODE=device-plugin; HEADLAMP=true
 while [[ $# -gt 0 ]]; do
   case $1 in
     --cpus) CPUS=$2; shift 2;;
@@ -15,7 +15,8 @@ while [[ $# -gt 0 ]]; do
     --disk-size) DISK=$2; shift 2;;
     --gpu-mode) GPU_MODE=$2; shift 2;;
     --profile) MINIKUBE_PROFILE=$2; shift 2;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0;;
+    --no-headlamp) HEADLAMP=false; shift;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0;;
     *) die "unknown option: $1";;
   esac
 done
@@ -91,5 +92,10 @@ log "Installing Envoy Gateway $ENVOY_GATEWAY_VERSION (also installs the Gateway 
 helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version "$ENVOY_GATEWAY_VERSION" \
   -n envoy-gateway-system --create-namespace --wait
 
+if [[ $HEADLAMP == true ]]; then
+  "$HELM_DIR/scripts/install-headlamp.sh"
+fi
+
 ok "Cluster ready. Next: helm/scripts/build-images.sh && helm/scripts/deploy.sh"
-echo "For the Gateway hostnames run \`minikube tunnel\` in another terminal, then helm/scripts/hosts.sh."
+echo "Reach the Gateway from the host: helm/scripts/gateway-forward.sh   (or \`minikube tunnel\` + helm/scripts/hosts.sh)"
+[[ $HEADLAMP == true ]] && echo "Headlamp login token: helm/scripts/headlamp-token.sh"

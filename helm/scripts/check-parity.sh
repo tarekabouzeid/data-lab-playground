@@ -4,6 +4,7 @@
 #  2. spark.sparkConf in values.yaml contains every key of spark/conf/spark-defaults.conf (except spark.master), same values
 #  3. spark/conf/spark-defaults.conf == jupyter/spark-defaults.conf   (CLAUDE.md pitfall 2)
 #  4. helm/datalab/files/e2e_lakehouse.py == tests/e2e/e2e_lakehouse.py
+#  5. helm/headlamp-values.yaml pins (image tag, pluginctl, Kubeflow plugin) == helm/scripts/versions.env
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 require python3
 python3 - "$ROOT" <<'PY'
@@ -44,7 +45,18 @@ if (root/"spark/conf/spark-defaults.conf").read_bytes() != (root/"jupyter/spark-
 if (root/"helm/datalab/files/e2e_lakehouse.py").read_bytes() != (root/"tests/e2e/e2e_lakehouse.py").read_bytes():
     bad.append("helm/datalab/files/e2e_lakehouse.py differs from tests/e2e/e2e_lakehouse.py (copy it again)")
 
+# 5. Headlamp pins -------------------------------------------------------------------------------------------
+ver = dict(re.findall(r"^([A-Z_]+)=([^\s#]+)", (root/"helm/scripts/versions.env").read_text(), re.M))
+hv = (root/"helm/headlamp-values.yaml").read_text()
+def need(label, pattern, expected):
+    m = re.search(pattern, hv, re.M)
+    if not m: bad.append(f"headlamp-values.yaml: cannot find {label}")
+    elif m.group(1) != expected: bad.append(f"headlamp-values.yaml {label} is {m.group(1)!r}, versions.env says {expected!r}")
+need("image.tag", r"^  tag:\s*(\S+)", "v" + ver["HEADLAMP_VERSION"])
+need("pluginsManager.version", r'^  version:\s*"([^"]+)"', ver["HEADLAMP_PLUGINCTL_VERSION"])
+need("Kubeflow plugin version", r"^        version:\s*(\S+)", ver["HEADLAMP_KUBEFLOW_PLUGIN_VERSION"])
+
 if bad:
     print("PARITY FAILED:"); [print("  -", b) for b in bad]; sys.exit(1)
-print(f"parity ok: {len(compose)} images, {len(defaults)} spark conf keys")
+print(f"parity ok: {len(compose)} images, {len(defaults)} spark conf keys, Headlamp pins")
 PY
