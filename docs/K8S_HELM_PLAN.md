@@ -1,10 +1,27 @@
 # Kubernetes / Helm Deployment Plan
 
-Status: **DRAFT, for review** (2026-10-10). Nothing in `helm/` exists yet. This document is the plan to build it.
+Status: **DRAFT, reviewed** (2026-10-10, review fixes applied: §0, seaweedfs headless Service, Spark Connect static conf/`.master()` conflict, phase order, offline lint, Gateway caveats). Nothing in `helm/` exists yet. This document is the plan to build it.
 
 Goal: run the same platform that `docker-compose.yaml` runs (same services, same images, same versions) on
 Kubernetes as a Helm chart in a new `helm/` directory. The chart targets a local **minikube** cluster with an
 NVIDIA GPU, and it uses current Kubernetes features where they bring a real benefit.
+
+---
+
+## 0. Rules for the implementing agent (read first)
+
+- **Do not change any version or image** listed in §3. If something does not work at a pinned version, stop and report. Do not upgrade or downgrade to make it pass.
+- **Compose must keep working.** Every shared file you touch (`docker-compose.yaml`, Dockerfiles, `trino/etc`, notebooks, `spark-defaults.conf`)
+  must still pass `tests/e2e/run-e2e.sh --build` (19/19).
+- **Never write `RELEASE_NOTES.md`** without asking the user (CLAUDE.md).
+- Commit after each phase in §13, with that phase's "done when" evidence (command and output) in the commit message body.
+- **Where each check can run.** A cloud agent container typically has no GPU and may have no Docker daemon. This one had 4 CPUs, 15 GiB RAM and no daemon.
+  - Static checks (§12.1) run anywhere.
+  - The minikube e2e (§12.2) needs a Docker daemon, and roughly 12 GiB for the lakehouse core, because Trino alone has `-Xmx8G`.
+  - The GPU, DRA and notebook checks (§12.3–4) need the user's GPU host.
+  - If a check can't run where you are, say so explicitly and hand it to the user. Never mark it as passed.
+- When reality contradicts this plan (a field name, a default, a command), follow the upstream source, note the difference in the
+  phase's commit message, and fix this document in the same commit.
 
 ---
 
@@ -75,6 +92,8 @@ Rules:
   because Kubernetes defaults `:latest` to `Always`, which would try Docker Hub and fail.
 - The chart's `values.yaml` holds the third-party tags, and a CI-able script (`helm/scripts/check-parity.sh`) diffs them against
   `docker-compose.yaml` so the two can't drift.
+- The same script also diffs every key in `spark/conf/spark-defaults.conf` (except `spark.master`) against the chart's `spark.sparkConf`
+  values. This adds a third copy to keep in sync, on top of CLAUDE.md pitfall 2.
 - Not added to the chart: the bitnami or other upstream Postgres/Trino/Qdrant charts. Those ship different images, which would break parity.
 
 ---
@@ -110,7 +129,7 @@ and `phoenix:4317`. Everything goes in one namespace, `datalab`.
 
 | Compose service | Kubernetes object(s) | Notes |
 |---|---|---|
-| seaweedfs | StatefulSet (1) + PVC `/data` + Service (8333, 9333, 8888) + ConfigMap/Secret `s3.json` | The same `server … -volume.max=64 …` args. `-ip=seaweedfs` resolves to the Service. Readiness is `httpGet /healthz :8333` (compose healthcheck). |
+| seaweedfs | StatefulSet (1) + PVC `/data` + **headless** Service `seaweedfs` (`clusterIP: None`, `publishNotReadyAddresses: true`) + Secret `s3.json` | The same `server … -volume.max=64 …` args. The master, volume, filer and S3 processes in the pod reach each other at `-ip=seaweedfs`. Those connections use the HTTP ports **and** their gRPC ports (+10000) and the volume port 8080. With a normal ClusterIP Service, every port would need listing, and the pod would hairpin back to itself through its own Service. A headless Service makes `seaweedfs` resolve to the pod IP, exactly like compose. `publishNotReadyAddresses` is needed because the processes must resolve the name before the pod is Ready. Readiness is `httpGet /healthz :8333` (compose healthcheck). |
 | (start-platform bucket step) | Job `seaweedfs-bucket` | Idempotent `weed shell -master=seaweedfs:9333` create-or-list, the same as `start-platform.sh`. `backoffLimit` plus `ttlSecondsAfterFinished`. |
 | metastore-db | StatefulSet + PVC + Service `metastore-db:5432` + Secret | `pg_isready` exec readiness probe (compose healthcheck) |
 | hive-metastore | Deployment (1, `strategy: Recreate`) + Service (9083, 9084) | An initContainer waits for `metastore-db` (`pg_isready`) and `seaweedfs` (`/healthz`), which replaces `depends_on: service_healthy`. The startupProbe is TCP 9083 with a long budget for the schema init. Readiness also checks `GET :9084/iceberg/v1/config`. Same `SERVICE_NAME`, `DB_DRIVER`, `SERVICE_OPTS` env. |
@@ -135,15 +154,26 @@ and `phoenix:4317`. Everything goes in one namespace, `datalab`.
 2. **SparkConnect CR `datalab-spark`** (templated). Its Service is `datalab-spark-server:15002`.
    - `sparkVersion: 4.1.3`, `image: datalab-playground/spark:latest`, `imagePullPolicy: IfNotPresent` in the server and executor templates.
    - `sparkConf` comes from one values block that mirrors `spark/conf/spark-defaults.conf`: the S3A endpoint and keys, the timeouts, Kryo, AQE, and the pyspark python path. It also adds the Iceberg REST catalog that the e2e test and notebook set at runtime: `spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog`, `.type=rest`, `.uri=http://hive-metastore:9084/iceberg`, `.io-impl=org.apache.iceberg.hadoop.HadoopFileIO`.
+     It also needs **`spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions`**. This is a *static* conf: under Spark Connect, a client-side
+     `.config("spark.sql.extensions", …)` is silently dropped (pyspark 4.1.3 `sql/connect/session.py` `_apply_options` swallows errors for static confs), so the
+     Iceberg `CALL`/DDL extensions would be missing. Add the extra `spark.hadoop.fs.s3a.*` keys the notebook sets per session too (magic committer, fast upload, multipart sizes),
+     so behaviour doesn't depend on runtime-conf propagation.
      `spark.master` is **not** set, because the operator owns it.
+   - Env `AWS_REGION=us-east-1` on the server and executor templates (and on SparkApplication driver/executor), as compose sets it on every Spark container.
    - Executors: `instances: 1`, `cores: 2`, `memory: 2g`, which equals the compose worker (2 cores / 2g). Optional `dynamicAllocation` uses the CRD fields `minExecutors`/`maxExecutors`/`shuffleTrackingEnabled`, off by default.
    - Pod securityContext follows the operator example: `runAsUser/runAsGroup 185`, `runAsNonRoot`, `drop: [ALL]`, `seccompProfile: RuntimeDefault`.
-3. **Jupyter** gets `SPARK_REMOTE=sc://datalab-spark-server:15002`. With that variable set, pyspark's `SparkSession.builder…getOrCreate()` returns a Spark Connect session,
-   so the notebook code that builds sessions stays the same.
-   - **Notebook incompatibility found:** `data_lab_playground.ipynb` calls `spark.sparkContext.getConf()` and `sparkContext.master`. SparkContext is not available under Spark Connect.
-     The plan is to guard those cells (`if os.environ.get("SPARK_REMOTE")`) so that one notebook runs on both compose and Kubernetes.
+3. **Jupyter** gets `SPARK_REMOTE=sc://datalab-spark-server:15002`. With that variable set, pyspark's `SparkSession.builder…getOrCreate()` returns a Spark Connect session.
+   **The notebooks still need changes.** These were verified in the pyspark 4.1.3 source and the notebook:
+   - `data_lab_playground.ipynb` cells 8, 18 and 20 call `.master("spark://spark-master:7077")`. In pyspark 4.1.3, `_validate_startup_urls` raises
+     `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER` when `spark.master` is set while `SPARK_REMOTE` is set.
+     **Fix:** remove the `.master(...)` calls. On compose the master still comes from `spark.master=spark://spark-master:7077` in the Jupyter image's `spark-defaults.conf`,
+     so compose behaviour is unchanged. Prove this in Phase 1 with the compose run.
+   - Cells 8 and 20 use `spark.sparkContext.master` and `.sparkContext.getConf()`. SparkContext does not exist under Spark Connect.
+     Guard them with `if not os.environ.get("SPARK_REMOTE")` and print `spark.conf.get(...)` values otherwise.
+   - Also grep `rag_demo.ipynb` and `trino_query_example_updated.py` for `.master(`, `sparkContext` and `.rdd`.
 4. **Batch / e2e**: a `SparkApplication` template (off by default; the e2e enables it) runs `tests/e2e/e2e_lakehouse.py` from a ConfigMap with the same image and `sparkConf`.
-   Caveat: the operator submits with its own `spark-submit` (Spark 4.0.4) against our 4.1.3 image. Phase 4 must prove this works, and §12 lists the fallback.
+   The script is mounted through `spec.volumes` and `driver.volumeMounts`. The operator's mutating webhook does that mounting, so keep `webhook.enable=true`, which is the chart default.
+   Caveat: the operator submits with its own `spark-submit` (Spark 4.0.4) against our 4.1.3 image. Phase 2 must prove this works, and §12 lists the fallback.
 5. **Spark UI**: the SparkConnect server is the driver, so its UI is on 4040. The plan adds an `HTTPRoute` to it if the operator's server Service exposes 4040. If it doesn't, the chart adds a small extra Service selecting the server pod (verify in Phase 2).
 
 ---
@@ -179,6 +209,10 @@ carried over, because the device plugin injects the GPU.
 | `filer.datalab.test` / `seaweed.datalab.test` | seaweedfs:8888 / 9333 | localhost:8889 / 9333 |
 | `spark.datalab.test` | SparkConnect driver UI :4040 | localhost:8081 (master UI) |
 
+- **Trino behind a proxy:** Envoy adds `X-Forwarded-*` headers. By default, Trino rejects requests that carry them unless `http-server.process-forwarded=true` is set.
+  Verify this in Phase 4 by loading `trino.datalab.test/ui/`. If it is rejected, add that line to `trino/etc/config.properties`. It is harmless for compose, where no proxy sends the headers.
+- **Jupyter kernels use WebSockets.** Phase 4 must open a notebook and run a cell through `jupyter.datalab.test`, not just load the page.
+  If the upgrade fails, check Envoy Gateway's upgrade/WebSocket settings (a `ClientTrafficPolicy` or `BackendTrafficPolicy`) in the v1.9 docs.
 - **Not exposed through the Gateway**: Postgres x2, HMS Thrift/REST, Qdrant gRPC, Phoenix OTLP gRPC, and Spark Connect gRPC. These are in-cluster only, as they are in compose for clients.
   `helm/scripts/port-forward.sh` provides `kubectl port-forward` for the occasional host access (for example DBeaver to :5433, or a local pyspark to 15002).
 - Run `minikube tunnel` in a separate terminal to give the Envoy LoadBalancer Service an address. `helm/scripts/hosts.sh` reads
@@ -199,6 +233,10 @@ carried over, because the device plugin injects the GPU.
 - **Secrets** for every credential (the values stay the same hardcoded dev values, but no longer sit inline in env).
 - **Recommended labels** `app.kubernetes.io/*` everywhere, so `kubectl get all -l app.kubernetes.io/part-of=datalab` works.
 - The `.Capabilities` checks fail fast when the Spark Operator, Gateway API or DRA CRDs/APIs are missing.
+  Offline, `helm lint` and `helm template` see no CRDs, so the static tests must pass
+  `--api-versions sparkoperator.k8s.io/v1alpha1/SparkConnect --api-versions sparkoperator.k8s.io/v1beta2/SparkApplication --api-versions gateway.networking.k8s.io/v1/Gateway --api-versions resource.k8s.io/v1/ResourceClaimTemplate`.
+  Put that in a small `helm/scripts/lint.sh`, so nobody "fixes" the checks by deleting them.
+- **PSA `baseline` warnings are expected** for the `hostPath` notebook mount and for root containers. Don't silence them by changing images.
 
 ---
 
@@ -295,7 +333,7 @@ docker pull chrislusf/seaweedfs:4.48 postgres:13 postgres:17 \
 - Fallback flag `--load` (any runtime): build on the host and then run `minikube image load datalab-playground/<svc>:latest`.
 - The third-party image list is read from `helm/datalab/values.yaml`, so there is one source.
 
-Resource sizing (to confirm in Phase 4): Trino's `jvm.config` has `-Xmx8G`, so the Trino container needs a memory limit above 8 GiB.
+Resource sizing (to confirm in Phase 2): Trino's `jvm.config` has `-Xmx8G`, so the Trino container needs a memory limit above 8 GiB.
 Add the Spark Connect server, one 2g executor, Ollama with a 4B model, Jupyter and the rest. The proposed minikube default is
 `--cpus 8 --memory 24g --disk-size 80g`. `values-minikube.yaml` keeps requests well below that.
 
@@ -303,7 +341,7 @@ Add the Spark Connect server, one 2g executor, Ollama with a 4B model, Jupyter a
 
 ## 12. Testing
 
-1. **Static**: `helm lint helm/datalab`, plus `helm template` for each of `gpu.mode=device-plugin|dra|none`. Validate the output with `kubeconform` against the 1.37 schemas and the Gateway API, SparkConnect and DRA CRD schemas.
+1. **Static** (`helm/scripts/lint.sh`): `helm lint helm/datalab`, plus `helm template` for each of `gpu.mode=device-plugin|dra|none` (with the `--api-versions` flags from §8). Validate the output with `kubeconform` against the 1.37 schemas and the Gateway API, SparkConnect and DRA CRD schemas.
    Also run `check-parity.sh`, which fails if any image tag differs from compose.
 2. **e2e on Kubernetes** (`helm/scripts/e2e-k8s.sh`, no GPU needed, `--gpu-mode none`): deploy only the lakehouse core
    (`seaweedfs, metastore-db, hive-metastore, trino, spark`) with `--set` toggles, wait on readiness, then run `e2e_lakehouse.py` as a
@@ -320,10 +358,11 @@ Add the Spark Connect server, one 2g executor, Ollama with a 4B model, Jupyter a
 
 | Phase | Work | Done when |
 |---|---|---|
-| 1. Parity prep | Pin phoenix/ollama/qdrant in `docker-compose.yaml`. Jupyter: `pyspark[connect]==4.1.3`. Check `ls /opt/spark/jars \| grep connect` in `apache/spark:4.1.3`; if `spark-connect_2.13-4.1.3.jar` is missing, add it in `spark/Dockerfile` at build time (no runtime Maven download). Guard the notebook's `sparkContext` cells. | compose `run-e2e.sh --build` 19/19 still passes |
-| 2. Chart: lakehouse core | seaweedfs (+ bucket Job), metastore-db, hive-metastore, trino, SparkConnect. Secrets, probes, PSA labels, schema. | `e2e-k8s.sh` 19/19 on minikube with `--gpu-mode none` |
-| 3. Chart: AI + Jupyter | jupyter, phoenix + db, qdrant, ollama (device plugin) + pull Job | notebooks run end to end on a GPU host |
-| 4. Gateway + scripts | GatewayClass/Gateway/HTTPRoutes, `setup-minikube.sh`, `build-images.sh`, `deploy.sh`, `hosts.sh`, `port-forward.sh`, `check-parity.sh` | fresh-machine run from `helm/README.md` works |
+| 1. Parity prep | Pin phoenix/ollama/qdrant in `docker-compose.yaml`. Jupyter: `pyspark[connect]==4.1.3`. Check `ls /opt/spark/jars \| grep connect` in `apache/spark:4.1.3`. It is expected to be present, because Spark's `assembly/pom.xml` depends on `spark-connect_2.13`. Only if `spark-connect_2.13-4.1.3.jar` is missing, add it in `spark/Dockerfile` at build time (no runtime Maven download). Notebook fixes from §5.3. | compose `run-e2e.sh --build` 19/19 still passes, and notebook cells 8/18/20 run on compose |
+| 1b. Cluster tooling | `setup-minikube.sh` (`--gpu-mode none` first), `build-images.sh`, `deploy.sh`, `lint.sh`, `check-parity.sh`. These are needed by every later phase. | a minikube with the Spark Operator and Envoy Gateway running, and the four local images visible in `minikube image ls` |
+| 2. Chart: lakehouse core | seaweedfs (+ bucket Job), metastore-db, hive-metastore, trino, SparkConnect, SparkApplication-e2e. Secrets, probes, PSA labels, schema, `e2e-k8s.sh`. | `lint.sh` clean, and `e2e-k8s.sh` 19/19 on minikube with `--gpu-mode none`. Also the Spark-Connect variant of the e2e. |
+| 3. Chart: AI + Jupyter | jupyter, phoenix + db, qdrant, ollama (device plugin) + pull Job | on the user's GPU host: both notebooks run end to end, and `nvidia-smi` in the ollama pod shows the model |
+| 4. Gateway + access | GatewayClass/Gateway/HTTPRoutes, `hosts.sh`, `port-forward.sh`, the Trino forwarded-header and Jupyter WebSocket checks from §7, and `helm/README.md` | a fresh-machine run from `helm/README.md` works, and every hostname in §7 answers |
 | 5. DRA (experimental) | ResourceClaimTemplate + `--gpu-mode dra` path | Ollama gets the GPU through a ResourceClaim |
 | 6. Docs | Post-change rule (CLAUDE.md): README, AGENTS.md, CLAUDE.md (new pitfalls: Service names == compose names, `IfNotPresent`, SparkConnect vs SparkContext, SDK 4.0.4 lock-in), `docs/VERSIONS.md` (Kubernetes/minikube/Helm/operator/Envoy/DRA rows and the image pins). RELEASE_NOTES only after you confirm. | docs reviewed |
 
@@ -334,13 +373,17 @@ Add the Spark Connect server, one 2g executor, Ollama with a 4B model, Jupyter a
 | # | Item | Mitigation |
 |---|---|---|
 | R1 | The operator's `spark-submit` 4.0.4 submits a Spark 4.1.3 app (SparkApplication only; SparkConnect runs `start-connect-server.sh` from our image) | The Phase 2 e2e proves it. Otherwise use the plain Job fallback (§12). |
-| R2 | Unknown whether `apache/spark:4.1.3` ships the Spark Connect server jar | Phase 1 check; add the jar at build time |
+| R2 | `apache/spark:4.1.3` might not ship the Spark Connect server jar (unlikely, because the assembly depends on it) | Phase 1 `ls` check. Add the jar at build time only if it is missing. |
 | R3 | Spark Connect lacks SparkContext/RDD APIs | Notebook guards. Document the limitation. |
 | R4 | SparkConnect CRD is `v1alpha1` (may change) | Pin operator 2.5.2. Re-check on upgrade (add to VERSIONS.md §6). |
 | R5 | Device plugin + DRA on the same GPU is undocumented | DRA mode disables the device plugin addon. DRA stays experimental. |
 | R6 | `minikube tunnel` address and `/etc/hosts` handling differ per host | `hosts.sh` prints the line rather than editing. `port-forward.sh` is the fallback. |
 | R7 | Trino 8G heap on a small laptop | Minikube sizing in the script. An optional values override for `jvm.config` (it changes only when the user sets it, so the defaults keep parity). |
 | R8 | HMS schema init runs on every pod start (same as compose, `IS_RESUME` unset) | Same behaviour as compose. Keep `Recreate` with a single replica. |
+| R9 | The `minikube --mount` notebook folder may not be writable by Jupyter's uid 1000 | Verify in Phase 3 by saving a notebook. Fall back to a PVC (`jupyter.notebooks.mode: pvc`) plus `kubectl cp`. |
+| R10 | Trino rejects `X-Forwarded-*` from Envoy | `http-server.process-forwarded=true` (§7) |
+| R11 | Jupyter WebSockets through Envoy | Phase 4 runs a cell through the Gateway (§7) |
+| R12 | Spark conf now lives in three places (two `spark-defaults.conf` files plus chart values) | `check-parity.sh` diff (§3). Update CLAUDE.md pitfall 2. |
 
 ---
 
