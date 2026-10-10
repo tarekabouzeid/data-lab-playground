@@ -1,0 +1,63 @@
+{{- if .Values.spark.enabled }}
+{{- include "datalab.requireAPI" (dict "ctx" . "api" "sparkoperator.k8s.io/v1alpha1/SparkConnect" "hint" "Install the Kubeflow Spark Operator first (helm/scripts/setup-minikube.sh).") }}
+{{- $n := .Values.spark.name }}
+{{- $sa := .Values.spark.serviceAccount }}
+{{- $img := include "datalab.image" .Values.images.spark }}
+# One long-lived Spark Connect server running OUR image (Spark 4.1.3 + hadoop-aws + Iceberg jars).
+# The operator launches ${SPARK_HOME}/sbin/start-connect-server.sh inside that image, so the Spark version is
+# the image's, not the operator's. Service "{{ $n }}-server": 15002 (Connect gRPC), 4040 (UI).
+apiVersion: sparkoperator.k8s.io/v1alpha1
+kind: SparkConnect
+metadata:
+  name: {{ $n }}
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "spark" "component" "spark") | nindent 4 }}
+spec:
+  sparkVersion: {{ .Values.spark.sparkVersion | quote }}
+  image: {{ $img }}
+  sparkConf: {{- include "datalab.sparkConf" . | nindent 4 }}
+  {{- if .Values.spark.dynamicAllocation.enabled }}
+  dynamicAllocation:
+    enabled: true
+    minExecutors: {{ .Values.spark.dynamicAllocation.minExecutors }}
+    maxExecutors: {{ .Values.spark.dynamicAllocation.maxExecutors }}
+    shuffleTrackingEnabled: true
+  {{- end }}
+  server:
+    cores: {{ .Values.spark.server.cores }}
+    memory: {{ .Values.spark.server.memory | quote }}
+    template:
+      metadata:
+        labels: {{- include "datalab.selector" (dict "ctx" . "name" "spark-server") | nindent 10 }}
+      spec:
+        serviceAccountName: {{ $sa }}
+        enableServiceLinks: false
+        securityContext: &podsec
+          runAsNonRoot: true
+          runAsUser: 185
+          runAsGroup: 185
+          seccompProfile: {type: RuntimeDefault}
+        containers:
+          - name: spark-kubernetes-driver
+            image: {{ $img }}
+            imagePullPolicy: {{ .Values.imagePullPolicy }}
+            env:
+              - {name: AWS_REGION, value: us-east-1}
+            securityContext: &ctrsec
+              allowPrivilegeEscalation: false
+              capabilities: {drop: [ALL]}
+  executor:
+    instances: {{ .Values.spark.executor.instances }}
+    cores: {{ .Values.spark.executor.cores }}
+    memory: {{ .Values.spark.executor.memory | quote }}
+    template:
+      spec:
+        enableServiceLinks: false
+        securityContext: *podsec
+        containers:
+          - name: spark-kubernetes-executor
+            image: {{ $img }}
+            imagePullPolicy: {{ .Values.imagePullPolicy }}
+            env:
+              - {name: AWS_REGION, value: us-east-1}
+            securityContext: *ctrsec
+{{- end }}

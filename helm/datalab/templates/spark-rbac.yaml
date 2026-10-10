@@ -1,0 +1,28 @@
+{{- if or .Values.spark.enabled .Values.e2e.enabled }}
+{{- $sa := .Values.spark.serviceAccount }}
+# Service account used by the Spark Connect server (the Spark driver) to create/delete executor pods.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $sa }}
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "spark" "component" "spark") | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $sa }}
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "spark" "component" "spark") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, configmaps, persistentvolumeclaims]
+    verbs: [create, get, list, watch, update, patch, delete, deletecollection]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $sa }}
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "spark" "component" "spark") | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $sa }}}
+subjects:
+  - {kind: ServiceAccount, name: {{ $sa }}, namespace: {{ .Release.Namespace }}}
+{{- end }}

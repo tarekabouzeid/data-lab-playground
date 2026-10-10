@@ -1,0 +1,86 @@
+{{- if .Values.e2e.enabled }}
+{{- $img := include "datalab.image" .Values.images.spark }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: datalab-e2e-script
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "e2e") | nindent 4 }}
+data:
+  # copy of tests/e2e/e2e_lakehouse.py (check-parity.sh keeps them identical)
+  e2e_lakehouse.py: |
+    {{- .Files.Get "files/e2e_lakehouse.py" | nindent 4 }}
+---
+{{- if eq .Values.e2e.mode "application" }}
+{{- include "datalab.requireAPI" (dict "ctx" . "api" "sparkoperator.k8s.io/v1beta2/SparkApplication" "hint" "Install the Kubeflow Spark Operator first (helm/scripts/setup-minikube.sh).") }}
+# The operator runs spark-submit (cluster mode) with OUR image; the e2e script is mounted from the ConfigMap
+# (the operator's mutating webhook adds the volume to the driver pod, so keep webhook.enable=true).
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: datalab-e2e
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "e2e") | nindent 4 }}
+spec:
+  type: Python
+  mode: cluster
+  sparkVersion: {{ .Values.spark.sparkVersion | quote }}
+  image: {{ $img }}
+  imagePullPolicy: {{ .Values.imagePullPolicy }}
+  mainApplicationFile: local:///e2e/e2e_lakehouse.py
+  restartPolicy: {type: Never}
+  sparkConf: {{- include "datalab.sparkConf" . | nindent 4 }}
+  volumes:
+    - name: e2e
+      configMap: {name: datalab-e2e-script}
+  driver:
+    cores: 1
+    memory: 1g
+    serviceAccount: {{ .Values.spark.serviceAccount }}
+    labels: {version: "{{ .Values.spark.sparkVersion }}"}
+    env:
+      - {name: AWS_REGION, value: us-east-1}
+      - {name: E2E_SPARK_ICEBERG, value: {{ .Values.e2e.sparkIcebergCatalog | quote }}}
+      - {name: E2E_TRINO_ICEBERG, value: {{ .Values.e2e.trinoIcebergCatalog | quote }}}
+    volumeMounts:
+      - {name: e2e, mountPath: /e2e}
+  executor:
+    instances: {{ .Values.e2e.executor.instances }}
+    cores: {{ .Values.e2e.executor.cores }}
+    memory: {{ .Values.e2e.executor.memory | quote }}
+    labels: {version: "{{ .Values.spark.sparkVersion }}"}
+    env:
+      - {name: AWS_REGION, value: us-east-1}
+{{- else if eq .Values.e2e.mode "connect" }}
+{{- if not .Values.spark.enabled }}{{- fail "e2e.mode=connect needs spark.enabled=true (the Spark Connect server)" }}{{- end }}
+# Same script, run through Spark Connect (the path notebooks use). Needs the jupyter image (pyspark[connect]).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: datalab-e2e-connect
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "e2e") | nindent 4 }}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" "e2e") | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      restartPolicy: Never
+      containers:
+        - name: e2e
+          image: {{ include "datalab.image" .Values.images.jupyter }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/opt/conda/bin/python", "/e2e/e2e_lakehouse.py"]
+          env:
+            - {name: SPARK_REMOTE, value: "sc://{{ .Values.spark.name }}-server:15002"}
+            - {name: E2E_SPARK_ICEBERG, value: {{ .Values.e2e.sparkIcebergCatalog | quote }}}
+            - {name: E2E_TRINO_ICEBERG, value: {{ .Values.e2e.trinoIcebergCatalog | quote }}}
+          volumeMounts:
+            - {name: e2e, mountPath: /e2e, readOnly: true}
+      volumes:
+        - name: e2e
+          configMap: {name: datalab-e2e-script}
+{{- else }}
+{{- fail (printf "e2e.mode must be 'application' or 'connect', got %q" .Values.e2e.mode) }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,176 @@
+# DataLab Playground Helm chart values.
+#
+# Every image below is identical to docker-compose.yaml (check-parity.sh enforces it).
+# Service names equal the compose service names (seaweedfs, metastore-db, hive-metastore, trino,
+# phoenix, db, ollama, qdrant, jupyter) so the configs baked into the images work unchanged.
+# All credentials are intentionally hardcoded local-dev values, same as compose.
+
+images:
+  seaweedfs:      {repository: chrislusf/seaweedfs,                tag: "4.48"}
+  metastoreDb:    {repository: postgres,                           tag: "13"}
+  hiveMetastore:  {repository: datalab-playground/hive-metastore,  tag: latest}
+  trino:          {repository: datalab-playground/trino,           tag: latest}
+  spark:          {repository: datalab-playground/spark,           tag: latest}
+  jupyter:        {repository: datalab-playground/jupyter,         tag: latest}
+  phoenix:        {repository: arizephoenix/phoenix,               tag: version-20.20.0}
+  phoenixDb:      {repository: postgres,                           tag: "17"}
+  ollama:         {repository: ollama/ollama,                      tag: "0.40.2"}
+  qdrant:         {repository: qdrant/qdrant,                      tag: v1.19.2}
+
+# Fail `helm install` when a required API (Spark Operator / Gateway API / DRA) is missing. Only lint.sh sets this
+# to false: `helm lint` renders without a cluster, so it cannot see CRDs.
+apiChecks: true
+
+# Kubernetes defaults :latest to Always, which would try Docker Hub for the locally built images.
+imagePullPolicy: IfNotPresent
+
+# PVC sizes / storage class for the data stores (minikube default class is used when empty).
+persistence:
+  storageClass: ""
+  retainOnDelete: true   # StatefulSet PVCs survive `helm uninstall` and scale-down
+
+credentials:
+  s3:
+    accessKey: seaweedadmin
+    secretKey: seaweedadmin123
+  metastoreDb: {database: metastore, user: hive, password: hive123}
+  phoenixDb:   {database: postgres, user: postgres, password: postgres}
+
+seaweedfs:
+  enabled: true
+  storage: 10Gi
+  warehouseBucket: warehouse
+  resources: {requests: {cpu: 100m, memory: 256Mi}}
+
+metastoreDb:
+  enabled: true
+  storage: 2Gi
+  resources: {requests: {cpu: 50m, memory: 128Mi}}
+
+hiveMetastore:
+  enabled: true
+  resources: {requests: {cpu: 200m, memory: 768Mi}}
+
+trino:
+  enabled: true
+  # The image's /etc/trino/jvm.config has -Xmx8G. Optionally replace it (empty = use the image's file).
+  jvmConfig: ""
+  resources:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 10Gi}
+
+spark:
+  enabled: true
+  name: datalab-spark              # SparkConnect name -> Service "<name>-server" (15002 Connect, 4040 UI)
+  sparkVersion: "4.1.3"
+  serviceAccount: datalab-spark    # created by this chart (Role: pods/services/configmaps/pvcs)
+  server: {cores: 1, memory: 1g}
+  executor: {instances: 1, cores: 2, memory: 2g}   # = compose spark-worker (2 cores / 2g)
+  dynamicAllocation: {enabled: false, minExecutors: 1, maxExecutors: 4}
+  # Mirror of spark/conf/spark-defaults.conf minus spark.master (the operator owns the master),
+  # plus the Iceberg REST catalog and the S3A committer settings the notebook sets per session.
+  # check-parity.sh diffs this block against spark/conf/spark-defaults.conf.
+  sparkConf:
+    spark.hadoop.fs.s3a.endpoint: "http://seaweedfs:8333"
+    spark.hadoop.fs.s3a.access.key: "seaweedadmin"
+    spark.hadoop.fs.s3a.secret.key: "seaweedadmin123"
+    spark.hadoop.fs.s3a.path.style.access: "true"
+    spark.hadoop.fs.s3a.impl: "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    spark.hadoop.fs.s3a.connection.ssl.enabled: "false"
+    spark.hadoop.fs.s3a.connection.timeout: "200000"
+    spark.hadoop.fs.s3a.socket.timeout: "60000"
+    spark.hadoop.fs.s3a.request.timeout: "60000"
+    spark.hadoop.fs.s3a.threads.keepalivetime: "60000"
+    spark.hadoop.fs.s3a.connection.acquisition.timeout: "60000"
+    spark.hadoop.fs.s3a.connection.idle.time: "60000"
+    spark.hadoop.fs.s3a.connection.request.timeout: "60000"
+    spark.hadoop.fs.s3a.connection.ttl: "300000"
+    spark.hadoop.fs.s3a.connection.establish.timeout: "60000"
+    spark.hadoop.fs.s3a.aws.credentials.provider: "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    spark.hadoop.fs.s3a.multipart.purge.age: "200000"
+    spark.serializer: "org.apache.spark.serializer.KryoSerializer"
+    spark.sql.adaptive.enabled: "true"
+    spark.sql.adaptive.coalescePartitions.enabled: "true"
+    spark.executor.memory: "2g"
+    spark.executor.cores: "2"
+    spark.pyspark.python: "/opt/conda/bin/python"
+    spark.pyspark.driver.python: "/opt/conda/bin/python"
+    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    spark.sql.catalog.iceberg_catalog: "org.apache.iceberg.spark.SparkCatalog"
+    spark.sql.catalog.iceberg_catalog.type: "rest"
+    spark.sql.catalog.iceberg_catalog.uri: "http://hive-metastore:9084/iceberg"
+    spark.sql.catalog.iceberg_catalog.io-impl: "org.apache.iceberg.hadoop.HadoopFileIO"
+    spark.kubernetes.container.image.pullPolicy: "IfNotPresent"
+    spark.hadoop.fs.s3a.committer.name: "magic"
+    spark.hadoop.fs.s3a.committer.magic.enabled: "true"
+    spark.hadoop.fs.s3a.fast.upload: "true"
+    spark.hadoop.fs.s3a.multipart.size: "104857600"
+    spark.hadoop.fs.s3a.multipart.threshold: "104857600"
+    spark.hadoop.fs.s3a.connection.maximum: "100"
+    spark.hadoop.fs.s3a.threads.max: "10"
+    spark.hadoop.fs.s3a.block.size: "134217728"
+    spark.hadoop.fs.s3a.buffer.dir: "/tmp"
+
+jupyter:
+  enabled: true
+  # Spark Connect endpoint used by notebooks (SPARK_REMOTE). Default: the chart's SparkConnect Service.
+  sparkRemote: ""
+  notebooks:
+    mode: hostPath                 # hostPath (minikube mount) | pvc | none
+    hostPath: /datalab/notebooks
+    storage: 1Gi
+  resources: {requests: {cpu: 250m, memory: 1Gi}}
+
+phoenix:
+  enabled: true
+  resources: {requests: {cpu: 100m, memory: 512Mi}}
+  db:
+    storage: 2Gi
+
+qdrant:
+  enabled: true
+  storage: 5Gi
+  resources: {requests: {cpu: 100m, memory: 256Mi}}
+
+ollama:
+  enabled: true
+  storage: 20Gi
+  models: ["gemma3:4b", "mxbai-embed-large:latest"]   # pulled by a Job (compose: ollama-init)
+  pullModels: true
+  resources: {requests: {cpu: 500m, memory: 4Gi}}
+
+gpu:
+  # device-plugin: request nvidia.com/gpu (minikube --gpus all + nvidia-device-plugin addon)
+  # dra:           ResourceClaimTemplate (needs the NVIDIA DRA driver; experimental here)
+  # none:          no GPU request (CPU only; used by CI / machines without a GPU)
+  mode: device-plugin
+  count: 1
+  dra:
+    deviceClassName: gpu.nvidia.com
+
+gateway:
+  enabled: true
+  domain: datalab.test
+  className: datalab
+  createClass: true                # false = reuse an existing GatewayClass named gateway.className
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  # host = <name>.<domain>. A route is skipped when its component is disabled.
+  routes:
+    - {name: jupyter,  component: jupyter,  service: jupyter,                port: 8888}
+    - {name: trino,    component: trino,    service: trino,                  port: 8080}
+    - {name: phoenix,  component: phoenix,  service: phoenix,                port: 6006}
+    - {name: ollama,   component: ollama,   service: ollama,                 port: 11434}
+    - {name: qdrant,   component: qdrant,   service: qdrant,                 port: 6333}
+    - {name: s3,       component: seaweedfs, service: seaweedfs-http,        port: 8333}
+    - {name: filer,    component: seaweedfs, service: seaweedfs-http,        port: 8888}
+    - {name: seaweed,  component: seaweedfs, service: seaweedfs-http,        port: 9333}
+    - {name: spark,    component: spark,    service: "{{ .Values.spark.name }}-server", port: 4040}
+
+# End-to-end test (tests/e2e/e2e_lakehouse.py). Off by default; helm/scripts/e2e-k8s.sh enables it.
+e2e:
+  enabled: false
+  mode: application                # application = SparkApplication (spark-submit by the operator)
+                                   # connect     = Job in the jupyter image through Spark Connect
+  executor: {instances: 1, cores: 2, memory: 1g}
+  sparkIcebergCatalog: rest
+  trinoIcebergCatalog: iceberg
