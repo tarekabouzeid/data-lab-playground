@@ -1,0 +1,21 @@
+customer_id,name,email,country,plan,signup_date
+1,Customer 01,customer01@example.com,DE,pro,2026-05-09
+2,Customer 02,customer02@example.com,IT,enterprise,2026-01-27
+3,Customer 03,customer03@example.com,FR,enterprise,2026-06-09
+4,Customer 04,customer04@example.com,IT,pro,2026-07-20
+5,Customer 05,customer05@example.com,IT,enterprise,2026-07-07
+6,Customer 06,customer06@example.com,ES,enterprise,2026-04-23
+7,Customer 07,customer07@example.com,FR,free,2026-06-07
+8,Customer 08,customer08@example.com,DE,free,2026-03-15
+9,Customer 09,customer09@example.com,DE,pro,2026-01-03
+10,Customer 10,customer10@example.com,ES,enterprise,2026-03-22
+11,Customer 11,customer11@example.com,FR,pro,2026-03-06
+12,Customer 12,customer12@example.com,NL,pro,2026-04-07
+13,Customer 13,customer13@example.com,IT,enterprise,2026-01-20
+14,Customer 14,customer14@example.com,NL,free,2026-05-23
+15,Customer 15,customer15@example.com,IT,pro,2026-03-15
+16,Customer 16,customer16@example.com,ES,free,2026-06-15
+17,Customer 17,customer17@example.com,IT,pro,2026-01-07
+18,Customer 18,customer18@example.com,NL,pro,2026-04-29
+19,Customer 19,customer19@example.com,ES,free,2026-04-13
+20,Customer 20,customer20@example.com,IT,enterprise,2026-05-08

@@ -80,6 +80,7 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 - `jupyter/notebooks/data_lab_playground.ipynb` — Platform integration demo
 - `jupyter/notebooks/rag_demo.ipynb` — RAG pipeline (Qdrant + Ollama + LangChain)
+- `jupyter/notebooks/iceberg/` (00–04) — Iceberg 1.12 features; `jupyter/notebooks/dbt/` (01–03) + `dbt/lakehouse_demo` project; shared `lab_utils.py`. Rules: no module named `dbt_*`, never `DROP SCHEMA` in notebooks, no `.master()` (works on Compose and Spark Connect). See AGENTS.md pitfall 18.
 
 ## Versions Reference
 

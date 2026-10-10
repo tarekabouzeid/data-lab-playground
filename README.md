@@ -170,6 +170,11 @@ Simple steps to explore the tools:
 - **Document Processing**: pypdf2, python-docx, beautifulsoup4, tiktoken
 - **Observability**: arize-phoenix, opentelemetry, openinference instrumentation
 - **Development Tools**: ipywidgets, tqdm, rich, typer
+- **dbt**: dbt-core 1.12.5 + dbt-trino 1.10.6 (project in `jupyter/notebooks/dbt/lakehouse_demo/`)
+- **Example notebooks**:
+  - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
+  - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
+  - `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`)
 - **Default Kernel**: GenAI Analytics (Python 3.12)
 - **Access**: `http://localhost:8888` (password: 123456)
 

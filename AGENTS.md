@@ -187,6 +187,7 @@ All services use the same hardcoded credentials (intentional for local dev — *
 15. **Spark on Kubernetes = Spark Connect, not a master**: notebooks get `SPARK_REMOTE=sc://datalab-spark-server:15002`. With `SPARK_REMOTE` set, pyspark 4.1 raises `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER` if the code also calls `.master(...)`, so notebooks must not (compose gets `spark.master` from `spark-defaults.conf`). `SparkContext`/RDD APIs do not exist under Connect. Static confs (`spark.sql.extensions`) cannot be set by a Connect client; they live in the chart's `spark.sparkConf` (server side).
 16. **Kubeflow SDK: `connect(base_url=...)` only, never `pip install kubeflow[spark]`.** SDK 0.5.0 hardcodes Spark/image 4.0.4 in create mode and `submit_job()`, and the extra pins `pyspark-connect==4.2.0` (conflicts with `pyspark==4.1.3`). Re-check on every SDK/operator upgrade with the commands in `docs/K8S_HELM_PLAN.md` §1 (blocker row in `docs/VERSIONS.md` §6).
 17. **Kubernetes gotchas**: local images need `imagePullPolicy: IfNotPresent` (`:latest` defaults to `Always`); pods use `enableServiceLinks: false` (a Service named `phoenix` injects `PHOENIX_PORT=tcp://…`); SeaweedFS needs a **headless** Service named `seaweedfs`; the `ollama` image has no `curl` (use `ollama list`); the Spark Operator must watch the release namespace (`spark.jobNamespaces`) and the namespace must exist first. **Headlamp** is a separate Helm release (official chart; values in `helm/headlamp-values.yaml`) whose plugin manager installs plugins **only from Artifact Hub** (`https://artifacthub.io/packages/headlamp/...`) at pod start; its Kubeflow plugin covers `SparkApplication`/`ScheduledSparkApplication`, not `SparkConnect`; keep its pins equal to `helm/scripts/versions.env` (`check-parity.sh`). Gateway hostnames default to `*.datalab.localhost`, reached with `helm/scripts/gateway-forward.sh`.
+18. **New notebooks (Iceberg 1.12 / dbt)**: dbt runs in-process via `lab_utils.dbt()`; never name a Python module `dbt_*` on `sys.path` (dbt imports it as a plugin). Notebooks never `DROP SCHEMA` (a dropped schema cannot be recreated: leftover `managed/<name>.db` dir in SeaweedFS); `reset_dbt_demo()` drops tables/views only. Verified on this stack (Spark Connect, all notebooks twice; Compose path by spark-submit smoke of the same helper): Hilbert `rewrite_data_files`, VARIANT v3 (shredded-variant DML in 1.12.0 needs the vectorization workaround shown in nb 02), deletion vectors (PUFFIN), row lineage (aggregates over lineage columns need the workaround in nb 03), `remove-dangling-deletes`, merge-append for streaming, per-column dictionary encoding, `rewrite_manifests sort_by` (partitioned tables only). **Not supported here**: geometry/geography (REST server answers 406), Spark SQL column defaults, bloom filters, changelog view with delete files. Not run: notebooks inside the real Jupyter image or on a live Kubernetes node.
 
 ---
 
@@ -208,7 +209,7 @@ spark/
 jupyter/
   Dockerfile                  # JupyterLab + PySpark + full GenAI stack
   spark-defaults.conf         # Same as spark/conf/spark-defaults.conf
-  notebooks/                  # Example notebooks
+  notebooks/                  # Example notebooks (iceberg/, dbt/ + lab_utils.py)
 trino/
   Dockerfile                  # Trino 483
   etc/catalog/hive.properties       # Hive connector → HMS thrift
@@ -234,3 +235,6 @@ docs/
 
 - [`jupyter/notebooks/data_lab_playground.ipynb`](jupyter/notebooks/data_lab_playground.ipynb) — Full platform demo: Phoenix tracing, Ollama LLM, Spark, SeaweedFS, Trino
 - [`jupyter/notebooks/rag_demo.ipynb`](jupyter/notebooks/rag_demo.ipynb) — RAG pipeline: Qdrant + `mxbai-embed-large` embeddings + `gemma3:4b` LLM + LangChain
+- [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
+- [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
+- `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`)

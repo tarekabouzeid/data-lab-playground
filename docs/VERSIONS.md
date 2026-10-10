@@ -14,6 +14,7 @@ Background research and rejected options: [UPGRADE_PLAN.md](UPGRADE_PLAN.md).
 | Apache Spark | **4.1.3** | `apache/spark:4.1.3`; `spark-4.1.3-bin-hadoop3.tgz` + `pyspark==4.1.3` (Jupyter) | `spark/Dockerfile`, `jupyter/Dockerfile` (`SPARK_VERSION`) | 4.2.0 | ⛔ **Capped**: no `iceberg-spark-runtime-4.2_2.13` exists yet |
 | Apache Iceberg (Spark) | **1.12.0** | `iceberg-spark-runtime-4.1_2.13-1.12.0.jar`, `iceberg-aws-bundle-1.12.0.jar` | `spark/Dockerfile`, `jupyter/Dockerfile` | 1.12.0 | ✅ Latest |
 | Hive Metastore | **4.2.1** | `apache/hive:standalone-metastore-4.2.1` | `hive-metastore/Dockerfile` | 4.2.1 | ✅ Latest (Iceberg via the built-in REST catalog) |
+| dbt-core / dbt-trino | **1.12.5 / 1.10.6** | pip in `jupyter/Dockerfile` | `jupyter/Dockerfile` | — | ✅ used by `jupyter/notebooks/dbt/` against Trino catalog `iceberg` |
 | Trino | **483** | `trinodb/trino:483` | `trino/Dockerfile` | 483 | ✅ Latest |
 | SeaweedFS (S3 storage) | **4.48** | `chrislusf/seaweedfs:4.48` | `docker-compose.yaml` | 4.48 | ✅ Latest (replaced MinIO; `minio/minio` is gone from Docker Hub) |
 | PostgreSQL (HMS backend) | **13** | `postgres:13` | `docker-compose.yaml` (`metastore-db`) | — | Unchanged |
@@ -34,7 +35,7 @@ Notes:
   align them by switching `spark/Dockerfile` to `apache/spark:4.1.3-java17` or Jupyter to JDK 21.
 - Driver and executor **Python must share a minor version** (3.12). Do not move Jupyter to `python-3.13` without the Spark image too.
 - Trino's and HMS's Iceberg libraries (1.11.0 / 1.9.1) are older than Spark's (1.12.0). All tables here are format **v2**, which all three handle.
-  Avoid format-v3-only features until Trino and Hive ship newer Iceberg.
+  Format-v3 features (VARIANT, deletion vectors, row lineage) work from **Spark** only (see `jupyter/notebooks/iceberg/`); keep Trino/HMS reads off v3 tables until they ship newer Iceberg.
 
 ## 3. Pinned jars and files (keep consistent)
 

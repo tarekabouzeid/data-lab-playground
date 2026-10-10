@@ -59,6 +59,8 @@ RUN pip install --no-cache-dir \
     "pyspark[connect]==${SPARK_VERSION}" \
     kubeflow==0.5.0 \
     kubeflow-spark-api==2.4.0 \
+    dbt-core==1.12.5 \
+    dbt-trino==1.10.6 \
     trino \
     boto3 \
     pandas \
