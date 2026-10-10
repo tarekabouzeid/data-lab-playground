@@ -40,6 +40,7 @@ A local Docker Compose–based **AI-enhanced data lakehouse** for experimentatio
 - **Start everything**: `./start-platform.sh` (handles image builds + SeaweedFS `warehouse` bucket + Ollama model pull)
 - **Force rebuild**: `./start-platform.sh --rebuild`
 - **E2E test (no GPU)**: `tests/e2e/run-e2e.sh --build` (19 checks: Spark/Trino × `hive`/`iceberg`/`lakehouse` catalogs + plain-Parquet storage checks)
+- **Kubernetes**: `helm/` holds a Helm chart with the same images/versions (`helm/README.md`); `helm/scripts/lint.sh` (no cluster) and `helm/scripts/e2e-k8s.sh` (on minikube) are its tests
 - **Jupyter** at http://localhost:8888, password `123456`
 - **All credentials are intentionally hardcoded** (local dev only — SeaweedFS S3 `seaweedadmin`/`seaweedadmin123`, Postgres, Jupyter)
 
@@ -65,11 +66,14 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 8. **Spark capped at 4.1.x**: Iceberg 1.12.0 has no `iceberg-spark-runtime-4.2_2.13`. Keep `spark/Dockerfile`, `jupyter/Dockerfile` `SPARK_VERSION` (also drives `pyspark==`), and the Iceberg jar's Spark line in lockstep. `hadoop-aws` must equal Spark's bundled Hadoop (3.4.2).
 9. **Storage is SeaweedFS 4.48** (replaced MinIO, whose image left Docker Hub). Endpoint `http://seaweedfs:8333`, keys in `seaweedfs/s3.json`. The bucket is created via `weed shell` (no `mc`). Keep `-volume.max=64`, because auto-sizing from free disk left no writable volumes and S3A PUTs returned 500. Filer UI is on host 8889.
 10. **Trino 483**: the new Web UI is the default at `/ui`. Breaking changes in 482/483 (Alluxio removal, char/varchar coercion, `$files` bounds type, `s3.auth-type`) don't affect current catalogs. Full research: `docs/UPGRADE_PLAN.md`.
+11. **Helm parity**: images and Spark config in `helm/datalab/values.yaml` must equal `docker-compose.yaml` / `spark/conf/spark-defaults.conf` (`helm/scripts/check-parity.sh` enforces it; also copies `tests/e2e/e2e_lakehouse.py`). Phoenix/Ollama/Qdrant are pinned (`version-20.20.0` / `0.40.2` / `v1.19.2`), no longer `latest`.
+12. **Spark Connect on Kubernetes**: with `SPARK_REMOTE` set, never call `.master(...)` and don't use `SparkContext`/RDDs; static confs live server-side in the chart. Kubeflow SDK: `connect(base_url=…)` only; never install `kubeflow[spark]` (hardcoded Spark 4.0.4, pins `pyspark-connect==4.2.0`). Details: `AGENTS.md` pitfalls 14–17, `docs/K8S_HELM_PLAN.md`.
 
 ## When Modifying Services
 
 - Spark config changes → update **both** `spark/conf/spark-defaults.conf` and `jupyter/spark-defaults.conf`
 - Hive Metastore changes → `hive-metastore/Dockerfile` and `hive-metastore/*.xml.template` (not `hive-site.xml`)
+- Image/version/Spark-config changes → also update `helm/datalab/values.yaml` (then run `helm/scripts/lint.sh`)
 - After any Dockerfile edit → rebuild: `docker build -t datalab-playground/<service> ./<service>`
 
 ## Notebooks Location

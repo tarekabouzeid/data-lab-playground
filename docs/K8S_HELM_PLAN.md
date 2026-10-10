@@ -1,6 +1,6 @@
 # Kubernetes / Helm Deployment Plan
 
-Status: **DRAFT, reviewed** (2026-10-10, review fixes applied: §0, seaweedfs headless Service, Spark Connect static conf/`.master()` conflict, phase order, offline lint, Gateway caveats). Nothing in `helm/` exists yet. This document is the plan to build it.
+Status: **IMPLEMENTED, live-node run pending** (see §16). Originally a draft, reviewed 2026-10-10, review fixes applied: §0, seaweedfs headless Service, Spark Connect static conf/`.master()` conflict, phase order, offline lint, Gateway caveats). Nothing in `helm/` exists yet. This document is the plan to build it.
 
 Goal: run the same platform that `docker-compose.yaml` runs (same services, same images, same versions) on
 Kubernetes as a Helm chart in a new `helm/` directory. The chart targets a local **minikube** cluster with an
@@ -203,7 +203,8 @@ and `phoenix:4317`. Everything goes in one namespace, `datalab`.
 4. **Batch / e2e**: a `SparkApplication` template (off by default; the e2e enables it) runs `tests/e2e/e2e_lakehouse.py` from a ConfigMap with the same image and `sparkConf`.
    The script is mounted through `spec.volumes` and `driver.volumeMounts`. The operator's mutating webhook does that mounting, so keep `webhook.enable=true`, which is the chart default.
    Caveat: the operator submits with its own `spark-submit` (Spark 4.0.4) against our 4.1.3 image. Phase 2 must prove this works, and §12 lists the fallback.
-5. **Spark UI**: the SparkConnect server is the driver, so its UI is on 4040. The plan adds an `HTTPRoute` to it if the operator's server Service exposes 4040. If it doesn't, the chart adds a small extra Service selecting the server pod (verify in Phase 2).
+5. **Spark UI**: the SparkConnect server is the driver. The operator's server Service `<name>-server` already exposes 4040 (`web-ui`) and 15002 (`spark-connect-server`)
+   (`internal/controller/sparkconnect/reconciler.go`), so no extra Service is needed: `spark.datalab.test` routes straight to it.
 
 ---
 
@@ -282,17 +283,11 @@ helm/
 │   ├── files/
 │   │   └── e2e_lakehouse.py       # symlink/copy of tests/e2e/e2e_lakehouse.py (for the SparkApplication ConfigMap)
 │   └── templates/
-│       ├── _helpers.tpl  NOTES.txt  namespace-psa.yaml  secrets.yaml
-│       ├── seaweedfs/     statefulset, service, configmap(s3.json), job-bucket
-│       ├── metastore-db/  statefulset, service
-│       ├── hive-metastore/deployment, service
-│       ├── trino/         deployment, service, configmap (optional)
-│       ├── spark/         sparkconnect.yaml, sparkapplication-e2e.yaml, service-ui.yaml
-│       ├── jupyter/       deployment, service, pvc
-│       ├── phoenix/       deployment, service, db-statefulset, db-service
-│       ├── ollama/        deployment, service, pvc, job-pull, resourceclaimtemplate (dra)
-│       ├── qdrant/        statefulset, service
-│       └── gateway/       gatewayclass, gateway, httproutes
+│       ├── _helpers.tpl
+│       ├── seaweedfs.yaml, metastore-db.yaml, hive-metastore.yaml, trino.yaml
+│       ├── spark-rbac.yaml, spark.yaml (SparkConnect), e2e.yaml (SparkApplication or Job)
+│       ├── jupyter.yaml, phoenix.yaml, qdrant.yaml, ollama.yaml (+ DRA claim, pull Job)
+│       └── gateway.yaml   (GatewayClass, Gateway, HTTPRoutes)
 └── scripts/
     ├── setup-minikube.sh          # §10: preflight + minikube start + operator + Envoy (+ DRA)
     ├── build-images.sh            # §11: build the 4 local images into minikube
@@ -422,3 +417,30 @@ Add the Spark Connect server, one 2g executor, Ollama with a 4B model, Jupyter a
 - Production hardening (TLS, auth, HA, NetworkPolicies enforced by a CNI). The credentials stay the intentionally hardcoded dev values, now held in Secrets.
 - Publishing the chart to a registry.
 - Replacing compose. Both stay supported, with identical images.
+
+---
+
+## 16. Implementation status and deviations (2026-10-10)
+
+**Built** (Phases 1, 1b, 2, 3, 4, 5, 6 as files; `helm/README.md` is the user guide).
+
+Deviations from the plan above, found while implementing:
+
+| Plan | What was built / why |
+|---|---|
+| `namespace-psa.yaml` templated the Namespace | `setup-minikube.sh` creates `datalab` and `datalab-e2e` with Pod Security labels. The operator needs the namespace to exist before it is installed with `spark.jobNamespaces`, and a chart-owned Namespace would clash with that order. |
+| Spark ServiceAccount came from the operator | The chart owns `datalab-spark` (SA + Role + RoleBinding, `spark-rbac.yaml`); the operator is installed with `spark.serviceAccount.create=false`, `spark.rbac.create=false`. |
+| e2e in the platform namespace | `e2e-k8s.sh` uses its own namespace and release (`datalab-e2e`), and `--mode application` runs without the long-lived Connect server (`spark.enabled=false`) to save ~3 GiB. |
+| `spark.datalab.test` needed a UI Service | The operator's server Service already exposes 4040. |
+| Ollama pull Job waited with `curl` | The `ollama` image has no `curl` (found by running the image); the Job uses `ollama list`. Compose's `ollama-init` has the same latent issue (unused profile). |
+| R2 (Spark Connect jar might be missing) | `apache/spark:4.1.3` already contains `spark-connect_2.13-4.1.3.jar`; `spark/Dockerfile` is unchanged. |
+| `helm lint` with `--api-versions` | `helm lint` has no such flag: a chart value `apiChecks` (default `true`) is switched off for `helm lint` only; `helm template` keeps the checks on. |
+
+**Verified in the build environment** (no GPU, cgroup v1, and no `CAP_SYS_RESOURCE`, so no kubelet-managed pods could run):
+- compose `tests/e2e/run-e2e.sh`: 19/19 with the pinned compose file; a session without `.master()` resolves to `spark://spark-master:7077` from `spark-defaults.conf`.
+- `helm/scripts/lint.sh --server-dry-run`: 8 chart variants rendered and accepted by a real `kube-apiserver v1.37.0` with the real Spark Operator 2.5.2 and Gateway API v1.6.3 CRDs (strict field validation; a typo and a type error are rejected, as expected); the missing-CRD guard fires.
+- The Spark Connect server started **in our image with the chart's rendered `sparkConf`** (master `local[2]` instead of Kubernetes), and the repo's e2e script run through Spark Connect with the 4.1.3 client passed **19/19**. Static confs set by the client are indeed ignored (warning), so the server-side `spark.sql.extensions` is what makes Iceberg work.
+- Kubeflow SDK 0.5.0 (no `[spark]` extra) next to `pyspark[connect]==4.1.3`: `connect(base_url)`, `list_sessions`, `get_session` work; the full Jupyter pip set resolves.
+- The init-container/Job commands (bucket Job script, `pg_isready`/`wget` waits, Trino and Qdrant probes) run against the pinned images.
+
+**Not verified (needs a machine with a working Kubernetes node)**: `setup-minikube.sh`, `build-images.sh`, `deploy.sh` end to end; `e2e-k8s.sh` in both modes; the operator launching the Connect server and executor pods with `--master k8s://` (R1: the operator's Spark 4.0.4 `spark-submit` vs our 4.1.3 image, for `--mode application`); Gateway routing (Trino forwarded headers, Jupyter WebSockets, hostPath permissions); GPU and DRA; the Jupyter image build (its `quay.io` base was unreachable here); running both notebooks on Kubernetes.
