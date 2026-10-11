@@ -57,7 +57,9 @@ Full matrix (runtimes, bundled libraries, access paths, upgrade blockers): **[do
 | Python | 3.12 | | must match between the Jupyter driver and the Spark workers |
 | Hadoop / `hadoop-aws` | 3.4.2 (Spark) · 3.4.1 (HMS) | | each matches its runtime's bundled Hadoop |
 | AWS SDK v2 bundle | 2.41.1 (Spark) · 2.24.6 (HMS) | | |
-| Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark==4.1.3` |
+| Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` (no `[spark]` extra) |
+| Phoenix · Ollama · Qdrant | `version-20.20.0` · `0.40.2` · `v1.19.2` | pinned | were `latest`; same images in `docker-compose.yaml` and the Helm chart |
+| Kubernetes deployment (`helm/`) | K8s 1.37 · minikube 1.39 · Helm 4.3 · Spark Operator 2.5.2 · Envoy Gateway v1.9.2 | | see [helm/README.md](helm/README.md) |
 
 See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
 
@@ -99,6 +101,22 @@ docker-compose up -d
 # 3. Pull LLM model
 docker exec ollama ollama pull gemma3:4b
 ```
+
+## ☸️ Kubernetes (Helm)
+
+The same platform, with the same images and versions, also runs on Kubernetes (minikube with an NVIDIA GPU) from the chart in [`helm/`](helm/):
+
+```bash
+helm/scripts/setup-minikube.sh      # minikube + Spark Operator + Envoy Gateway (--gpu-mode none for CPU only)
+helm/scripts/build-images.sh        # build the local images inside minikube
+helm/scripts/deploy.sh              # install the chart
+helm/scripts/e2e-k8s.sh             # the 19-check lakehouse e2e on Kubernetes (no GPU needed)
+helm/scripts/gateway-forward.sh     # Envoy Gateway on localhost:8080 → http://jupyter.datalab.localhost:8080, headlamp.…, trino.…
+```
+
+Headlamp (with the Kubeflow plugin) is installed as well: `http://headlamp.datalab.localhost:8080`, token from `helm/scripts/headlamp-token.sh`.
+Spark runs on the Kubeflow Spark Operator (a Spark Connect server in our Spark 4.1.3 image plus executor pods); notebooks reach it via `SPARK_REMOTE`.
+Details, GPU modes and access: [helm/README.md](helm/README.md); design: [docs/K8S_HELM_PLAN.md](docs/K8S_HELM_PLAN.md).
 
 ## 🎯 Getting Started
 
@@ -152,6 +170,11 @@ Simple steps to explore the tools:
 - **Document Processing**: pypdf2, python-docx, beautifulsoup4, tiktoken
 - **Observability**: arize-phoenix, opentelemetry, openinference instrumentation
 - **Development Tools**: ipywidgets, tqdm, rich, typer
+- **dbt**: dbt-core 1.12.5 + dbt-trino 1.10.6 (project in `jupyter/notebooks/dbt/lakehouse_demo/`)
+- **Example notebooks**:
+  - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
+  - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
+  - `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`)
 - **Default Kernel**: GenAI Analytics (Python 3.12)
 - **Access**: `http://localhost:8888` (password: 123456)
 

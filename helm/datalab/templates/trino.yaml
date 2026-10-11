@@ -1,0 +1,71 @@
+{{- if .Values.trino.enabled }}
+{{- $n := "trino" }}
+{{- if .Values.trino.jvmConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-jvm-config
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+data:
+  jvm.config: |
+    {{- .Values.trino.jvmConfig | nindent 4 }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: http, port: 8080}
+---
+# Trino 483. Catalog/config files are baked into the image (trino/Dockerfile copies trino/etc), exactly what
+# compose also bind-mounts, so nothing is mounted unless trino.jvmConfig is set.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 8 }}
+      {{- if .Values.trino.jvmConfig }}
+      annotations:
+        checksum/jvm: {{ .Values.trino.jvmConfig | sha256sum }}
+      {{- end }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      containers:
+        - name: trino
+          image: {{ include "datalab.image" .Values.images.trino }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - {name: http, containerPort: 8080}
+          startupProbe:
+            exec: &ready
+              command: ["sh", "-c", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 90
+          readinessProbe:
+            exec: *ready
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources: {{- toYaml .Values.trino.resources | nindent 12 }}
+          {{- if .Values.trino.jvmConfig }}
+          volumeMounts:
+            - {name: jvm, mountPath: /etc/trino/jvm.config, subPath: jvm.config, readOnly: true}
+          {{- end }}
+      {{- if .Values.trino.jvmConfig }}
+      volumes:
+        - name: jvm
+          configMap: {name: trino-jvm-config}
+      {{- end }}
+{{- end }}

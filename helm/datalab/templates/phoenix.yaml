@@ -1,0 +1,127 @@
+{{- if .Values.phoenix.enabled }}
+{{- $n := "phoenix" }}
+{{- $c := .Values.credentials.phoenixDb }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: phoenix-db
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_DB: {{ $c.database | quote }}
+  POSTGRES_USER: {{ $c.user | quote }}
+  POSTGRES_PASSWORD: {{ $c.password | quote }}
+  PHOENIX_SQL_DATABASE_URL: {{ printf "postgresql://%s:%s@db:5432/%s" $c.user $c.password $c.database | quote }}
+---
+# phoenix-db in compose (service name "db"); the name matters: PHOENIX_SQL_DATABASE_URL points at host "db".
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "db" "component" "phoenix") | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" "db") | nindent 4 }}
+  ports:
+    - {name: postgres, port: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "db" "component" "phoenix") | nindent 4 }}
+spec:
+  serviceName: db
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+    whenScaled: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" "db") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" "db" "component" "phoenix") | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      containers:
+        - name: postgres
+          image: {{ include "datalab.image" .Values.images.phoenixDb }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          envFrom:
+            - secretRef: {name: phoenix-db}
+          env:
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.phoenix.db.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phoenix
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: http, port: 6006}
+    - {name: otlp-grpc, port: 4317}
+    - {name: prometheus, port: 9090}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phoenix
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      initContainers:
+        - name: wait-db
+          image: {{ include "datalab.image" .Values.images.phoenixDb }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["sh", "-c", "until pg_isready -h db -p 5432 -U {{ $c.user }} -d {{ $c.database }}; do echo waiting for db; sleep 2; done"]
+      containers:
+        - name: phoenix
+          image: {{ include "datalab.image" .Values.images.phoenix }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - name: PHOENIX_SQL_DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: phoenix-db, key: PHOENIX_SQL_DATABASE_URL}
+          ports:
+            - {name: http, containerPort: 6006}
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: prometheus, containerPort: 9090}
+          startupProbe:          # compose healthcheck: GET http://localhost:6006 (start_period 40s)
+            httpGet: {path: /, port: 6006}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /, port: 6006}
+            periodSeconds: 10
+            timeoutSeconds: 10
+          resources: {{- toYaml .Values.phoenix.resources | nindent 12 }}
+{{- end }}

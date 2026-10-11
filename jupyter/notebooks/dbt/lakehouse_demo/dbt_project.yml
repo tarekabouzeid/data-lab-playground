@@ -1,0 +1,28 @@
+name: lakehouse_demo
+version: "1.0.0"
+profile: lakehouse
+model-paths: ["models"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+flags:
+  require_certificate_validation: true     # silences dbt-trino's HTTP/TLS legacy-behaviour warning; irrelevant for plain HTTP
+
+seeds:
+  lakehouse_demo:
+    +schema: dbt_demo_raw                   # used verbatim (macros/generate_schema_name.sql); the "landed" raw data
+    raw_orders:
+      +column_types:
+        order_ts: timestamp(6)
+    raw_customers:
+      +column_types:
+        signup_date: date
+
+models:
+  lakehouse_demo:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

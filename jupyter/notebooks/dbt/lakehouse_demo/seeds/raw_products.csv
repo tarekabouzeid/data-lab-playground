@@ -1,0 +1,11 @@
+product_id,name,category,unit_price
+1,laptop,computing,900
+2,monitor,peripherals,250
+3,keyboard,peripherals,60
+4,mouse,peripherals,25
+5,dock,computing,120
+6,tablet,computing,400
+7,camera,peripherals,520
+8,headset,peripherals,90
+9,router,peripherals,70
+10,ssd,computing,110

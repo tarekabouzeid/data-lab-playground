@@ -66,6 +66,17 @@ tests/e2e/run-e2e.sh --build
 
 ---
 
+## Kubernetes (Helm) Commands
+
+```bash
+helm/scripts/setup-minikube.sh [--gpu-mode device-plugin|dra|none]   # cluster + Spark Operator + Envoy Gateway
+helm/scripts/build-images.sh && helm/scripts/deploy.sh               # images into minikube, then the chart
+helm/scripts/lint.sh [--server-dry-run]                               # static checks + parity (no cluster needed)
+helm/scripts/e2e-k8s.sh [--mode application|connect|both]            # the 19-check lakehouse e2e on Kubernetes
+helm/scripts/gateway-forward.sh                                       # Envoy Gateway → localhost:8080 (*.datalab.localhost, no tunnel/hosts edit)
+helm/scripts/install-headlamp.sh && helm/scripts/headlamp-token.sh    # Headlamp + Kubeflow plugin, login token
+```
+
 ## Service Ports
 
 | Service | URL | Credentials |
@@ -115,7 +126,9 @@ Authoritative matrix: **[docs/VERSIONS.md](docs/VERSIONS.md)** (runtimes, bundle
 | Hadoop / `hadoop-aws` | 3.4.2 (Spark, Jupyter) · 3.4.1 (HMS, bundled) |
 | AWS SDK v2 bundle | 2.41.1 (Spark, Jupyter) · 2.24.6 (HMS) |
 | Postgres JDBC (HMS) | 42.7.5 |
-| Jupyter base image | `quay.io/jupyter/base-notebook:python-3.12` (rolling tag), `pyspark==4.1.3` |
+| Jupyter base image | `quay.io/jupyter/base-notebook:python-3.12` (rolling tag), `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` + `kubeflow-spark-api==2.4.0` (**no** `[spark]` extra) |
+| Phoenix · Ollama · Qdrant | `arizephoenix/phoenix:version-20.20.0` · `ollama/ollama:0.40.2` · `qdrant/qdrant:v1.19.2` (pinned; were `latest`) |
+| Kubernetes (`helm/`) | Kubernetes 1.37 · minikube 1.39.0 · Helm 4.3 · Kubeflow Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 + `headlamp_kubeflow` 0.2.0-alpha (pluginctl 0.1.1) · NVIDIA DRA driver 0.5.0 (optional) |
 
 ---
 
@@ -170,6 +183,11 @@ All services use the same hardcoded credentials (intentional for local dev — *
 12. **Trino 482/483 breaking changes** (none affect current configs): Alluxio FS removed; `char`→`varchar` coercion reversed; `hive.max-initial-split*` removed; Iceberg `$files.lower_bounds/upper_bounds` are now typed rows; `s3.iam-role` now needs `s3.auth-type=IAM_ROLE`; the new Web UI is the default at `/ui` (legacy at `/ui/legacy`, disabled by default).
 
 13. **Docker builds need network access**: the Dockerfiles fetch jars from Maven Central (`curl -fsSL`, so they fail loudly on a 404 or 429), including the HMS Postgres JDBC driver and AWS SDK bundle. The Spark and Jupyter images also install packages via `apt`.
+14. **Helm chart parity (`helm/`)**: the chart must use the *same* images as `docker-compose.yaml` and the same Spark config. `helm/scripts/check-parity.sh` (run by `helm/scripts/lint.sh`) fails on drift in images, `spark/conf/spark-defaults.conf` vs `spark.sparkConf` in `values.yaml`, and `helm/datalab/files/e2e_lakehouse.py` vs `tests/e2e/e2e_lakehouse.py`. Change one side → change the other. Service names on Kubernetes equal the compose service names (the baked-in Trino/HMS/Spark configs rely on that).
+15. **Spark on Kubernetes = Spark Connect, not a master**: notebooks get `SPARK_REMOTE=sc://datalab-spark-server:15002`. With `SPARK_REMOTE` set, pyspark 4.1 raises `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER` if the code also calls `.master(...)`, so notebooks must not (compose gets `spark.master` from `spark-defaults.conf`). `SparkContext`/RDD APIs do not exist under Connect. Static confs (`spark.sql.extensions`) cannot be set by a Connect client; they live in the chart's `spark.sparkConf` (server side).
+16. **Kubeflow SDK: `connect(base_url=...)` only, never `pip install kubeflow[spark]`.** SDK 0.5.0 hardcodes Spark/image 4.0.4 in create mode and `submit_job()`, and the extra pins `pyspark-connect==4.2.0` (conflicts with `pyspark==4.1.3`). Re-check on every SDK/operator upgrade with the commands in `docs/K8S_HELM_PLAN.md` §1 (blocker row in `docs/VERSIONS.md` §6).
+17. **Kubernetes gotchas**: local images need `imagePullPolicy: IfNotPresent` (`:latest` defaults to `Always`); pods use `enableServiceLinks: false` (a Service named `phoenix` injects `PHOENIX_PORT=tcp://…`); SeaweedFS needs a **headless** Service named `seaweedfs`; the `ollama` image has no `curl` (use `ollama list`); the Spark Operator must watch the release namespace (`spark.jobNamespaces`) and the namespace must exist first. **Headlamp** is a separate Helm release (official chart; values in `helm/headlamp-values.yaml`) whose plugin manager installs plugins **only from Artifact Hub** (`https://artifacthub.io/packages/headlamp/...`) at pod start; its Kubeflow plugin covers `SparkApplication`/`ScheduledSparkApplication`, not `SparkConnect`; keep its pins equal to `helm/scripts/versions.env` (`check-parity.sh`). Gateway hostnames default to `*.datalab.localhost`, reached with `helm/scripts/gateway-forward.sh`.
+18. **New notebooks (Iceberg 1.12 / dbt)**: dbt runs in-process via `lab_utils.dbt()`; never name a Python module `dbt_*` on `sys.path` (dbt imports it as a plugin). Notebooks never `DROP SCHEMA` (a dropped schema cannot be recreated: leftover `managed/<name>.db` dir in SeaweedFS); `reset_dbt_demo()` drops tables/views only. Verified on this stack (Spark Connect, all notebooks twice; Compose path by spark-submit smoke of the same helper): Hilbert `rewrite_data_files`, VARIANT v3 (shredded-variant DML in 1.12.0 needs the vectorization workaround shown in nb 02), deletion vectors (PUFFIN), row lineage (aggregates over lineage columns need the workaround in nb 03), `remove-dangling-deletes`, merge-append for streaming, per-column dictionary encoding, `rewrite_manifests sort_by` (partitioned tables only). **Not supported here**: geometry/geography (REST server answers 406), Spark SQL column defaults, bloom filters, changelog view with delete files. Not run: notebooks inside the real Jupyter image or on a live Kubernetes node.
 
 ---
 
@@ -191,7 +209,7 @@ spark/
 jupyter/
   Dockerfile                  # JupyterLab + PySpark + full GenAI stack
   spark-defaults.conf         # Same as spark/conf/spark-defaults.conf
-  notebooks/                  # Example notebooks
+  notebooks/                  # Example notebooks (iceberg/, dbt/ + lab_utils.py)
 trino/
   Dockerfile                  # Trino 483
   etc/catalog/hive.properties       # Hive connector → HMS thrift
@@ -200,7 +218,13 @@ trino/
 tests/e2e/
   run-e2e.sh                  # Starts core services, runs the e2e test via spark-submit
   e2e_lakehouse.py            # 19 checks: Spark/Trino × hive/iceberg/lakehouse catalogs
+helm/
+  README.md                   # Kubernetes quick start, GPU modes, access
+  datalab/                    # Helm chart (templates per service, values.yaml, values-minikube.yaml, files/e2e_lakehouse.py)
+  headlamp-values.yaml        # Headlamp (official chart) + Kubeflow plugin; pins mirrored in scripts/versions.env
+  scripts/                    # setup-minikube, build-images, deploy, install-headlamp, headlamp-token, gateway-forward, hosts, port-forward, lint, check-parity, e2e-k8s
 docs/
+  K8S_HELM_PLAN.md            # Design/decisions for the Kubernetes chart
   VERSIONS.md                 # Authoritative version matrix (components, runtimes, access paths, blockers)
   UPGRADE_PLAN.md             # Compatibility research + version pins rationale (2026-10 upgrade)
 ```
@@ -211,3 +235,6 @@ docs/
 
 - [`jupyter/notebooks/data_lab_playground.ipynb`](jupyter/notebooks/data_lab_playground.ipynb) — Full platform demo: Phoenix tracing, Ollama LLM, Spark, SeaweedFS, Trino
 - [`jupyter/notebooks/rag_demo.ipynb`](jupyter/notebooks/rag_demo.ipynb) — RAG pipeline: Qdrant + `mxbai-embed-large` embeddings + `gemma3:4b` LLM + LangChain
+- [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
+- [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
+- `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`)

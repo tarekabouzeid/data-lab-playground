@@ -1,0 +1,153 @@
+{{- if .Values.seaweedfs.enabled }}
+{{- $n := "seaweedfs" }}
+{{- $img := include "datalab.image" .Values.images.seaweedfs }}
+{{- $s3 := .Values.credentials.s3 }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: seaweedfs-s3
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+type: Opaque
+stringData:
+  # Same content as seaweedfs/s3.json
+  s3.json: |
+    {{- dict "identities" (list (dict "name" $s3.accessKey "credentials" (list (dict "accessKey" $s3.accessKey "secretKey" $s3.secretKey)) "actions" (list "Admin" "Read" "List" "Tagging" "Write"))) | toPrettyJson | nindent 4 }}
+---
+# Headless: "seaweedfs" must resolve to the pod IP (compose: -ip=seaweedfs). The master, volume, filer and S3
+# processes in the pod reach each other at that name on their HTTP *and* gRPC ports (+10000), so a ClusterIP
+# Service (which would need every port listed and would hairpin back to the pod) is the wrong tool.
+# publishNotReadyAddresses: the name must resolve before the pod is Ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: s3, port: 8333}
+    - {name: master, port: 9333}
+    - {name: filer, port: 8888}
+    - {name: volume, port: 8080}
+---
+# Load-balanced ClusterIP for the Gateway routes (a Gateway backend should be a normal Service).
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-http
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: s3, port: 8333, targetPort: 8333}
+    - {name: master, port: 9333, targetPort: 9333}
+    - {name: filer, port: 8888, targetPort: 8888}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  serviceName: seaweedfs
+  replicas: 1
+  podManagementPolicy: Parallel
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+    whenScaled: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 8 }}
+      annotations:
+        checksum/s3: {{ toJson $s3 | sha256sum }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      containers:
+        - name: seaweedfs
+          image: {{ $img }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          # args (not command): keep the image ENTRYPOINT, exactly like compose' `command:`
+          args:
+            - server
+            - -dir=/data
+            - -ip=seaweedfs
+            - -ip.bind=0.0.0.0
+            - -master.volumeSizeLimitMB=1024
+            - -volume.max=64
+            - -filer
+            - -s3
+            - -s3.port=8333
+            - -s3.config=/etc/seaweedfs/s3.json
+          ports:
+            - {name: s3, containerPort: 8333}
+            - {name: master, containerPort: 9333}
+            - {name: filer, containerPort: 8888}
+          startupProbe:
+            httpGet: {path: /healthz, port: 8333}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8333}
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8333}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources: {{- toYaml .Values.seaweedfs.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: s3-config, mountPath: /etc/seaweedfs/s3.json, subPath: s3.json, readOnly: true}
+      volumes:
+        - name: s3-config
+          secret: {secretName: seaweedfs-s3}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.seaweedfs.storage }}
+---
+# Creates the `warehouse` bucket (compose: start-platform.sh runs `weed shell s3.bucket.create`). Idempotent.
+# Name carries a checksum so a changed spec creates a new Job (Job specs are immutable).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seaweedfs-bucket-{{ printf "%s%s" $img .Values.seaweedfs.warehouseBucket | sha256sum | trunc 8 }}
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" "seaweedfs-bucket" "component" "seaweedfs") | nindent 4 }}
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" "seaweedfs-bucket" "component" "seaweedfs") | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      restartPolicy: OnFailure
+      containers:
+        - name: create-bucket
+          image: {{ $img }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              B={{ .Values.seaweedfs.warehouseBucket }}
+              for i in $(seq 1 90); do
+                if echo "s3.bucket.create -name $B" | weed shell -master=seaweedfs:9333 >/dev/null 2>&1 \
+                   || echo "s3.bucket.list" | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q "$B"; then
+                  echo "bucket $B ready"; exit 0
+                fi
+                echo "waiting for SeaweedFS ($i)"; sleep 3
+              done
+              echo "could not create bucket $B"; exit 1
+{{- end }}
