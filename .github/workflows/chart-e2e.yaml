@@ -4,7 +4,6 @@ on:
   pull_request:
     paths: ["charts/**", "hack/chart-e2e-kind.sh", "spark/**", "hive-metastore/**", ".github/workflows/chart-e2e.yaml"]
   push:
-    branches: [main]
     paths: ["charts/**", "hack/chart-e2e-kind.sh", "spark/**", "hive-metastore/**", ".github/workflows/chart-e2e.yaml"]
   workflow_dispatch:
 

@@ -4,7 +4,6 @@ on:
   pull_request:
     paths: ["charts/**", "hack/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
   push:
-    branches: [main]
     paths: ["charts/**", "hack/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
 
 permissions:
