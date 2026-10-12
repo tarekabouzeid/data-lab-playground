@@ -25,7 +25,8 @@ RUN mkdir -p /opt/conda/bin && \
 
 # Spark Connect Python client deps (pyspark 4.1 "connect" extra). Used by the Helm
 # chart's `helm test` pod and by pandas/Arrow UDFs on executors.
-RUN python3.12 -m ensurepip \
+# --upgrade: jammy ships pip 22 in dist-packages, which breaks on 3.12 (no distutils).
+RUN python3.12 -m ensurepip --upgrade \
     && python3.12 -m pip install --no-cache-dir --break-system-packages \
        pandas==2.3.3 pyarrow==21.0.0 numpy==2.3.4 \
        grpcio==1.76.0 grpcio-status==1.76.0 googleapis-common-protos==1.71.0 \
