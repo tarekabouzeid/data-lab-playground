@@ -1,6 +1,7 @@
 # Helm chart gap report
 
-Audit date: 2026-10-12, against `main` @ `a4d8a53`.
+Audit date: 2026-10-12, against `main` @ `a4d8a53`. The fixes are in `charts/data-lab` and
+`.github/workflows/chart-*.yaml`; see "Verification" at the end for what was proven where.
 
 ## Finding 0: there is no Helm chart
 
@@ -54,3 +55,22 @@ aligned", they are **not** added to Compose.
 | C8 | **Airflow is new.** There is no Compose service to align with, and adding one would touch Compose. | The chart only pins `apache/airflow:3.3.2-python3.12`. Its metadata DB is a dedicated Postgres. The default auth manager is SimpleAuthManager with one admin user from a Secret. |
 | C9 | **`appVersion` must equal the lab release, but the current lab state (Spark 4.1.3 / Iceberg 1.12.0 / HMS 4.2.1 / Trino 483) is not released yet.** `RELEASE_NOTES.md` ends at v2.0.0. | Used `3.0.0`, the release already suggested for this matrix. Writing `RELEASE_NOTES.md` still needs your confirmation (policy). The chart has its own `charts/data-lab/CHANGELOG.md`. |
 | C10 | **PSS "restricted" exceptions.** | None in the default or minimal profile. Every image runs with a numeric non-root UID. SeaweedFS's entrypoint only chowns when root, so that step is skipped. Postgres runs as 999. Ollama runs as 1000 with `HOME` on a volume. Any exception found by CI is recorded in the chart README. |
+| C11 | **The Spark Connect token cannot use the standard `;token=` URL.** The PySpark client sends a token only over TLS (plaintext only to `localhost`), and the Spark 4.1 Connect server has no TLS. | Auth stays on by default. Clients pass the token as gRPC metadata, `sc://host:15002/;authorization=Bearer <token>`, which the stock client supports. Verified: right token works, wrong or missing token is rejected. It is published as `connectUrlTemplate` in the endpoints ConfigMap. The alternative is a TLS proxy sidecar (not built). |
+| C12 | **Ollama was not run-tested.** The image (CUDA libs, ~9 GB unpacked) did not fit in the authoring sandbox, and there is no GPU on kind. | Render, schema and policy checks only. The non-root setup (`HOME`/models on the volume) follows the image's documented behaviour but is unverified. |
+
+## Verification
+
+| Check | Where | Result |
+|---|---|---|
+| helm lint `--strict`, ct lint (yamllint + yamale), kubeconform `-strict` on 5 profiles | local + `chart-lint` CI | ✅ |
+| No cluster-scoped kinds, single namespace, `<fullname>-` names, app.kubernetes.io labels, ClusterIP only, PSS restricted on every pod/init/test/executor template | `hack/check-chart-render.py`, local + CI | ✅ |
+| Invalid combos and unknown keys fail at render | local + CI | ✅ |
+| SeaweedFS as 1000 (all caps dropped): server + postStart bucket creation | Docker, rendered script | ✅ ~10 s |
+| HMS as 1000 with rendered templates and secrets from env: schema init on Postgres, Iceberg REST up; wait-for-db and wait-for-s3 (wrong key keeps waiting) | Docker | ✅ ready in 27 s |
+| Trino as 1000 with rendered config and `${ENV:...}` S3 keys | Docker | ✅ ready in 59 s |
+| `helm test` script: Spark Connect (token) → Iceberg table via HMS REST → SeaweedFS → Trino reads `[[3, 6]]` → table purged and namespace dropped | Docker (Connect server in `local` mode) | ✅ 32 s |
+| Airflow as 50000:0: auth-file init, `db migrate`, api-server + scheduler + dag-processor, admin login (wrong password → 401), DAG from read-only folder, LocalExecutor run → success | Docker | ✅ |
+| Qdrant (API key enforced, health open), Phoenix (auth on, admin login from Secret), Postgres 17.11 as 999 | Docker | ✅ |
+| Spark executors as pods, NetworkPolicy, parallel releases, minimal < 3 min, helm test in-cluster, clean uninstall, Secret stability on upgrade | kind, `chart-e2e` CI | see CI run |
+| git-sync, Jupyter, Ollama | render only | ⚠️ not run (registry.k8s.io / quay.io blocked in the sandbox; Ollama see C12) |
+
