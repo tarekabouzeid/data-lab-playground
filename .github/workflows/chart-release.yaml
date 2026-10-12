@@ -1,0 +1,60 @@
+name: chart-release
+
+# v<appVersion>   (e.g. v3.0.0): build + push the lab images tagged <appVersion>, then publish the chart.
+# chart-v<version> (e.g. chart-v0.1.1): publish the chart only (images already exist).
+on:
+  push:
+    tags: ["v*", "chart-v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  HELM_VERSION: v3.19.0
+  REGISTRY: ghcr.io
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Check the tag matches Chart.yaml
+        run: |
+          APP=$(yq '.appVersion' charts/data-lab/Chart.yaml); VER=$(yq '.version' charts/data-lab/Chart.yaml)
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "APP=$APP" >> "$GITHUB_ENV"; echo "VER=$VER" >> "$GITHUB_ENV"; echo "OWNER=$OWNER" >> "$GITHUB_ENV"
+          case "$GITHUB_REF_NAME" in
+            chart-v*) [ "$GITHUB_REF_NAME" = "chart-v$VER" ] || { echo "::error::tag $GITHUB_REF_NAME != chart-v$VER"; exit 1; } ;;
+            v*)       [ "$GITHUB_REF_NAME" = "v$APP" ] || { echo "::error::tag $GITHUB_REF_NAME != v$APP (Chart.yaml appVersion)"; exit 1; } ;;
+          esac
+          # custom image tags in values.yaml must equal appVersion
+          for c in hms spark jupyter; do
+            t=$(yq ".$c.image.tag" charts/data-lab/values.yaml)
+            [ "$t" = "$APP" ] || { echo "::error::$c.image.tag=$t but appVersion=$APP"; exit 1; }
+          done
+
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push lab images
+        if: startsWith(github.ref_name, 'v')
+        run: |
+          for c in hive-metastore spark jupyter; do
+            img="$REGISTRY/$OWNER/data-lab-playground/$c:$APP"
+            docker build -t "$img" "$c"
+            docker push "$img"
+          done
+
+      - name: Package and push the chart (OCI)
+        run: |
+          helm package charts/data-lab -d dist
+          helm push "dist/data-lab-$VER.tgz" "oci://$REGISTRY/$OWNER/charts"
