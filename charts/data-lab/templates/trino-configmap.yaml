@@ -1,6 +1,6 @@
 {{- if .Values.trino.enabled }}
 {{- $c := .Values.trino -}}
-{{- $s3 := printf "fs.native-s3.enabled=true\ns3.endpoint=%s\ns3.region=%s\ns3.path-style-access=%v\ns3.aws-access-key=${ENV:S3_ACCESS_KEY}\ns3.aws-secret-key=${ENV:S3_SECRET_KEY}" (include "datalab.s3Endpoint" .) .Values.s3.region .Values.s3.pathStyleAccess -}}
+{{- $s3 := printf "fs.s3.enabled=true\ns3.endpoint=%s\ns3.region=%s\ns3.path-style-access=%v\ns3.aws-access-key=${ENV:S3_ACCESS_KEY}\ns3.aws-secret-key=${ENV:S3_SECRET_KEY}" (include "datalab.s3Endpoint" .) .Values.s3.region .Values.s3.pathStyleAccess -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

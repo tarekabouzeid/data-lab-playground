@@ -28,14 +28,23 @@ dump() {  # namespace
   done
 }
 
-install() {  # release namespace [helm args...]
+ensure_ns() { kubectl get namespace "$1" >/dev/null 2>&1 || kubectl create namespace "$1" >/dev/null; }
+
+install() {  # release namespace [helm args...]   (namespace must exist when installs run in parallel)
   local rel=$1 ns=$2; shift 2
-  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  ensure_ns "$ns"
   helm install "$rel" "$CHART" -n "$ns" --wait --timeout "$TIMEOUT" "$@" || { dump "$ns"; return 1; }
 }
 
 run_test() {  # release namespace
-  helm test "$1" -n "$2" --logs --timeout 10m || { dump "$2"; return 1; }
+  # No --logs: hook-succeeded deletes the pod first. A failed pod is kept, so dump() shows its logs.
+  helm test "$1" -n "$2" --timeout 10m || { dump "$2"; return 1; }
+}
+
+wait_all() {  # pids...: wait for every job, fail if any failed (an && chain would hide failures under set -e)
+  local rc=0
+  for pid in "$@"; do wait "$pid" || rc=1; done
+  return $rc
 }
 
 assert_executors() {  # namespace: Spark (master=kubernetes) must have created executor pods
@@ -105,16 +114,17 @@ scenario_minimal() {
 scenario_parallel() {
   log "parallel: p1+p2 in dl-shared, 'lab' in dl-ns1 and dl-ns2"
   local small=(-f "$CHART/ci/small-values.yaml")
+  for ns in dl-shared dl-ns1 dl-ns2; do ensure_ns "$ns"; done
   install p1 dl-shared "${small[@]}" & a=$!
   install p2 dl-shared "${small[@]}" & b=$!
   install lab dl-ns1 "${small[@]}" & c=$!
   install lab dl-ns2 "${small[@]}" & d=$!
-  wait $a && wait $b && wait $c && wait $d
+  wait_all $a $b $c $d
   run_test p1 dl-shared & a=$!
   run_test p2 dl-shared & b=$!
   run_test lab dl-ns1 & c=$!
   run_test lab dl-ns2 & d=$!
-  wait $a && wait $b && wait $c && wait $d
+  wait_all $a $b $c $d
   # NetworkPolicy: another release's pod must not reach this release's Trino (only if the CNI enforces policies)
   if kubectl -n dl-shared run np-probe --rm -i --restart=Never --image=busybox:1.36 \
       --labels=app.kubernetes.io/name=data-lab,app.kubernetes.io/instance=p2 \
