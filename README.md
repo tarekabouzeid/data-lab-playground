@@ -100,6 +100,27 @@ docker-compose up -d
 docker exec ollama ollama pull gemma3:4b
 ```
 
+## ☸️ Kubernetes (Helm chart)
+
+The lakehouse also ships as a Helm chart at [`charts/data-lab`](charts/data-lab/README.md), built for many
+short-lived installs side by side on one cluster (one per user or agent). Compared with the Compose stack:
+
+- Spark runs as a **Spark Connect** server (`sc://...:15002`) with executors as pods. **Airflow 3** (LocalExecutor)
+  is included. Jupyter and the GenAI services (Ollama, Qdrant, Phoenix) are optional and off by default.
+- There are no hardcoded credentials: each one comes from an `existingSecret` or is generated once per release.
+- Everything is namespaced, runs non-root (Pod Security Standard "restricted") and is reachable only inside the cluster.
+- The `<release>-data-lab-endpoints` ConfigMap lists every endpoint and the Secret holding its credential.
+
+```bash
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.1.0 -n lab1 --create-namespace --wait
+helm test lab1 -n lab1        # Spark writes an Iceberg table, Trino reads it back
+helm uninstall lab1 -n lab1   # leaves nothing behind
+```
+
+Profiles, values, credentials, security and resource footprint are in the [chart README](charts/data-lab/README.md).
+CI (`.github/workflows/chart-*.yaml`) lints the chart and runs it on kind. The audit that led to the chart is in
+[docs/HELM_GAP_REPORT.md](docs/HELM_GAP_REPORT.md).
+
 ## 🎯 Getting Started
 
 Simple steps to explore the tools:

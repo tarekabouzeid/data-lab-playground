@@ -12,6 +12,7 @@ See [README.md](README.md) for a full overview and service access URLs.
 1. Update [README.md](README.md) to reflect the new state (versions table, service URLs, architecture diagram, or quick-start steps as appropriate).
 2. Update [AGENTS.md](AGENTS.md) — specifically the versions table, pitfalls, and any affected section — so future agents have accurate context.
 3. For any version change, update [docs/VERSIONS.md](docs/VERSIONS.md) (the authoritative version matrix) and re-run `tests/e2e/run-e2e.sh`.
+4. If the change touches a component that the Helm chart also ships (image tag, config, port, credential), mirror it in `charts/data-lab` (values, templates, VERSIONS.md §8), bump the chart version, add a `charts/data-lab/CHANGELOG.md` entry, and regenerate the schema and README (`hack/gen-chart-schema.py`, `helm-docs`).
 
 Do not leave these files stale after a change.
 
@@ -59,6 +60,12 @@ docker compose logs -f [service-name]
 
 # Restart a service
 docker compose restart [service-name]
+
+# Helm chart: regenerate schema + README after editing charts/data-lab/values.yaml, then lint
+hack/gen-chart-schema.py && helm-docs -c charts -s file
+helm lint --strict charts/data-lab --kube-version 1.34.0 -f charts/data-lab/ci/full-values.yaml
+helm template r charts/data-lab -n ns | hack/check-chart-render.py r-data-lab ns   # PSS/labels/namespace policy
+hack/chart-e2e-kind.sh minimal   # on a kind cluster with the images loaded (see .github/workflows/chart-e2e.yaml)
 
 # End-to-end lakehouse test (no GPU needed): SeaweedFS + HMS + Trino + Spark + Iceberg
 tests/e2e/run-e2e.sh --build
@@ -150,7 +157,7 @@ All services use the same hardcoded credentials (intentional for local dev — *
 
 6. **Iceberg JAR naming**: `iceberg-spark-runtime-4.1_2.13-1.12.0.jar`. The `4.1_2.13` artifact ID matches the Spark 4.1.x line. (Prior to Iceberg 1.11, the `4.0_2.13` artifact was used as a workaround.)
 
-7. **Credentials everywhere are plaintext**: Jupyter password (`123456`), SeaweedFS S3, Hive Postgres, Phoenix Postgres — all hardcoded in Dockerfiles and config files. Intentional for local dev only.
+7. **Credentials everywhere are plaintext in the Compose stack**: Jupyter password (`123456`), SeaweedFS S3, Hive Postgres, Phoenix Postgres — all hardcoded in Dockerfiles and config files. Intentional for local dev only. The Helm chart has **none**: never copy a Compose credential into `charts/`.
 
 8. **HMS config lives in `*.xml.template` files**. The image entrypoint regenerates `metastore-site.xml` and `core-site.xml` from `hive-metastore/metastore-site.xml.template` and `core-site.xml.template` (envsubst) on **every start**, so a copied `hive-site.xml` or `metastore-site.xml` is silently overwritten. (This is why an early 4.2.1 test wrote to `file:/opt/hive/data/warehouse`.) `hive-metastore/hive-site.xml` and `entrypoint.sh` are **legacy and unused**. Other HMS image rules:
    - Hive 4 refuses external tables (all Iceberg tables) under the **managed** root: managed = `s3a://warehouse/managed/`, external = `s3a://warehouse/`. The REST servlet reads the legacy `hive.metastore.warehouse.(external.)dir` names, so both spellings are set.
@@ -170,6 +177,18 @@ All services use the same hardcoded credentials (intentional for local dev — *
 12. **Trino 482/483 breaking changes** (none affect current configs): Alluxio FS removed; `char`→`varchar` coercion reversed; `hive.max-initial-split*` removed; Iceberg `$files.lower_bounds/upper_bounds` are now typed rows; `s3.iam-role` now needs `s3.auth-type=IAM_ROLE`; the new Web UI is the default at `/ui` (legacy at `/ui/legacy`, disabled by default).
 
 13. **Docker builds need network access**: the Dockerfiles fetch jars from Maven Central (`curl -fsSL`, so they fail loudly on a 404 or 429), including the HMS Postgres JDBC driver and AWS SDK bundle. The Spark and Jupyter images also install packages via `apt`.
+
+14. **Helm chart (`charts/data-lab`) rules** (full detail in its README; audit in `docs/HELM_GAP_REPORT.md`):
+    - `values.yaml` is a **public API** (Sandpiper installs the chart programmatically). Add keys and never rename or remove them without a major chart bump. Every key needs a `# --` comment. Then run `hack/gen-chart-schema.py` (strict schema, closed objects) and `helm-docs -c charts -s file`. CI fails on drift.
+    - Bump `Chart.yaml` `version` and add a `charts/data-lab/CHANGELOG.md` entry for every chart change. `appVersion` = lab release, and the `ghcr.io/.../data-lab-playground/*` image tags in values must equal it (the release workflow checks this).
+    - Names are always `include "datalab.componentName" (list $ "<component>")`. Never hardcode a name, namespace or host. Hosts come from `datalab.host`. `fullname` is capped at 40 chars so Spark executor names fit.
+    - Only namespaced kinds (`hack/check-chart-render.py` enforces it, plus labels, ClusterIP and PSS restricted). Spark executor RBAC is a Role/RoleBinding. Executors get labels and security context from `executor-pod-template.yaml`.
+    - Credentials: `existingSecret` or a generated Secret via `datalab.secretValue` (`lookup` keeps it stable across upgrades). Under `helm template` the values regenerate, which is expected. Phoenix's secret needs a digit and a lowercase letter, and the Airflow fernet key is base64 of 32 chars.
+    - **Spark Connect token**: the PySpark client sends `;token=` only over TLS, and Spark 4.1 Connect has no TLS. Use `sc://host:15002/;authorization=Bearer <token>`.
+    - HMS in Kubernetes: templates are mounted over `/opt/hive/conf/*.xml.template` with `${HMS_DB_PASSWORD}`/`${S3_*}` placeholders (the entrypoint envsubsts them). The `wait-for-s3` init container lists the bucket with Hadoop S3A, because curl 7.76 SigV4 is rejected by SeaweedFS and anonymous 403 cannot tell "missing" from "exists".
+    - SeaweedFS creates the bucket in a `postStart` hook (`weed shell -master=localhost:9333`). Its S3 identity is written from the Secret at start.
+    - Postgres in the chart is 17.11 (Compose HMS stays on 13). Airflow is 3.3.2 with SimpleAuthManager. Its password file is written by an init container, and the API server is also the execution API for LocalExecutor tasks (`http://localhost:8080/execution/`).
+    - Local verification without a cluster: render, then run each container in Docker with `--user <uid> --cap-drop ALL --security-opt no-new-privileges` and the rendered command/config. Nested kind/k3s does not work in the cloud sandbox (`oom_score_adj` is forbidden).
 
 ---
 
@@ -200,8 +219,19 @@ trino/
 tests/e2e/
   run-e2e.sh                  # Starts core services, runs the e2e test via spark-submit
   e2e_lakehouse.py            # 19 checks: Spark/Trino × hive/iceberg/lakehouse catalogs
+charts/data-lab/              # Helm chart (Kubernetes): values.yaml = public API, values.schema.json generated
+  templates/                  # one file per component; _helpers.tpl (names, labels, images, secrets), tests/
+  ci/*-values.yaml            # profiles: default, minimal, small, ephemeral, full (ct lint + kind e2e)
+  README.md(.gotmpl), CHANGELOG.md
+hack/
+  gen-chart-schema.py         # values.yaml -> values.schema.json (--check in CI)
+  check-chart-render.py       # policy checks on helm template output
+  chart-e2e-kind.sh           # kind e2e: minimal (timed) / default / parallel + helm test + clean uninstall
+ct.yaml                       # chart-testing config
+.github/workflows/chart-*.yaml # lint, kind e2e, OCI release (images + chart on v* tags)
 docs/
-  VERSIONS.md                 # Authoritative version matrix (components, runtimes, access paths, blockers)
+  HELM_GAP_REPORT.md          # Helm requirements audit, conflicts with component limits
+  VERSIONS.md                 # Authoritative version matrix (components, runtimes, access paths, blockers, §8 chart images)
   UPGRADE_PLAN.md             # Compatibility research + version pins rationale (2026-10 upgrade)
 ```
 

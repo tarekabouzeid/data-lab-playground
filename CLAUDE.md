@@ -8,6 +8,7 @@
 1. Update [README.md](README.md) to reflect the new state.
 2. Update [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) — versions, pitfalls, and any affected section — so future agents have accurate context.
 3. For any version change, update [docs/VERSIONS.md](docs/VERSIONS.md) (authoritative version matrix) and re-run `tests/e2e/run-e2e.sh`.
+4. If the Helm chart ships the changed component, mirror the change in `charts/data-lab`. Then bump the chart version, add a `charts/data-lab/CHANGELOG.md` entry and run `hack/gen-chart-schema.py` + `helm-docs -c charts -s file`.
 
 Do not leave these files stale after a change.
 
@@ -33,7 +34,7 @@ Do not leave these files stale after a change.
 
 ## Project Summary
 
-A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.3, Iceberg 1.12.0, Trino 483, Hive Metastore 4.2.1 (Thrift + built-in Iceberg REST catalog), SeaweedFS (S3), Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`.
+A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.3, Iceberg 1.12.0, Trino 483, Hive Metastore 4.2.1 (Thrift + built-in Iceberg REST catalog), SeaweedFS (S3), Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`. The same lakehouse also ships as a Helm chart (`charts/data-lab`) for many parallel, ephemeral installs (Spark Connect, Airflow 3, optional GenAI).
 
 ## Key Things to Know
 
@@ -41,7 +42,8 @@ A local Docker Compose–based **AI-enhanced data lakehouse** for experimentatio
 - **Force rebuild**: `./start-platform.sh --rebuild`
 - **E2E test (no GPU)**: `tests/e2e/run-e2e.sh --build` (19 checks: Spark/Trino × `hive`/`iceberg`/`lakehouse` catalogs + plain-Parquet storage checks)
 - **Jupyter** at http://localhost:8888, password `123456`
-- **All credentials are intentionally hardcoded** (local dev only — SeaweedFS S3 `seaweedadmin`/`seaweedadmin123`, Postgres, Jupyter)
+- **All Compose credentials are intentionally hardcoded** (local dev only — SeaweedFS S3 `seaweedadmin`/`seaweedadmin123`, Postgres, Jupyter). The Helm chart has none: `existingSecret` or generated.
+- **Helm chart**: `charts/data-lab` (README there). Lint with `helm lint --strict charts/data-lab --kube-version 1.34.0`; policy check with `helm template r charts/data-lab -n ns | hack/check-chart-render.py r-data-lab ns`; kind e2e with `hack/chart-e2e-kind.sh`.
 
 ## Architecture
 
@@ -66,10 +68,12 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 9. **Storage is SeaweedFS 4.48** (replaced MinIO, whose image left Docker Hub). Endpoint `http://seaweedfs:8333`, keys in `seaweedfs/s3.json`. The bucket is created via `weed shell` (no `mc`). Keep `-volume.max=64`, because auto-sizing from free disk left no writable volumes and S3A PUTs returned 500. Filer UI is on host 8889.
 10. **Trino 483**: the new Web UI is the default at `/ui`. Breaking changes in 482/483 (Alluxio removal, char/varchar coercion, `$files` bounds type, `s3.auth-type`) don't affect current catalogs. Full research: `docs/UPGRADE_PLAN.md`.
 
+11. **Helm chart**: `values.yaml` is a public API (Sandpiper), so only add keys, and give each one a `# --` doc comment. `values.schema.json` is generated (`hack/gen-chart-schema.py`) and closed. Names come only from `datalab.componentName`, and nothing is cluster-scoped. Spark Connect tokens go in `sc://host:15002/;authorization=Bearer <token>`, because `;token=` forces TLS that Spark 4.1 Connect lacks. Chart Postgres is 17.11 (Compose 13). Custom image tags = `appVersion`. Details are in AGENTS.md pitfall 14 and `docs/HELM_GAP_REPORT.md`.
+
 ## When Modifying Services
 
 - Spark config changes → update **both** `spark/conf/spark-defaults.conf` and `jupyter/spark-defaults.conf`
-- Hive Metastore changes → `hive-metastore/Dockerfile` and `hive-metastore/*.xml.template` (not `hive-site.xml`)
+- Hive Metastore changes → `hive-metastore/Dockerfile` and `hive-metastore/*.xml.template` (not `hive-site.xml`); the chart's copy is `charts/data-lab/templates/hms-configmap.yaml`
 - After any Dockerfile edit → rebuild: `docker build -t datalab-playground/<service> ./<service>`
 
 ## Notebooks Location
@@ -81,4 +85,4 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 Full matrix: [docs/VERSIONS.md](docs/VERSIONS.md).
 
-Spark 4.1.3 (capped: no Iceberg Spark 4.2 runtime) · Iceberg 1.12.0 · Hive Metastore 4.2.1 · Trino 483 · SeaweedFS 4.48 · Python 3.12 · Java: Spark 21 / Jupyter driver 17 / HMS 21 / Trino 25 · Hadoop 3.4.2 (Spark) / 3.4.1 (HMS) · AWS SDK bundle 2.41.1 (Spark) / 2.24.6 (HMS)
+Spark 4.1.3 (capped: no Iceberg Spark 4.2 runtime) · Iceberg 1.12.0 · Helm chart 0.1.0 (appVersion 3.0.0; adds Airflow 3.3.2, Postgres 17.11 — VERSIONS.md §8) · Hive Metastore 4.2.1 · Trino 483 · SeaweedFS 4.48 · Python 3.12 · Java: Spark 21 / Jupyter driver 17 / HMS 21 / Trino 25 · Hadoop 3.4.2 (Spark) / 3.4.1 (HMS) · AWS SDK bundle 2.41.1 (Spark) / 2.24.6 (HMS)
