@@ -71,6 +71,8 @@ aligned", they are **not** added to Compose.
 | `helm test` script: Spark Connect (token) → Iceberg table via HMS REST → SeaweedFS → Trino reads `[[3, 6]]` → table purged and namespace dropped | Docker (Connect server in `local` mode) | ✅ 32 s |
 | Airflow as 50000:0: auth-file init, `db migrate`, api-server + scheduler + dag-processor, admin login (wrong password → 401), DAG from read-only folder, LocalExecutor run → success | Docker | ✅ |
 | Qdrant (API key enforced, health open), Phoenix (auth on, admin login from Secret), Postgres 17.11 as 999 | Docker | ✅ |
-| Spark executors as pods, NetworkPolicy, parallel releases, minimal < 3 min, helm test in-cluster, clean uninstall, Secret stability on upgrade | kind, `chart-e2e` CI | see CI run |
+| kind e2e `default` (Airflow on): install, endpoints contract (every listed Secret exists), 1 Spark executor pod, `helm test` passed, generated Secrets unchanged after `helm upgrade`, uninstall leaves the namespace empty | `chart-e2e` run 38301197335 | ✅ |
+| kind e2e `minimal`: Ready in **29 s** (budget 180 s, images pre-loaded), executor pod, `helm test` passed, namespace empty after uninstall | `chart-e2e` run 38301197335 | ✅ |
+| kind e2e `parallel`: `p1` + `p2` in one namespace and `lab` in two namespaces installed at the same time, all four `helm test` passed, a `p2` pod cannot reach `p1`'s Trino (NetworkPolicy enforced), all three namespaces empty after uninstall | `chart-e2e` run 38301197335 | ✅ |
 | git-sync, Jupyter, Ollama | render only | ⚠️ not run (registry.k8s.io / quay.io blocked in the sandbox; Ollama see C12) |
 
