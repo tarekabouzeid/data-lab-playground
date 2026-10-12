@@ -1,0 +1,125 @@
+{{- if .Values.spark.enabled }}
+{{- $c := .Values.spark -}}
+{{- $name := include "datalab.componentName" (list . "spark-connect") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-connect") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "spark-connect") | nindent 4 }}
+  ports:
+    - name: grpc
+      port: 15002
+      targetPort: grpc
+      appProtocol: grpc
+    - name: ui
+      port: 4040
+      targetPort: ui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-connect") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "spark-connect") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "spark-connect" $c (dict "checksum/config" (include (print $.Template.BasePath "/spark-configmap.yaml") . | sha256sum))) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      serviceAccountName: {{ $c.serviceAccount.name | default (include "datalab.componentName" (list . "spark")) }}
+      # The driver needs the API token only to create executor pods.
+      automountServiceAccountToken: {{ eq $c.master "kubernetes" }}
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: spark-connect
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          command: ["/opt/entrypoint.sh"]
+          args:
+            - bash
+            - -c
+            - |
+              exec /opt/spark/sbin/start-connect-server.sh \
+                --conf spark.driver.host="${POD_IP}" \
+                --conf spark.kubernetes.driver.pod.name="${POD_NAME}" \
+                --conf spark.hadoop.fs.s3a.access.key="${S3_ACCESS_KEY}" \
+                --conf spark.hadoop.fs.s3a.secret.key="${S3_SECRET_KEY}"
+          env:
+            - name: SPARK_NO_DAEMONIZE
+              value: "true"
+            - name: SPARK_CONF_DIR
+              value: /etc/spark/conf
+            - name: SPARK_LOG_DIR
+              value: /tmp/spark-logs
+            - name: SPARK_PID_DIR
+              value: /tmp
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if $c.auth.enabled }}
+            - name: SPARK_CONNECT_AUTHENTICATE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "datalab.sparkSecretName" . }}
+                  key: {{ $c.auth.tokenKey }}
+            {{- end }}
+            {{- include "datalab.s3Env" . | nindent 12 }}
+          ports:
+            - name: grpc
+              containerPort: 15002
+            - name: ui
+              containerPort: 4040
+            - name: driver
+              containerPort: 7078
+            - name: blockmanager
+              containerPort: 7079
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 3
+            failureThreshold: 100
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.driver.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/spark/conf
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

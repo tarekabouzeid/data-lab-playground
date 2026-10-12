@@ -1,0 +1,66 @@
+{{- if .Values.trino.enabled }}
+{{- $c := .Values.trino -}}
+{{- $s3 := printf "fs.native-s3.enabled=true\ns3.endpoint=%s\ns3.region=%s\ns3.path-style-access=%v\ns3.aws-access-key=${ENV:S3_ACCESS_KEY}\ns3.aws-secret-key=${ENV:S3_SECRET_KEY}" (include "datalab.s3Endpoint" .) .Values.s3.region .Values.s3.pathStyleAccess -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datalab.componentName" (list . "trino") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "trino") | nindent 4 }}
+data:
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=true
+    http-server.http.port=8080
+    discovery.uri=http://localhost:8080
+    {{- range $k, $val := $c.extraConfig }}
+    {{ $k }}={{ $val }}
+    {{- end }}
+  node.properties: |
+    node.environment=datalab
+    node.data-dir=/data/trino
+  jvm.config: |
+    -server
+    -Xmx{{ $c.heapSize }}
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+ExitOnOutOfMemoryError
+    -XX:-OmitStackTraceInFastThrow
+    -XX:ReservedCodeCacheSize=256M
+    -XX:PerMethodRecompilationCutoff=10000
+    -XX:PerBytecodeRecompilationCutoff=10000
+    -Djdk.attach.allowAttachSelf=true
+    -Djdk.nio.maxCachedBufferSize=2000000
+    -Dfile.encoding=UTF-8
+    -XX:+EnableDynamicAgentLoading
+  log.properties: |
+    io.trino=INFO
+  hive.properties: |
+    connector.name=hive
+    hive.metastore.uri={{ include "datalab.hmsThriftUri" . }}
+    hive.non-managed-table-creates-enabled=true
+    hive.non-managed-table-writes-enabled=true
+    {{- $s3 | nindent 4 }}
+  iceberg.properties: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri={{ include "datalab.icebergRestUri" . }}
+    iceberg.file-format=PARQUET
+    iceberg.compression-codec=SNAPPY
+    {{- $s3 | nindent 4 }}
+  lakehouse.properties: |
+    connector.name=lakehouse
+    hive.metastore.uri={{ include "datalab.hmsThriftUri" . }}
+    hive.non-managed-table-writes-enabled=true
+    hive.non-managed-table-creates-enabled=true
+    hive.compression-codec=SNAPPY
+    iceberg.file-format=PARQUET
+    iceberg.compression-codec=SNAPPY
+    {{- $s3 | nindent 4 }}
+  {{- range $catalog, $props := $c.additionalCatalogs }}
+  {{ $catalog }}.properties: |
+    {{- $props | nindent 4 }}
+  {{- end }}
+{{- end }}

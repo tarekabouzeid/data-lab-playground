@@ -1,0 +1,79 @@
+{{- if .Values.spark.enabled }}
+{{- $c := .Values.spark -}}
+{{- $cat := $c.icebergCatalogName -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datalab.componentName" (list . "spark-connect") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-connect") | nindent 4 }}
+data:
+  # Credentials (S3 keys, Connect token) are passed from Secrets at start-up, not stored here.
+  spark-defaults.conf: |
+    {{- if eq $c.master "kubernetes" }}
+    spark.master                                     k8s://https://kubernetes.default.svc:443
+    spark.submit.deployMode                          client
+    spark.kubernetes.namespace                       {{ .Release.Namespace }}
+    spark.kubernetes.container.image                 {{ include "datalab.image" (list . $c.image) }}
+    spark.kubernetes.container.image.pullPolicy      {{ $c.image.pullPolicy }}
+    {{- with .Values.global.imagePullSecrets }}
+    spark.kubernetes.container.image.pullSecrets     {{ join "," . }}
+    {{- end }}
+    spark.kubernetes.authenticate.driver.serviceAccountName {{ $c.serviceAccount.name | default (include "datalab.componentName" (list . "spark")) }}
+    spark.kubernetes.executor.podNamePrefix          {{ include "datalab.fullname" . }}-exec
+    spark.kubernetes.executor.podTemplateFile        /etc/spark/conf/executor-pod-template.yaml
+    spark.kubernetes.executor.podTemplateContainerName spark-executor
+    spark.kubernetes.executor.deleteOnTermination    true
+    spark.kubernetes.executor.request.cores          {{ $c.executor.requestCores }}
+    {{- with $c.executor.limitCores }}
+    spark.kubernetes.executor.limit.cores            {{ . }}
+    {{- end }}
+    spark.executor.instances                         {{ $c.executor.instances }}
+    spark.driver.bindAddress                         0.0.0.0
+    spark.driver.port                                7078
+    spark.blockManager.port                          7079
+    {{- else }}
+    spark.master                                     local[{{ $c.executor.instances | mul $c.executor.cores }}]
+    {{- end }}
+    spark.executor.cores                             {{ $c.executor.cores }}
+    spark.executor.memory                            {{ $c.executor.memory }}
+    spark.driver.memory                              {{ $c.driver.memory }}
+    spark.connect.grpc.binding.port                  15002
+    spark.ui.port                                    4040
+    spark.pyspark.python                             /opt/conda/bin/python
+    spark.pyspark.driver.python                      /opt/conda/bin/python
+    spark.serializer                                 org.apache.spark.serializer.KryoSerializer
+    spark.sql.adaptive.enabled                       true
+    # S3 (SeaweedFS or external)
+    spark.hadoop.fs.s3a.endpoint                     {{ include "datalab.s3Endpoint" . }}
+    spark.hadoop.fs.s3a.endpoint.region              {{ .Values.s3.region }}
+    spark.hadoop.fs.s3a.path.style.access            {{ .Values.s3.pathStyleAccess }}
+    spark.hadoop.fs.s3a.connection.ssl.enabled       {{ hasPrefix "https://" (include "datalab.s3Endpoint" .) }}
+    spark.hadoop.fs.s3a.impl                         org.apache.hadoop.fs.s3a.S3AFileSystem
+    spark.hadoop.fs.s3a.aws.credentials.provider     org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+    # Iceberg through the HMS Iceberg REST catalog (type=hive does not work with HMS 4.2.1)
+    spark.sql.extensions                             org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+    spark.sql.catalog.{{ $cat }}                     org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.{{ $cat }}.type                rest
+    spark.sql.catalog.{{ $cat }}.uri                 {{ include "datalab.icebergRestUri" . }}
+    spark.sql.catalog.{{ $cat }}.io-impl             org.apache.iceberg.hadoop.HadoopFileIO
+    {{- range $k, $val := $c.extraConf }}
+    {{ $k }} {{ $val }}
+    {{- end }}
+  {{- if eq $c.master "kubernetes" }}
+  executor-pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      {{- include "datalab.podMetadata" (list . "spark-executor" $c) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . (omit $c "affinity")) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: spark-executor
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+  {{- end }}
+{{- end }}

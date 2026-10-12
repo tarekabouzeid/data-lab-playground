@@ -1,0 +1,45 @@
+{{- if .Values.spark.enabled }}
+{{- $sa := .Values.spark.serviceAccount.name | default (include "datalab.componentName" (list . "spark")) -}}
+{{- if .Values.spark.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $sa }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-connect") | nindent 4 }}
+automountServiceAccountToken: false
+{{- end }}
+{{- if and .Values.spark.rbac.create (eq .Values.spark.master "kubernetes") }}
+---
+# Namespaced only: the Connect server (Spark driver) manages its executor pods,
+# their ConfigMap and on-demand PVCs in this namespace. Nothing cluster-scoped.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "datalab.componentName" (list . "spark") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-connect") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "datalab.componentName" (list . "spark") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-connect") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "datalab.componentName" (list . "spark") }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

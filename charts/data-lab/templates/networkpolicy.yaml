@@ -1,0 +1,23 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "datalab.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.labels" . | nindent 4 }}
+spec:
+  # Every pod of this release (including Spark executors and helm test pods).
+  podSelector:
+    matchLabels:
+      {{- include "datalab.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "datalab.selectorLabels" . | nindent 14 }}
+        {{- with .Values.networkPolicy.extraIngressFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

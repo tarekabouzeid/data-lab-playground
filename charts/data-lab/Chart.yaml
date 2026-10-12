@@ -1,0 +1,27 @@
+apiVersion: v2
+name: data-lab
+description: >-
+  Ephemeral lakehouse lab: Hive Metastore (Thrift + Iceberg REST), SeaweedFS S3, Spark Connect,
+  Trino and Airflow, with optional Jupyter and GenAI services (Ollama, Qdrant, Phoenix).
+  Built for many parallel releases on one cluster.
+type: application
+# Chart version (semver). Bump on every chart change; see CHANGELOG.md.
+version: 0.1.0
+# Lab release this chart deploys (see RELEASE_NOTES.md and docs/VERSIONS.md).
+appVersion: "3.0.0"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/tarekabouzeid/data-lab-playground
+sources:
+  - https://github.com/tarekabouzeid/data-lab-playground
+keywords:
+  - lakehouse
+  - iceberg
+  - spark
+  - trino
+  - hive-metastore
+  - airflow
+maintainers:
+  - name: tarekabouzeid
+    url: https://github.com/tarekabouzeid
+annotations:
+  artifacthub.io/license: Apache-2.0

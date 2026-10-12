@@ -1,0 +1,108 @@
+{{- if .Values.seaweedfs.enabled }}
+{{- $c := .Values.seaweedfs -}}
+{{- $name := include "datalab.componentName" (list . "seaweedfs") -}}
+{{- if $c.persistence.enabled }}
+{{ include "datalab.pvc" (list . "seaweedfs" $c.persistence) }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "seaweedfs") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "seaweedfs") | nindent 4 }}
+  ports:
+    - name: s3
+      port: 8333
+      targetPort: s3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "seaweedfs") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "seaweedfs") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "seaweedfs" $c) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: seaweedfs
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            {{- include "datalab.s3Env" . | nindent 12 }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              # S3 identities come from the Secret, never from the image.
+              cat > /tmp/s3.json <<JSON
+              {"identities":[{"name":"admin","credentials":[{"accessKey":"${S3_ACCESS_KEY}","secretKey":"${S3_SECRET_KEY}"}],"actions":["Admin","Read","List","Tagging","Write"]}]}
+              JSON
+              exec /entrypoint.sh server -dir=/data -ip="${POD_IP}" -ip.bind=0.0.0.0 \
+                -master.volumeSizeLimitMB={{ $c.volumeSizeLimitMB }} -volume.max={{ $c.volumeMax }} \
+                -filer -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+          lifecycle:
+            postStart:
+              exec:
+                # Create the warehouse bucket (idempotent). Probes start only after this returns.
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    for i in $(seq 1 90); do
+                      echo "s3.bucket.create -name {{ .Values.s3.bucket }}" | weed shell -master=localhost:9333 >/dev/null 2>&1
+                      if echo "s3.bucket.list" | weed shell -master=localhost:9333 2>/dev/null | grep -qw "{{ .Values.s3.bucket }}"; then exit 0; fi
+                      sleep 2
+                    done
+                    exit 1
+          ports:
+            - name: s3
+              containerPort: 8333
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: s3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: s3
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- include "datalab.volumeSource" (list . "seaweedfs" $c.persistence) | nindent 10 }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}
