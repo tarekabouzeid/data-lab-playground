@@ -1,0 +1,2 @@
+# Chart defaults (hms, seaweedfs, spark, trino, airflow); kept so ct lint covers them explicitly.
+{}

@@ -1,0 +1,1781 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "data-lab values",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imageRegistry": {
+          "type": "string",
+          "description": "Registry that replaces every image's `registry` (for mirrors / air-gapped clusters). Empty keeps each image's own registry."
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Pull secrets (names of existing `kubernetes.io/dockerconfigjson` Secrets) added to every pod."
+        },
+        "storageClass": {
+          "type": "string",
+          "description": "Default StorageClass for every PVC. Empty uses the cluster default; `-` sets `storageClassName: \"\"`."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "Default RuntimeClass for every pod (for example `gvisor`). A component's own `runtimeClassName` wins."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Labels added to every pod."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Annotations added to every pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Default nodeSelector for every pod. A component's own `nodeSelector` replaces it when non-empty."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Default tolerations for every pod. A component's own `tolerations` replace them when non-empty."
+        },
+        "containerSecurityContext": {
+          "type": "object",
+          "description": "Container securityContext applied to every container (merged under each component's `securityContext`). Meets Pod Security Standard \"restricted\"."
+        }
+      }
+    },
+    "nameOverride": {
+      "type": "string",
+      "description": "Override the chart name part of resource names."
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Override the full release name prefix used by every resource (max 40 characters recommended)."
+    },
+    "commonLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Labels added to every resource."
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create a NetworkPolicy that only admits ingress from pods of this release (same namespace) plus `extraIngressFrom`. HMS, Trino and Ollama have no authentication in this setup (see the chart README), so keep this on in shared clusters."
+        },
+        "extraIngressFrom": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Extra NetworkPolicyPeer entries allowed to reach every component (for example the consumer's namespace)."
+        }
+      }
+    },
+    "s3": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "pattern": "^(|https?://.+)$",
+          "description": "External S3 endpoint URL. Leave empty to use the bundled SeaweedFS (requires `seaweedfs.enabled`)."
+        },
+        "bucket": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+          "description": "Bucket holding the warehouse. The bundled SeaweedFS creates it; an external bucket must already exist."
+        },
+        "region": {
+          "type": "string",
+          "description": "S3 region."
+        },
+        "pathStyleAccess": {
+          "type": "boolean",
+          "description": "Use path-style addressing (required for SeaweedFS)."
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding the S3 access key pair. Empty: the chart generates `<fullname>-s3`."
+            },
+            "accessKeyKey": {
+              "type": "string",
+              "description": "Key in the Secret holding the access key ID."
+            },
+            "secretKeyKey": {
+              "type": "string",
+              "description": "Key in the Secret holding the secret access key."
+            }
+          }
+        }
+      }
+    },
+    "seaweedfs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy SeaweedFS (single-node master + volume + filer + S3 gateway)."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "volumeMax": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of volumes. Must stay explicit: auto-sizing from free disk can leave no writable volume (S3 PUT 500)."
+        },
+        "volumeSizeLimitMB": {
+          "type": "integer",
+          "description": "Size limit of one volume, in MB."
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Use a PVC for `/data`. `false` uses an emptyDir (data is lost with the pod)."
+            },
+            "size": {
+              "type": "string",
+              "description": "PVC size."
+            },
+            "storageClass": {
+              "type": "string",
+              "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+            },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ReadWriteOnce",
+                  "ReadOnlyMany",
+                  "ReadWriteMany",
+                  "ReadWriteOncePod"
+                ]
+              },
+              "description": "PVC access modes."
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "hms": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the Hive Metastore (Thrift on 9083, built-in Iceberg REST catalog on 9084) and its Postgres."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository (built from `hive-metastore/Dockerfile`, published by the release workflow)."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag (lab release; HMS 4.2.1 inside)."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "heapSize": {
+          "type": "string",
+          "description": "JVM max heap passed as `-Xmx`."
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        },
+        "extraProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "description": "Extra `<property>` entries appended to metastore-site.xml (name -> value)."
+        },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "registry": {
+                  "type": "string",
+                  "description": "Image registry."
+                },
+                "repository": {
+                  "type": "string",
+                  "description": "Image repository."
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Image tag."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ],
+                  "description": "Image pull policy."
+                }
+              }
+            },
+            "name": {
+              "type": "string",
+              "description": "Database name."
+            },
+            "username": {
+              "type": "string",
+              "description": "Database user."
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "existingSecret": {
+                  "type": "string",
+                  "description": "Existing Secret holding the database password. Empty: the chart generates `<fullname>-hms-db`."
+                },
+                "passwordKey": {
+                  "type": "string",
+                  "description": "Key in the Secret holding the password."
+                }
+              }
+            },
+            "persistence": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Use a PVC for the database. `false` uses an emptyDir."
+                },
+                "size": {
+                  "type": "string",
+                  "description": "PVC size."
+                },
+                "storageClass": {
+                  "type": "string",
+                  "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+                },
+                "accessModes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "ReadWriteOnce",
+                      "ReadOnlyMany",
+                      "ReadWriteMany",
+                      "ReadWriteOncePod"
+                    ]
+                  },
+                  "description": "PVC access modes."
+                }
+              }
+            },
+            "resources": {
+              "type": "object",
+              "description": "Container resources."
+            },
+            "podSecurityContext": {
+              "type": "object",
+              "description": "Pod securityContext."
+            },
+            "securityContext": {
+              "type": "object",
+              "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+            },
+            "runtimeClassName": {
+              "type": "string",
+              "description": "RuntimeClass for the pod."
+            },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "nodeSelector for the pod."
+            },
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Tolerations for the pod."
+            },
+            "affinity": {
+              "type": "object",
+              "description": "Affinity for the pod."
+            },
+            "podLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod labels."
+            },
+            "podAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod annotations."
+            }
+          }
+        }
+      }
+    },
+    "spark": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy a Spark Connect server (gRPC 15002). Requires `hms.enabled`."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository (built from `spark/Dockerfile`; also used for executors and `helm test`)."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag (lab release; Spark 4.1.3 + Iceberg 1.12.0 inside)."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "master": {
+          "type": "string",
+          "enum": [
+            "kubernetes",
+            "local"
+          ],
+          "description": "Where executors run: `kubernetes` (executor pods in the release namespace, namespaced RBAC) or `local` (threads inside the server pod, no RBAC)."
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Require a bearer token from Spark Connect clients (`sc://host:15002/;token=...`)."
+            },
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding the token. Empty: the chart generates `<fullname>-spark-connect`."
+            },
+            "tokenKey": {
+              "type": "string",
+              "description": "Key in the Secret holding the token."
+            }
+          }
+        },
+        "driver": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "memory": {
+              "type": "string",
+              "description": "Driver (Connect server) JVM memory."
+            },
+            "resources": {
+              "type": "object",
+              "description": "Driver (Connect server) container resources."
+            }
+          }
+        },
+        "executor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "instances": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of executor pods (`master: kubernetes`) or threads (`master: local`)."
+            },
+            "cores": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Cores per executor."
+            },
+            "memory": {
+              "type": "string",
+              "description": "Executor JVM memory (`spark.executor.memory`). Pod memory adds `spark.executor.memoryOverhead` (default 384m)."
+            },
+            "requestCores": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "CPU request per executor pod (`spark.kubernetes.executor.request.cores`)."
+            },
+            "limitCores": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "CPU limit per executor pod. Empty sets none."
+            }
+          }
+        },
+        "icebergCatalogName": {
+          "type": "string",
+          "description": "Name of the Iceberg catalog registered in Spark (points at the HMS Iceberg REST catalog)."
+        },
+        "extraConf": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "description": "Extra Spark properties written to spark-defaults.conf."
+        },
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "boolean",
+              "description": "Create a ServiceAccount for the Connect server (it creates executor pods when `master: kubernetes`)."
+            },
+            "name": {
+              "type": "string",
+              "description": "ServiceAccount name. Empty: `<fullname>-spark`."
+            }
+          }
+        },
+        "rbac": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "boolean",
+              "description": "Create a namespaced Role/RoleBinding letting the Connect server manage executor pods, ConfigMaps and PVCs."
+            }
+          }
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext (Connect server and executors)."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the server and executor pods."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the server and executor pods."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the server and executor pods."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the Connect server pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra labels for the server and executor pods."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra annotations for the server and executor pods."
+        }
+      }
+    },
+    "trino": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy a single-node Trino (coordinator also schedules work). Requires `hms.enabled`."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "heapSize": {
+          "type": "string",
+          "description": "JVM max heap (`-Xmx`). Keep it about 75% of the memory limit."
+        },
+        "extraConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "description": "Extra lines for config.properties (name -> value)."
+        },
+        "additionalCatalogs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra catalogs: catalog name -> properties file content. `hive`, `iceberg` and `lakehouse` are always created."
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "airflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy Airflow 3 (LocalExecutor) in one pod: api-server, scheduler, dag-processor (+ optional triggerer), with its own Postgres."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "username": {
+              "type": "string",
+              "description": "Admin username for the API / UI (SimpleAuthManager)."
+            },
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding the admin password. Empty: the chart generates `<fullname>-airflow`."
+            },
+            "passwordKey": {
+              "type": "string",
+              "description": "Key in the Secret holding the admin password."
+            }
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding `fernet-key`, `jwt-secret` and `api-secret-key`. Empty: the chart generates them in `<fullname>-airflow`."
+            }
+          }
+        },
+        "triggerer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Run the triggerer (needed for deferrable operators)."
+            }
+          }
+        },
+        "dags": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "pvc",
+                "gitSync",
+                "none"
+              ],
+              "description": "Where DAG files come from: `pvc`, `gitSync` or `none` (empty dir)."
+            },
+            "subPath": {
+              "type": "string",
+              "description": "Path inside the DAG source that holds the DAG files (git-sync: inside the repo)."
+            },
+            "pvc": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "existingClaim": {
+                  "type": "string",
+                  "description": "Existing PVC with the DAGs (an external agent writes to it). Empty: the chart creates `<fullname>-airflow-dags`."
+                },
+                "size": {
+                  "type": "string",
+                  "description": "Size of the chart-created PVC."
+                },
+                "storageClass": {
+                  "type": "string",
+                  "description": "StorageClass of the chart-created PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+                },
+                "accessModes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "ReadWriteOnce",
+                      "ReadOnlyMany",
+                      "ReadWriteMany",
+                      "ReadWriteOncePod"
+                    ]
+                  },
+                  "description": "Access modes of the chart-created PVC. Use `ReadWriteMany` if another pod writes DAGs while Airflow runs."
+                }
+              }
+            },
+            "gitSync": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "image": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "registry": {
+                      "type": "string",
+                      "description": "Image registry."
+                    },
+                    "repository": {
+                      "type": "string",
+                      "description": "Image repository."
+                    },
+                    "tag": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Image tag."
+                    },
+                    "pullPolicy": {
+                      "type": "string",
+                      "enum": [
+                        "Always",
+                        "IfNotPresent",
+                        "Never"
+                      ],
+                      "description": "Image pull policy."
+                    }
+                  }
+                },
+                "repo": {
+                  "type": "string",
+                  "description": "Git repository URL (required when `dags.source: gitSync`)."
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Branch, tag or commit to sync."
+                },
+                "period": {
+                  "type": "string",
+                  "description": "Sync period."
+                },
+                "depth": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Clone depth."
+                },
+                "existingSecret": {
+                  "type": "string",
+                  "description": "Existing Secret with git credentials: keys `username`/`password` (HTTPS) or `ssh-privatekey` (+ optional `known_hosts`)."
+                },
+                "resources": {
+                  "type": "object",
+                  "description": "Container resources."
+                }
+              }
+            }
+          }
+        },
+        "logs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "persistence": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Use a PVC for task logs. `false` uses an emptyDir."
+                },
+                "size": {
+                  "type": "string",
+                  "description": "PVC size."
+                },
+                "storageClass": {
+                  "type": "string",
+                  "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+                },
+                "accessModes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "ReadWriteOnce",
+                      "ReadOnlyMany",
+                      "ReadWriteMany",
+                      "ReadWriteOncePod"
+                    ]
+                  },
+                  "description": "PVC access modes."
+                }
+              }
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ]
+          },
+          "description": "Extra environment variables for every Airflow container (list of EnvVar)."
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resources of each Airflow container (api-server, scheduler, dag-processor, triggerer)."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext (official image: uid 50000, gid 0)."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "registry": {
+                  "type": "string",
+                  "description": "Image registry."
+                },
+                "repository": {
+                  "type": "string",
+                  "description": "Image repository."
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Image tag."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ],
+                  "description": "Image pull policy."
+                }
+              }
+            },
+            "name": {
+              "type": "string",
+              "description": "Database name."
+            },
+            "username": {
+              "type": "string",
+              "description": "Database user."
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "existingSecret": {
+                  "type": "string",
+                  "description": "Existing Secret holding the database password (must be URL-safe). Empty: the chart generates `<fullname>-airflow-db`."
+                },
+                "passwordKey": {
+                  "type": "string",
+                  "description": "Key in the Secret holding the password."
+                }
+              }
+            },
+            "persistence": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Use a PVC for the database. `false` uses an emptyDir."
+                },
+                "size": {
+                  "type": "string",
+                  "description": "PVC size."
+                },
+                "storageClass": {
+                  "type": "string",
+                  "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+                },
+                "accessModes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "ReadWriteOnce",
+                      "ReadOnlyMany",
+                      "ReadWriteMany",
+                      "ReadWriteOncePod"
+                    ]
+                  },
+                  "description": "PVC access modes."
+                }
+              }
+            },
+            "resources": {
+              "type": "object",
+              "description": "Container resources."
+            },
+            "podSecurityContext": {
+              "type": "object",
+              "description": "Pod securityContext."
+            },
+            "securityContext": {
+              "type": "object",
+              "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+            },
+            "runtimeClassName": {
+              "type": "string",
+              "description": "RuntimeClass for the pod."
+            },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "nodeSelector for the pod."
+            },
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Tolerations for the pod."
+            },
+            "affinity": {
+              "type": "object",
+              "description": "Affinity for the pod."
+            },
+            "podLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod labels."
+            },
+            "podAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod annotations."
+            }
+          }
+        }
+      }
+    },
+    "jupyter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy JupyterLab (connects to Spark Connect, Trino and the GenAI services that are enabled)."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository (built from `jupyter/Dockerfile`, published by the release workflow)."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag (lab release)."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding the Jupyter token. Empty: the chart generates `<fullname>-jupyter`."
+            },
+            "tokenKey": {
+              "type": "string",
+              "description": "Key in the Secret holding the token."
+            }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Use a PVC for `/home/jovyan/work`. `false` uses an emptyDir."
+            },
+            "size": {
+              "type": "string",
+              "description": "PVC size."
+            },
+            "storageClass": {
+              "type": "string",
+              "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+            },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ReadWriteOnce",
+                  "ReadOnlyMany",
+                  "ReadWriteMany",
+                  "ReadWriteOncePod"
+                ]
+              },
+              "description": "PVC access modes."
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext (jovyan: uid 1000, gid 100)."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "ollama": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy Ollama (local LLM server, no authentication). Needs a GPU to be useful; CPU works but is slow."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Models pulled at startup (for example `llama3.2:3b`). Pod readiness waits for the pulls."
+        },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Request GPUs."
+            },
+            "resourceName": {
+              "type": "string",
+              "description": "Extended resource name of the GPU."
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of GPUs."
+            }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Use a PVC for models. `false` uses an emptyDir."
+            },
+            "size": {
+              "type": "string",
+              "description": "PVC size."
+            },
+            "storageClass": {
+              "type": "string",
+              "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+            },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ReadWriteOnce",
+                  "ReadOnlyMany",
+                  "ReadWriteMany",
+                  "ReadWriteOncePod"
+                ]
+              },
+              "description": "PVC access modes."
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod (for example `nvidia`)."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "qdrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy Qdrant (vector database, API-key protected)."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag (the `-unprivileged` variant runs as uid 1000)."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding the API key. Empty: the chart generates `<fullname>-qdrant`."
+            },
+            "apiKeyKey": {
+              "type": "string",
+              "description": "Key in the Secret holding the API key."
+            }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Use a PVC for `/qdrant/storage`. `false` uses an emptyDir."
+            },
+            "size": {
+              "type": "string",
+              "description": "PVC size."
+            },
+            "storageClass": {
+              "type": "string",
+              "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+            },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ReadWriteOnce",
+                  "ReadOnlyMany",
+                  "ReadWriteMany",
+                  "ReadWriteOncePod"
+                ]
+              },
+              "description": "PVC access modes."
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "phoenix": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy Arize Phoenix (LLM tracing; OTLP gRPC 4317, UI + OTLP HTTP 6006). SQLite storage."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable Phoenix authentication (admin user + API keys)."
+            },
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding `secret` (token signing, >= 32 chars) and `admin-password`. Empty: the chart generates `<fullname>-phoenix`."
+            }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Use a PVC for the SQLite working dir. `false` uses an emptyDir."
+            },
+            "size": {
+              "type": "string",
+              "description": "PVC size."
+            },
+            "storageClass": {
+              "type": "string",
+              "description": "StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: \"\"`."
+            },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ReadWriteOnce",
+                  "ReadOnlyMany",
+                  "ReadWriteMany",
+                  "ReadWriteOncePod"
+                ]
+              },
+              "description": "PVC access modes."
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext (distroless nonroot: uid 65532)."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Render the `helm test` pod (Spark writes an Iceberg table through Spark Connect, Trino reads it, then it is dropped). Needs `spark` and `trino`."
+        },
+        "resources": {
+          "type": "object",
+          "description": "Test pod resources."
+        }
+      }
+    }
+  }
+}

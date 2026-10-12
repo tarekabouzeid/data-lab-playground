@@ -1,0 +1,3 @@
+# Minimal lakehouse profile: hms + seaweedfs + spark + trino (Airflow and GenAI off).
+airflow:
+  enabled: false

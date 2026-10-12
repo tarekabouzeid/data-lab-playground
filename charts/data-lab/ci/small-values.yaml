@@ -1,0 +1,11 @@
+# Minimal profile with reduced memory, so several releases fit on one kind node (CI parallel installs).
+airflow: {enabled: false}
+hms:
+  heapSize: 512M
+  resources: {requests: {cpu: 100m, memory: 640Mi}, limits: {memory: 1Gi}}
+spark:
+  driver: {memory: 512m, resources: {requests: {cpu: 100m, memory: 900Mi}, limits: {memory: 1280Mi}}}
+  executor: {memory: 512m, requestCores: 100m}
+trino:
+  heapSize: 768M
+  resources: {requests: {cpu: 100m, memory: 1Gi}, limits: {memory: 1280Mi}}
