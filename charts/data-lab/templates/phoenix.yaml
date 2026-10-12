@@ -1,0 +1,36 @@
+{{- if .Values.phoenix.enabled }}
+{{- $c := .Values.phoenix -}}
+{{- $auth := "" -}}
+{{- if $c.auth.enabled -}}
+{{- $auth = printf `
+  - name: PHOENIX_ENABLE_AUTH
+    value: "true"
+  - name: PHOENIX_SECRET
+    valueFrom:
+      secretKeyRef: {name: %s, key: secret}
+  - name: PHOENIX_DEFAULT_ADMIN_INITIAL_PASSWORD
+    valueFrom:
+      secretKeyRef: {name: %s, key: admin-password}` (include "datalab.phoenixSecretName" .) (include "datalab.phoenixSecretName" .) -}}
+{{- end -}}
+{{- $container := printf `env:
+  - name: PHOENIX_WORKING_DIR
+    value: /data
+  - name: PHOENIX_PORT
+    value: "6006"
+  - name: PHOENIX_GRPC_PORT
+    value: "4317"
+  - name: PHOENIX_TELEMETRY_ENABLED
+    value: "false"%s
+startupProbe:
+  httpGet: {path: /healthz, port: http}
+  periodSeconds: 3
+  failureThreshold: 100
+readinessProbe:
+  httpGet: {path: /healthz, port: http}
+  periodSeconds: 10
+livenessProbe:
+  httpGet: {path: /healthz, port: http}
+  periodSeconds: 20
+  failureThreshold: 6` $auth -}}
+{{ include "datalab.simpleComponent" (dict "root" . "component" "phoenix" "values" $c "ports" (list (dict "name" "http" "port" 6006) (dict "name" "otlp-grpc" "port" 4317)) "container" $container "dataPath" "/data") }}
+{{- end }}

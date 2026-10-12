@@ -1,0 +1,24 @@
+{{- if .Values.qdrant.enabled }}
+{{- $container := printf `env:
+  - name: QDRANT__SERVICE__API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: %s
+        key: %s
+  - name: QDRANT__STORAGE__SNAPSHOTS_PATH
+    value: /qdrant/storage/snapshots
+  - name: QDRANT__TELEMETRY_DISABLED
+    value: "true"
+startupProbe:
+  httpGet: {path: /readyz, port: http}
+  periodSeconds: 3
+  failureThreshold: 60
+readinessProbe:
+  httpGet: {path: /readyz, port: http}
+  periodSeconds: 10
+livenessProbe:
+  httpGet: {path: /livez, port: http}
+  periodSeconds: 20
+  failureThreshold: 6` (include "datalab.qdrantSecretName" .) .Values.qdrant.auth.apiKeyKey -}}
+{{ include "datalab.simpleComponent" (dict "root" . "component" "qdrant" "values" .Values.qdrant "ports" (list (dict "name" "http" "port" 6333) (dict "name" "grpc" "port" 6334)) "container" $container "dataPath" "/qdrant/storage") }}
+{{- end }}

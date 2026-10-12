@@ -1,0 +1,38 @@
+{{- if .Values.ollama.enabled }}
+{{- $c := .Values.ollama -}}
+{{- $models := join " " $c.models -}}
+{{- $container := printf `command:
+  - /bin/sh
+  - -c
+  - |
+    mkdir -p "$HOME" "$OLLAMA_MODELS"
+    ollama serve &
+    pid=$!
+    until ollama list >/dev/null 2>&1; do sleep 1; done
+    for m in %s; do echo "pulling $m"; ollama pull "$m" || exit 1; done
+    touch /tmp/models-ready
+    wait $pid
+env:
+  - name: OLLAMA_HOST
+    value: 0.0.0.0:11434
+  - name: HOME
+    value: /data/home
+  - name: OLLAMA_MODELS
+    value: /data/models
+startupProbe:
+  exec: {command: ["test", "-f", "/tmp/models-ready"]}
+  periodSeconds: 5
+  failureThreshold: 720
+readinessProbe:
+  httpGet: {path: /api/version, port: http}
+  periodSeconds: 10
+livenessProbe:
+  httpGet: {path: /api/version, port: http}
+  periodSeconds: 20
+  failureThreshold: 6` $models -}}
+{{- $gpu := dict -}}
+{{- if $c.gpu.enabled -}}
+{{- $gpu = dict "limits" (dict $c.gpu.resourceName $c.gpu.count) -}}
+{{- end -}}
+{{ include "datalab.simpleComponent" (dict "root" . "component" "ollama" "values" $c "ports" (list (dict "name" "http" "port" 11434)) "container" $container "dataPath" "/data" "extraResources" $gpu) }}
+{{- end }}
