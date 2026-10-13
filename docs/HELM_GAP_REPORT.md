@@ -75,4 +75,4 @@ aligned", they are **not** added to Compose.
 | kind e2e `minimal`: Ready in **29 s** (budget 180 s, images pre-loaded), executor pod, `helm test` passed, namespace empty after uninstall | `chart-e2e` run 38301197335 | ✅ |
 | kind e2e `parallel`: `p1` + `p2` in one namespace and `lab` in two namespaces installed at the same time, all four `helm test` passed, a `p2` pod cannot reach `p1`'s Trino (NetworkPolicy enforced), all three namespaces empty after uninstall | `chart-e2e` run 38301197335 | ✅ |
 | git-sync, Jupyter, Ollama | render only | ⚠️ not run (registry.k8s.io / quay.io blocked in the sandbox; Ollama see C12) |
-
+| kind e2e `default` with both MCPs on: Airflow task log readable after an Airflow pod restart; Spark History Server lists the Connect app as completed (7 jobs) after a graceful restart; Spark History MCP answers `history` and `live`; Airflow MCP lists DAGs and its `trigger_dag` is refused (read-only, `viewer` user); namespace empty after uninstall | `chart-e2e` run 38355323212 | ✅ |
