@@ -17,7 +17,8 @@ First version of the chart.
 - Restricted pod security everywhere (Spark executors via pod template). Namespaced RBAC only. ClusterIP
   Services only. NetworkPolicy limited to the same release (+ `networkPolicy.extraIngressFrom`).
 - Render-time validation of component combinations. Strict `values.schema.json` (unknown keys rejected).
-- Airflow DAGs from a PVC (existing or chart-made) or git-sync.
+- Airflow DAGs from a PVC (existing or chart-made) or git-sync. Task logs on a PVC by default
+  (`airflow.logs.persistence.enabled: true`), so finished runs' logs survive pod restarts.
 - `helm test`: Spark writes an Iceberg table through Spark Connect, Trino reads it, then it is dropped.
 - CI: helm lint, ct lint, kubeconform, schema/README drift checks, kind e2e (default, minimal, two parallel
   releases in one namespace and across namespaces, helm test, clean uninstall), OCI publish on `v*` tags.

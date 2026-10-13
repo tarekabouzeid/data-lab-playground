@@ -76,6 +76,15 @@ SparkSession.builder.remote(f"sc://{host}:15002/;authorization=Bearer {token}").
 
 `spark.auth.enabled=false` turns the token off (the NetworkPolicy still applies).
 
+### Airflow task logs
+
+Task logs are written to the `<fullname>-airflow-logs` PVC (2Gi, `airflow.logs.persistence`). With LocalExecutor, tasks
+and the api-server run in the same pod and share this volume, so logs of finished runs stay readable in the UI and API
+across pod restarts and upgrades. They are deleted with `helm uninstall`. No S3 remote logging is configured; that is
+only needed when logs must outlive the release. Set `airflow.logs.persistence.enabled=false` for an emptyDir: logs then
+survive task completion but not a pod restart. CI checks this: a DAG written into the DAG PVC runs, then its task log
+is read through the API, the Airflow pod is restarted, and the same log is read again.
+
 ### Delivering Airflow DAGs
 
 - `airflow.dags.source=pvc` (default): DAGs are read from `airflow.dags.pvc.existingClaim`, or from the chart-made
@@ -162,7 +171,7 @@ Requests/limits are the chart defaults. "Idle RSS" was measured with the rendere
 | Spark Connect server (driver) | 250m | 1536Mi | 2Gi | 890Mi | — |
 | Spark executor (per pod, `master: kubernetes`) | 250m | 1408Mi (1g + 384m overhead) | same | — | — |
 | Trino | 250m | 2Gi | 2Gi | 1.1Gi | — |
-| Airflow (api-server + scheduler + dag-processor) | 250m | 1408Mi | 3.5Gi | 910Mi | DAGs 1Gi |
+| Airflow (api-server + scheduler + dag-processor) | 250m | 1408Mi | 3.5Gi | 910Mi | DAGs 1Gi, task logs 2Gi |
 | Airflow Postgres | 50m | 128Mi | 512Mi | 90Mi | 2Gi |
 | Jupyter | 100m | 512Mi | 4Gi | — | 5Gi |
 | Ollama | 500m | 2Gi | 8Gi (+ GPU) | — | 20Gi |

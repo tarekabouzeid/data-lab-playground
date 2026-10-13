@@ -187,7 +187,7 @@ All services use the same hardcoded credentials (intentional for local dev — *
     - **Spark Connect token**: the PySpark client sends `;token=` only over TLS, and Spark 4.1 Connect has no TLS. Use `sc://host:15002/;authorization=Bearer <token>`.
     - HMS in Kubernetes: templates are mounted over `/opt/hive/conf/*.xml.template` with `${HMS_DB_PASSWORD}`/`${S3_*}` placeholders (the entrypoint envsubsts them). The `wait-for-s3` init container lists the bucket with Hadoop S3A, because curl 7.76 SigV4 is rejected by SeaweedFS and anonymous 403 cannot tell "missing" from "exists".
     - SeaweedFS creates the bucket in a `postStart` hook (`weed shell -master=localhost:9333`). Its S3 identity is written from the Secret at start.
-    - Postgres in the chart is 17.11 (Compose HMS stays on 13). Airflow is 3.3.2 with SimpleAuthManager. Its password file is written by an init container, and the API server is also the execution API for LocalExecutor tasks (`http://localhost:8080/execution/`).
+    - Airflow task logs live on the `<fullname>-airflow-logs` PVC (default on; the api-server reads them locally because LocalExecutor tasks share the pod), with no S3 remote logging. Postgres in the chart is 17.11 (Compose HMS stays on 13). Airflow is 3.3.2 with SimpleAuthManager. Its password file is written by an init container, and the API server is also the execution API for LocalExecutor tasks (`http://localhost:8080/execution/`).
     - Local verification without a cluster: render, then run each container in Docker with `--user <uid> --cap-drop ALL --security-opt no-new-privileges` and the rendered command/config. Nested kind/k3s does not work in the cloud sandbox (`oom_score_adj` is forbidden).
 
 ---

@@ -75,7 +75,7 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
   - Credentials: every one has an `existingSecret` option, otherwise it is generated once and kept across upgrades.
   - Isolation: Pod Security "restricted" everywhere, namespaced RBAC only, ClusterIP-only Services, and a NetworkPolicy limited to the release.
   - Strict `values.schema.json` and a generated values table in the chart README.
-  - Airflow DAGs come from a PVC or git-sync.
+  - Airflow DAGs come from a PVC or git-sync, and task logs are kept on a PVC so finished runs stay viewable after pod restarts.
   - `helm test`: Spark writes an Iceberg table, Trino reads it, then it is dropped.
 - CI workflows:
   - `chart-lint`: helm lint, ct lint, kubeconform, policy checks.

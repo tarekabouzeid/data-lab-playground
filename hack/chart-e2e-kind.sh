@@ -2,7 +2,8 @@
 # End-to-end test of charts/data-lab on an existing kind cluster (CI: .github/workflows/chart-e2e.yaml).
 #
 # Scenarios (run one at a time so a single kind node can hold them):
-#   default   - chart defaults (hms, seaweedfs, spark on k8s executors, trino, airflow); helm test
+#   default   - chart defaults (hms, seaweedfs, spark on k8s executors, trino, airflow); helm test;
+#               a DAG delivered through the DAG PVC runs, and its task log is still readable after an Airflow restart
 #   minimal   - ci/minimal-values.yaml; must be Ready in < MINIMAL_BUDGET_S seconds; helm test
 #   parallel  - two releases in one namespace + the same release name in two namespaces (ci/small-values.yaml);
 #               all four installed at once, helm test on all
@@ -88,6 +89,51 @@ uninstall_and_assert_clean() {  # namespace releases...
   echo "FAIL: leftovers in $ns after uninstall:"; echo "$left"; return 1
 }
 
+assert_airflow_logs_persist() {  # release namespace: task logs stay readable in Airflow after the pod restarts
+  local rel=$1 ns=$2 dep="$1-data-lab-airflow" run
+  # deliver a DAG the way an external agent would: write it into the DAG PVC from another pod
+  kubectl -n "$ns" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: dag-writer}
+spec:
+  restartPolicy: Never
+  securityContext: {runAsNonRoot: true, runAsUser: 50000, runAsGroup: 0, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: w
+      image: busybox:1.36
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+      command: [sh, -c]
+      args:
+        - |
+          cat > /dags/e2e_logs.py <<'PY'
+          from datetime import datetime
+          from airflow.sdk import dag, task
+
+          @dag(dag_id="e2e_logs", schedule=None, start_date=datetime(2026, 1, 1), catchup=False)
+          def e2e_logs():
+              @task
+              def hello():
+                  print("E2E-LOG-MARKER")
+              hello()
+
+          e2e_logs()
+          PY
+      volumeMounts: [{name: dags, mountPath: /dags}]
+  volumes: [{name: dags, persistentVolumeClaim: {claimName: $rel-data-lab-airflow-dags}}]
+YAML
+  kubectl -n "$ns" wait --for=jsonpath='{.status.phase}'=Succeeded pod/dag-writer --timeout=120s
+  kubectl -n "$ns" delete pod dag-writer --wait=false >/dev/null
+  run=$(kubectl -n "$ns" exec -i "deploy/$dep" -c api-server -- python - trigger e2e_logs hello E2E-LOG-MARKER \
+          < "$(dirname "$0")/airflow-logs-check.py" | tee /dev/stderr | sed -n 's/^RUN_ID=//p') || true
+  [ -n "$run" ] || { dump "$ns"; return 1; }
+  kubectl -n "$ns" rollout restart "deploy/$dep" >/dev/null
+  kubectl -n "$ns" rollout status "deploy/$dep" --timeout=10m
+  kubectl -n "$ns" exec -i "deploy/$dep" -c api-server -- python - read e2e_logs "$run" hello E2E-LOG-MARKER \
+    < "$(dirname "$0")/airflow-logs-check.py" || { dump "$ns"; return 1; }
+  echo "Airflow task logs survive a pod restart for $rel"
+}
+
 scenario_default() {
   log "default profile"
   install lab dl-default
@@ -95,6 +141,7 @@ scenario_default() {
   assert_executors dl-default
   run_test lab dl-default
   assert_stable_secrets lab dl-default
+  assert_airflow_logs_persist lab dl-default
   uninstall_and_assert_clean dl-default lab
 }
 

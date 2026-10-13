@@ -4,6 +4,7 @@ hms: {database: {persistence: {enabled: false}}}
 spark: {master: local}
 airflow:
   database: {persistence: {enabled: false}}
+  logs: {persistence: {enabled: false}}
   dags:
     source: gitSync
     subPath: airflow-core/src/airflow/example_dags

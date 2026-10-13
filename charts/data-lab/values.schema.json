@@ -998,7 +998,7 @@
               "properties": {
                 "enabled": {
                   "type": "boolean",
-                  "description": "Use a PVC for task logs. `false` uses an emptyDir."
+                  "description": "Keep task logs on a PVC so they stay viewable in the UI after pod restarts (LocalExecutor: tasks and api-server share this volume). `false` uses an emptyDir: logs survive task completion but not a pod restart."
                 },
                 "size": {
                   "type": "string",

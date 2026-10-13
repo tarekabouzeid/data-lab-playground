@@ -391,8 +391,9 @@ airflow:
         limits: {memory: 128Mi}
   logs:
     persistence:
-      # -- Use a PVC for task logs. `false` uses an emptyDir.
-      enabled: false
+      # -- Keep task logs on a PVC so they stay viewable in the UI after pod restarts (LocalExecutor: tasks and
+      # api-server share this volume). `false` uses an emptyDir: logs survive task completion but not a pod restart.
+      enabled: true
       # -- PVC size.
       size: 2Gi
       # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
