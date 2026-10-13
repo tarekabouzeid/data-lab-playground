@@ -1,0 +1,105 @@
+{{- if and .Values.spark.enabled .Values.sparkHistory.enabled }}
+{{- $c := .Values.sparkHistory -}}
+{{- $name := include "datalab.componentName" (list . "spark-history") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-history") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "spark-history") | nindent 4 }}
+  ports:
+    - name: http
+      port: 18080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-history") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "spark-history") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "spark-history" $c) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      initContainers:
+        {{- include "datalab.eventLogDirInit" . | nindent 8 }}
+      containers:
+        - name: spark-history
+          image: {{ include "datalab.image" (list . .Values.spark.image) }}
+          imagePullPolicy: {{ .Values.spark.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          command:
+            - bash
+            - -c
+            - |
+              # Properties are written at start so the S3 keys come from the Secret env and stay out of argv.
+              cat > /tmp/history.conf <<CONF
+              spark.history.fs.logDirectory {{ include "datalab.eventLogDir" . }}
+              spark.history.ui.port 18080
+              spark.history.fs.update.interval 10s
+              spark.history.fs.cleaner.enabled true
+              spark.history.fs.cleaner.maxAge {{ $c.cleanerMaxAge }}
+              spark.hadoop.fs.s3a.endpoint {{ include "datalab.s3Endpoint" . }}
+              spark.hadoop.fs.s3a.endpoint.region {{ .Values.s3.region }}
+              spark.hadoop.fs.s3a.path.style.access {{ .Values.s3.pathStyleAccess }}
+              spark.hadoop.fs.s3a.connection.ssl.enabled {{ hasPrefix "https://" (include "datalab.s3Endpoint" .) }}
+              spark.hadoop.fs.s3a.impl org.apache.hadoop.fs.s3a.S3AFileSystem
+              spark.hadoop.fs.s3a.aws.credentials.provider org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+              spark.hadoop.fs.s3a.access.key ${S3_ACCESS_KEY}
+              spark.hadoop.fs.s3a.secret.key ${S3_SECRET_KEY}
+              CONF
+              exec /opt/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer --properties-file /tmp/history.conf
+          env:
+            - name: SPARK_DAEMON_MEMORY
+              value: {{ $c.heapSize | quote }}
+            - name: SPARK_LOG_DIR
+              value: /tmp
+            {{- include "datalab.s3Env" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 18080
+          startupProbe:
+            httpGet:
+              path: /api/v1/version
+              port: http
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/v1/version
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/version
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            # emptyDir, not a noexec tmpfs: zstd event-log decompression loads a native library from /tmp
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

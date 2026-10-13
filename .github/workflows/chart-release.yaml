@@ -34,7 +34,7 @@ jobs:
             v*)       [ "$GITHUB_REF_NAME" = "v$APP" ] || { echo "::error::tag $GITHUB_REF_NAME != v$APP (Chart.yaml appVersion)"; exit 1; } ;;
           esac
           # custom image tags in values.yaml must equal appVersion
-          for c in hms spark jupyter; do
+          for c in hms spark jupyter airflowMcp; do
             t=$(yq ".$c.image.tag" charts/data-lab/values.yaml)
             [ "$t" = "$APP" ] || { echo "::error::$c.image.tag=$t but appVersion=$APP"; exit 1; }
           done
@@ -48,7 +48,7 @@ jobs:
       - name: Build and push lab images
         if: startsWith(github.ref_name, 'v')
         run: |
-          for c in hive-metastore spark jupyter; do
+          for c in hive-metastore spark jupyter airflow-mcp; do
             img="$REGISTRY/$OWNER/data-lab-playground/$c:$APP"
             # source label links the GHCR package to this repo
             docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c"

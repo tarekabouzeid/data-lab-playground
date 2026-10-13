@@ -263,3 +263,51 @@ Usage: include "datalab.secretValue" (list $ "<secret name>" "<key>" 32)
       name: {{ include "datalab.s3SecretName" . }}
       key: {{ .Values.s3.auth.secretKeyKey }}
 {{- end -}}
+
+{{/* ---------- Spark event logs ---------- */}}
+
+{{- define "datalab.eventLogDir" -}}
+{{- .Values.sparkHistory.eventLogDir | default (printf "s3a://%s/spark-events" .Values.s3.bucket) -}}
+{{- end -}}
+
+{{/*
+Init container that creates the Spark event log "directory" in S3 (waits for S3 first). Spark refuses to start
+when spark.eventLog.dir does not exist, and the History Server needs it too. Uses the Hadoop client bundled in
+the Spark image: the generated core-site.xml keeps the S3 keys out of the process arguments.
+Usage: include "datalab.eventLogDirInit" .
+*/}}
+{{- define "datalab.eventLogDirInit" -}}
+- name: event-log-dir
+  image: {{ include "datalab.image" (list . .Values.spark.image) }}
+  imagePullPolicy: {{ .Values.spark.image.pullPolicy }}
+  securityContext:
+    {{- include "datalab.containerSecurityContext" (list . .Values.spark) | nindent 4 }}
+  command:
+    - bash
+    - -c
+    - |
+      mkdir -p /tmp/hconf
+      cat > /tmp/hconf/core-site.xml <<XML
+      <configuration>
+        <property><name>fs.s3a.endpoint</name><value>{{ include "datalab.s3Endpoint" . }}</value></property>
+        <property><name>fs.s3a.endpoint.region</name><value>{{ .Values.s3.region }}</value></property>
+        <property><name>fs.s3a.path.style.access</name><value>{{ .Values.s3.pathStyleAccess }}</value></property>
+        <property><name>fs.s3a.connection.ssl.enabled</name><value>{{ hasPrefix "https://" (include "datalab.s3Endpoint" .) }}</value></property>
+        <property><name>fs.s3a.access.key</name><value>${S3_ACCESS_KEY}</value></property>
+        <property><name>fs.s3a.secret.key</name><value>${S3_SECRET_KEY}</value></property>
+        <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>
+      </configuration>
+      XML
+      until java -cp "/tmp/hconf:/opt/spark/jars/*" org.apache.hadoop.fs.FsShell -mkdir -p "{{ include "datalab.eventLogDir" . }}" 2>/tmp/hconf/err; do
+        echo "waiting for {{ include "datalab.eventLogDir" . }}: $(grep -m1 -oE '[A-Za-z.]+Exception[^:]*: .{0,150}' /tmp/hconf/err)"
+        sleep 3
+      done
+  env:
+    {{- include "datalab.s3Env" . | nindent 4 }}
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  volumeMounts:
+    - name: tmp
+      mountPath: /tmp
+{{- end -}}

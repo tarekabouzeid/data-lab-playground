@@ -25,3 +25,12 @@
 {{- if and $v.ollama.enabled $v.ollama.gpu.enabled (not $v.ollama.gpu.resourceName) -}}
 {{- fail "data-lab: ollama.gpu.enabled=true requires ollama.gpu.resourceName" -}}
 {{- end -}}
+{{- if and $v.sparkHistoryMcp.enabled (not $v.spark.enabled) -}}
+{{- fail "data-lab: sparkHistoryMcp.enabled=true requires spark.enabled=true and sparkHistory.enabled=true (the MCP server queries the Spark History Server)" -}}
+{{- end -}}
+{{- if and $v.sparkHistoryMcp.enabled (not $v.sparkHistory.enabled) -}}
+{{- fail "data-lab: sparkHistoryMcp.enabled=true requires sparkHistory.enabled=true (the MCP server queries the Spark History Server)" -}}
+{{- end -}}
+{{- if and $v.airflowMcp.enabled (not $v.airflow.enabled) -}}
+{{- fail "data-lab: airflowMcp.enabled=true requires airflow.enabled=true" -}}
+{{- end -}}

@@ -282,6 +282,126 @@ spark:
   # -- Extra annotations for the server and executor pods.
   podAnnotations: {}
 
+sparkHistory:
+  # -- Deploy the Spark History Server (UI + REST on 18080). Turns on Spark event logging to `eventLogDir`. Requires `spark.enabled`.
+  # Uses `spark.image`. A running Spark Connect server appears here only after it stops or rolls a log file (S3 shows a
+  # file only once it is closed); use the live Spark UI (port 4040) for the running server.
+  enabled: true
+  # -- Event log location written by Spark and read by the History Server. Empty: `s3a://<s3.bucket>/spark-events`.
+  eventLogDir: ""
+  # -- Roll the Spark Connect server's event log at this size so a long-running server shows up in history (Spark minimum: 10m).
+  rollingMaxFileSize: 10m
+  # -- Delete event logs older than this.
+  cleanerMaxAge: 7d
+  # -- JVM heap of the History Server (`SPARK_DAEMON_MEMORY`).
+  heapSize: 512m
+  # -- Container resources.
+  resources:
+    requests: {cpu: 100m, memory: 768Mi}
+    limits: {memory: 1Gi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 185
+    runAsGroup: 185
+    fsGroup: 185
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+sparkHistoryMcp:
+  # -- Deploy the Kubeflow Spark History Server MCP server (streamable HTTP on 18888, path `/mcp`). No caller authentication:
+  # reachable only through the NetworkPolicy. Requires `sparkHistory.enabled`. Queries the History Server (`history`, default)
+  # and, when Spark is enabled, the live Spark Connect UI (`live`).
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: ghcr.io
+    # -- Image repository (official Kubeflow image).
+    repository: kubeflow/mcp-apache-spark-history-server
+    # -- Image tag.
+    tag: "1.0.1"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Extra Host header values accepted besides this release's Service names and `localhost` (DNS-rebinding protection), e.g. `my-gateway:*`.
+  extraAllowedHosts: []
+  # -- Container resources.
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+airflowMcp:
+  # -- Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as the admin user from
+  # `airflow.auth`. No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`.
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: ghcr.io
+    # -- Image repository (built from `airflow-mcp/Dockerfile`: astro-airflow-mcp 0.9.1, published by the release workflow).
+    repository: tarekabouzeid/data-lab-playground/airflow-mcp
+    # -- Image tag (lab release).
+    tag: "3.0.0"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Block every write tool (trigger, pause, clear, delete). Set `false` to let MCP clients change Airflow state.
+  readOnly: true
+  # -- Container resources.
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
 trino:
   # -- Deploy a single-node Trino (coordinator also schedules work). Requires `hms.enabled`.
   enabled: true

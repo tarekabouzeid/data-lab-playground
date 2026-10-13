@@ -45,6 +45,10 @@ spec:
       automountServiceAccountToken: {{ eq $c.master "kubernetes" }}
       enableServiceLinks: false
       terminationGracePeriodSeconds: 30
+      {{- if .Values.sparkHistory.enabled }}
+      initContainers:
+        {{- include "datalab.eventLogDirInit" . | nindent 8 }}
+      {{- end }}
       containers:
         - name: spark-connect
           image: {{ include "datalab.image" (list . $c.image) }}
@@ -56,14 +60,15 @@ spec:
             - bash
             - -c
             - |
-              exec /opt/spark/sbin/start-connect-server.sh \
+              # exec spark-submit directly (not sbin/start-connect-server.sh, which keeps the JVM as a child of bash)
+              # so SIGTERM reaches Spark: executors are released and the event log is closed on every pod stop.
+              exec /opt/spark/bin/spark-submit --class org.apache.spark.sql.connect.service.SparkConnectServer \
+                --name "Spark Connect server" \
                 --conf spark.driver.host="${POD_IP}" \
                 --conf spark.kubernetes.driver.pod.name="${POD_NAME}" \
                 --conf spark.hadoop.fs.s3a.access.key="${S3_ACCESS_KEY}" \
                 --conf spark.hadoop.fs.s3a.secret.key="${S3_SECRET_KEY}"
           env:
-            - name: SPARK_NO_DAEMONIZE
-              value: "true"
             - name: SPARK_CONF_DIR
               value: /etc/spark/conf
             - name: SPARK_LOG_DIR

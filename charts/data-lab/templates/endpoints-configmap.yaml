@@ -22,6 +22,15 @@ Flat UPPER_CASE keys work with envFrom; ENDPOINTS_JSON has the same data structu
 {{- end -}}
 {{- $_ := set $e "sparkConnect" $spark -}}
 {{- end -}}
+{{- if and $v.spark.enabled $v.sparkHistory.enabled -}}
+{{- $_ := set $e "sparkHistory" (dict "url" (printf "http://%s:18080" (include "datalab.host" (list . "spark-history"))) "eventLogDir" (include "datalab.eventLogDir" .) "auth" "none") -}}
+{{- if $v.sparkHistoryMcp.enabled -}}
+{{- $_ := set $e "sparkHistoryMcp" (dict "url" (printf "http://%s:18888/mcp" (include "datalab.host" (list . "spark-history-mcp"))) "transport" "streamable-http" "servers" (list "history" "live") "auth" "none") -}}
+{{- end -}}
+{{- end -}}
+{{- if and $v.airflow.enabled $v.airflowMcp.enabled -}}
+{{- $_ := set $e "airflowMcp" (dict "url" (printf "http://%s:8000/mcp" (include "datalab.host" (list . "airflow-mcp"))) "transport" "streamable-http" "readOnly" $v.airflowMcp.readOnly "auth" "none") -}}
+{{- end -}}
 {{- if $v.airflow.enabled -}}
 {{- $url := printf "http://%s:8080" (include "datalab.host" (list . "airflow")) -}}
 {{- $dags := dict "source" $v.airflow.dags.source "subPath" $v.airflow.dags.subPath -}}
@@ -83,6 +92,16 @@ data:
   SPARK_CONNECT_CREDENTIALS_SECRET: {{ .secret | quote }}
   SPARK_CONNECT_CREDENTIALS_TOKEN_KEY: {{ .tokenKey | quote }}
   {{- end }}
+  {{- end }}
+  {{- with $e.sparkHistory }}
+  SPARK_HISTORY_URL: {{ .url | quote }}
+  SPARK_EVENT_LOG_DIR: {{ .eventLogDir | quote }}
+  {{- end }}
+  {{- with $e.sparkHistoryMcp }}
+  SPARK_HISTORY_MCP_URL: {{ .url | quote }}
+  {{- end }}
+  {{- with $e.airflowMcp }}
+  AIRFLOW_MCP_URL: {{ .url | quote }}
   {{- end }}
   {{- with $e.airflow }}
   AIRFLOW_URL: {{ .url | quote }}

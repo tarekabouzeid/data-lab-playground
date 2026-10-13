@@ -58,6 +58,13 @@ data:
     spark.sql.catalog.{{ $cat }}.type                rest
     spark.sql.catalog.{{ $cat }}.uri                 {{ include "datalab.icebergRestUri" . }}
     spark.sql.catalog.{{ $cat }}.io-impl             org.apache.iceberg.hadoop.HadoopFileIO
+    {{- if .Values.sparkHistory.enabled }}
+    # Event logs for the Spark History Server (rolled so a long-running Connect server becomes visible)
+    spark.eventLog.enabled                           true
+    spark.eventLog.dir                               {{ include "datalab.eventLogDir" . }}
+    spark.eventLog.rolling.enabled                   true
+    spark.eventLog.rolling.maxFileSize               {{ .Values.sparkHistory.rollingMaxFileSize }}
+    {{- end }}
     {{- range $k, $val := $c.extraConf }}
     {{ $k }} {{ $val }}
     {{- end }}

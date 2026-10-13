@@ -13,6 +13,15 @@ Spark:   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datala
          connect with sc://localhost:15002/;authorization=Bearer <token>
 {{- end }}
 {{- end }}
+{{- if and .Values.spark.enabled .Values.sparkHistory.enabled }}
+Spark history: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "spark-history") }} 18080
+{{- end }}
+{{- if and .Values.spark.enabled .Values.sparkHistory.enabled .Values.sparkHistoryMcp.enabled }}
+Spark History MCP: http://{{ include "datalab.host" (list . "spark-history-mcp") }}:18888/mcp (servers: history, live)
+{{- end }}
+{{- if and .Values.airflow.enabled .Values.airflowMcp.enabled }}
+Airflow MCP: http://{{ include "datalab.host" (list . "airflow-mcp") }}:8000/mcp{{ if .Values.airflowMcp.readOnly }} (read-only){{ end }}
+{{- end }}
 {{- if .Values.airflow.enabled }}
 Airflow: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "airflow") }} 8080
          user {{ .Values.airflow.auth.username }}, password in Secret {{ include "datalab.airflowAuthSecretName" . }} (key {{ .Values.airflow.auth.passwordKey }})

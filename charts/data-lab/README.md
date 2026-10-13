@@ -302,6 +302,50 @@ Kubernetes: `>=1.29.0-0`
 | spark.affinity | object | `{}` | Affinity for the Connect server pod. |
 | spark.podLabels | object | `{}` | Extra labels for the server and executor pods. |
 | spark.podAnnotations | object | `{}` | Extra annotations for the server and executor pods. |
+| sparkHistory.enabled | bool | `true` | Deploy the Spark History Server (UI + REST on 18080). Turns on Spark event logging to `eventLogDir`. Requires `spark.enabled`. Uses `spark.image`. A running Spark Connect server appears here only after it stops or rolls a log file (S3 shows a file only once it is closed); use the live Spark UI (port 4040) for the running server. |
+| sparkHistory.eventLogDir | string | `""` | Event log location written by Spark and read by the History Server. Empty: `s3a://<s3.bucket>/spark-events`. |
+| sparkHistory.rollingMaxFileSize | string | `"10m"` | Roll the Spark Connect server's event log at this size so a long-running server shows up in history (Spark minimum: 10m). |
+| sparkHistory.cleanerMaxAge | string | `"7d"` | Delete event logs older than this. |
+| sparkHistory.heapSize | string | `"512m"` | JVM heap of the History Server (`SPARK_DAEMON_MEMORY`). |
+| sparkHistory.resources | object | `{"limits":{"memory":"1Gi"},"requests":{"cpu":"100m","memory":"768Mi"}}` | Container resources. |
+| sparkHistory.podSecurityContext | object | `{"fsGroup":185,"runAsGroup":185,"runAsNonRoot":true,"runAsUser":185,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext. |
+| sparkHistory.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |
+| sparkHistory.runtimeClassName | string | `""` | RuntimeClass for the pod. |
+| sparkHistory.nodeSelector | object | `{}` | nodeSelector for the pod. |
+| sparkHistory.tolerations | list | `[]` | Tolerations for the pod. |
+| sparkHistory.affinity | object | `{}` | Affinity for the pod. |
+| sparkHistory.podLabels | object | `{}` | Extra pod labels. |
+| sparkHistory.podAnnotations | object | `{}` | Extra pod annotations. |
+| sparkHistoryMcp.enabled | bool | `false` | Deploy the Kubeflow Spark History Server MCP server (streamable HTTP on 18888, path `/mcp`). No caller authentication: reachable only through the NetworkPolicy. Requires `sparkHistory.enabled`. Queries the History Server (`history`, default) and, when Spark is enabled, the live Spark Connect UI (`live`). |
+| sparkHistoryMcp.image.registry | string | `"ghcr.io"` | Image registry. |
+| sparkHistoryMcp.image.repository | string | `"kubeflow/mcp-apache-spark-history-server"` | Image repository (official Kubeflow image). |
+| sparkHistoryMcp.image.tag | string | `"1.0.1"` | Image tag. |
+| sparkHistoryMcp.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| sparkHistoryMcp.extraAllowedHosts | list | `[]` | Extra Host header values accepted besides this release's Service names and `localhost` (DNS-rebinding protection), e.g. `my-gateway:*`. |
+| sparkHistoryMcp.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Container resources. |
+| sparkHistoryMcp.podSecurityContext | object | `{"fsGroup":1000,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext. |
+| sparkHistoryMcp.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |
+| sparkHistoryMcp.runtimeClassName | string | `""` | RuntimeClass for the pod. |
+| sparkHistoryMcp.nodeSelector | object | `{}` | nodeSelector for the pod. |
+| sparkHistoryMcp.tolerations | list | `[]` | Tolerations for the pod. |
+| sparkHistoryMcp.affinity | object | `{}` | Affinity for the pod. |
+| sparkHistoryMcp.podLabels | object | `{}` | Extra pod labels. |
+| sparkHistoryMcp.podAnnotations | object | `{}` | Extra pod annotations. |
+| airflowMcp.enabled | bool | `false` | Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as the admin user from `airflow.auth`. No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`. |
+| airflowMcp.image.registry | string | `"ghcr.io"` | Image registry. |
+| airflowMcp.image.repository | string | `"tarekabouzeid/data-lab-playground/airflow-mcp"` | Image repository (built from `airflow-mcp/Dockerfile`: astro-airflow-mcp 0.9.1, published by the release workflow). |
+| airflowMcp.image.tag | string | `"3.0.0"` | Image tag (lab release). |
+| airflowMcp.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| airflowMcp.readOnly | bool | `true` | Block every write tool (trigger, pause, clear, delete). Set `false` to let MCP clients change Airflow state. |
+| airflowMcp.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Container resources. |
+| airflowMcp.podSecurityContext | object | `{"fsGroup":1000,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext. |
+| airflowMcp.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |
+| airflowMcp.runtimeClassName | string | `""` | RuntimeClass for the pod. |
+| airflowMcp.nodeSelector | object | `{}` | nodeSelector for the pod. |
+| airflowMcp.tolerations | list | `[]` | Tolerations for the pod. |
+| airflowMcp.affinity | object | `{}` | Affinity for the pod. |
+| airflowMcp.podLabels | object | `{}` | Extra pod labels. |
+| airflowMcp.podAnnotations | object | `{}` | Extra pod annotations. |
 | trino.enabled | bool | `true` | Deploy a single-node Trino (coordinator also schedules work). Requires `hms.enabled`. |
 | trino.image.registry | string | `"docker.io"` | Image registry. |
 | trino.image.repository | string | `"trinodb/trino"` | Image repository. |

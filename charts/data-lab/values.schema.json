@@ -696,6 +696,260 @@
         }
       }
     },
+    "sparkHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the Spark History Server (UI + REST on 18080). Turns on Spark event logging to `eventLogDir`. Requires `spark.enabled`. Uses `spark.image`. A running Spark Connect server appears here only after it stops or rolls a log file (S3 shows a file only once it is closed); use the live Spark UI (port 4040) for the running server."
+        },
+        "eventLogDir": {
+          "type": "string",
+          "description": "Event log location written by Spark and read by the History Server. Empty: `s3a://<s3.bucket>/spark-events`."
+        },
+        "rollingMaxFileSize": {
+          "type": "string",
+          "description": "Roll the Spark Connect server's event log at this size so a long-running server shows up in history (Spark minimum: 10m)."
+        },
+        "cleanerMaxAge": {
+          "type": "string",
+          "description": "Delete event logs older than this."
+        },
+        "heapSize": {
+          "type": "string",
+          "description": "JVM heap of the History Server (`SPARK_DAEMON_MEMORY`)."
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "sparkHistoryMcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the Kubeflow Spark History Server MCP server (streamable HTTP on 18888, path `/mcp`). No caller authentication: reachable only through the NetworkPolicy. Requires `sparkHistory.enabled`. Queries the History Server (`history`, default) and, when Spark is enabled, the live Spark Connect UI (`live`)."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository (official Kubeflow image)."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "extraAllowedHosts": {
+          "type": "array",
+          "description": "Extra Host header values accepted besides this release's Service names and `localhost` (DNS-rebinding protection), e.g. `my-gateway:*`."
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
+    "airflowMcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as the admin user from `airflow.auth`. No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Image registry."
+            },
+            "repository": {
+              "type": "string",
+              "description": "Image repository (built from `airflow-mcp/Dockerfile`: astro-airflow-mcp 0.9.1, published by the release workflow)."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image tag (lab release)."
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "description": "Image pull policy."
+            }
+          }
+        },
+        "readOnly": {
+          "type": "boolean",
+          "description": "Block every write tool (trigger, pause, clear, delete). Set `false` to let MCP clients change Airflow state."
+        },
+        "resources": {
+          "type": "object",
+          "description": "Container resources."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod securityContext."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Container securityContext (merged over `global.containerSecurityContext`)."
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "RuntimeClass for the pod."
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "nodeSelector for the pod."
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Tolerations for the pod."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Affinity for the pod."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod labels."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra pod annotations."
+        }
+      }
+    },
     "trino": {
       "type": "object",
       "additionalProperties": false,
