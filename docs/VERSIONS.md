@@ -16,7 +16,7 @@ Background research and rejected options: [UPGRADE_PLAN.md](UPGRADE_PLAN.md).
 | Hive Metastore | **4.2.1** | `apache/hive:standalone-metastore-4.2.1` | `hive-metastore/Dockerfile` | 4.2.1 | ✅ Latest (Iceberg via the built-in REST catalog) |
 | Trino | **483** | `trinodb/trino:483` | `trino/Dockerfile` | 483 | ✅ Latest |
 | SeaweedFS (S3 storage) | **4.48** | `chrislusf/seaweedfs:4.48` | `docker-compose.yaml` | 4.48 | ✅ Latest (replaced MinIO; `minio/minio` is gone from Docker Hub) |
-| PostgreSQL (HMS backend) | **13** | `postgres:13` | `docker-compose.yaml` (`metastore-db`) | — | Unchanged |
+| PostgreSQL (HMS backend) | **13** (Compose) / **17.11** (Helm) | `postgres:13` / `postgres:17.11` | `docker-compose.yaml` (`metastore-db`), `charts/data-lab/values.yaml` | 18.6 | ⚠️ 13 is EOL. Compose keeps it because a 17 server cannot open a 13 data dir; the chart starts fresh on 17 |
 
 ## 2. Runtimes and bundled libraries per container
 
@@ -97,4 +97,35 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | Date | Spark | Iceberg | HMS | Trino | Storage |
 |---|---|---|---|---|---|
 | 2026-05-24 (v2.0.0) | 4.1.0 | 1.11.0 | 4.0.0 | 481 | MinIO |
-| 2026-10-03 (this branch) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 |
+| 2026-10-03 (v3.0.0, unreleased) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 |
+| 2026-10-12 (Helm chart 0.1.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Airflow 3.3.2, Postgres 17.11 in the chart) |
+
+## 8. Helm chart images (`charts/data-lab`)
+
+Chart `0.1.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+`charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
+
+| Component | Image | Tag | Same as Compose? |
+|---|---|---|---|
+| Hive Metastore | `ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore` (built from `hive-metastore/Dockerfile`) | `3.0.0` (= appVersion; HMS 4.2.1) | ✅ same Dockerfile |
+| Spark Connect + executors + `helm test` | `ghcr.io/tarekabouzeid/data-lab-playground/spark` (built from `spark/Dockerfile`) | `3.0.0` (Spark 4.1.3, Iceberg 1.12.0, Python 3.12) | ✅ same Dockerfile |
+| JupyterLab | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` (built from `jupyter/Dockerfile`) | `3.0.0` | ✅ same Dockerfile |
+| Trino | `trinodb/trino` | `483` | ✅ (Compose builds `trino/Dockerfile` FROM it) |
+| SeaweedFS | `chrislusf/seaweedfs` | `4.48` | ✅ |
+| Postgres (HMS, Airflow) | `postgres` | `17.11` | ❌ Compose HMS uses 13 (see §1) |
+| Airflow | `apache/airflow` | `3.3.2-python3.12` | chart only |
+| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` | chart only |
+| Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` | chart only |
+| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` | chart only |
+| git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` | chart only |
+| Ollama | `ollama/ollama` | `0.40.3` | Compose: `latest` |
+| Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` | Compose: `latest` |
+| Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` | Compose: `latest` |
+
+The four `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp) are pushed by `.github/workflows/chart-release.yaml` on the
+`v<appVersion>` tag. The workflow refuses to run if the values tags differ from `appVersion`. The kind e2e builds
+them locally instead.
+
+The Spark image also carries the PySpark Connect client deps (`pandas==2.3.3`, `pyarrow==21.0.0`,
+`numpy==2.3.4`, `grpcio`/`grpcio-status==1.76.0`, `googleapis-common-protos==1.71.0`, `zstandard==0.25.0`), as
+pinned by pyspark 4.1's `connect` extra.

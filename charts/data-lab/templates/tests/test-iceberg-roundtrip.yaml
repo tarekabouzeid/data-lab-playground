@@ -1,0 +1,115 @@
+{{- if and .Values.tests.enabled .Values.spark.enabled .Values.trino.enabled }}
+{{- $s := .Values.spark -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "datalab.componentName" (list . "test-iceberg") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "test") | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  {{- with .Values.global.imagePullSecrets }}
+  imagePullSecrets:
+    {{- range . }}
+    - name: {{ . }}
+    {{- end }}
+  {{- end }}
+  {{- with ($s.runtimeClassName | default .Values.global.runtimeClassName) }}
+  runtimeClassName: {{ . }}
+  {{- end }}
+  {{- with ($s.nodeSelector | default .Values.global.nodeSelector) }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with ($s.tolerations | default .Values.global.tolerations) }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  securityContext:
+    {{- toYaml $s.podSecurityContext | nindent 4 }}
+  containers:
+    - name: test
+      image: {{ include "datalab.image" (list . $s.image) }}
+      imagePullPolicy: {{ $s.image.pullPolicy }}
+      securityContext:
+        {{- include "datalab.containerSecurityContext" (list . $s) | nindent 8 }}
+      env:
+        - name: SPARK_CONNECT_HOST
+          value: {{ include "datalab.host" (list . "spark-connect") }}
+        {{- if $s.auth.enabled }}
+        - name: SPARK_CONNECT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "datalab.sparkSecretName" . }}
+              key: {{ $s.auth.tokenKey }}
+        {{- end }}
+        - name: TRINO_URL
+          value: http://{{ include "datalab.host" (list . "trino") }}:8080
+        - name: ICEBERG_CATALOG
+          value: {{ $s.icebergCatalogName }}
+        - name: WAREHOUSE
+          value: s3a://{{ .Values.s3.bucket }}
+      command:
+        - bash
+        - -c
+        - |
+          export PYTHONPATH="/opt/spark/python:$(ls /opt/spark/python/lib/py4j-*-src.zip)"
+          exec /opt/conda/bin/python - <<'PY'
+          import json, os, sys, time, urllib.request, uuid
+          from pyspark.sql import SparkSession
+
+          url = f"sc://{os.environ['SPARK_CONNECT_HOST']}:15002"
+          if os.environ.get("SPARK_CONNECT_TOKEN"):
+              # ";token=" makes the Python client require TLS; send the bearer header as metadata instead.
+              url += f"/;authorization=Bearer {os.environ['SPARK_CONNECT_TOKEN']}"
+          cat, ns = os.environ["ICEBERG_CATALOG"], "helm_test"
+          tbl = f"roundtrip_{uuid.uuid4().hex[:8]}"
+          fq = f"{cat}.{ns}.{tbl}"
+
+          def trino(sql):
+              req = urllib.request.Request(os.environ["TRINO_URL"] + "/v1/statement", data=sql.encode(),
+                                           headers={"X-Trino-User": "helm-test"})
+              res = json.load(urllib.request.urlopen(req, timeout=60))
+              rows = []
+              while True:
+                  if "error" in res:
+                      raise RuntimeError(res["error"].get("message"))
+                  rows += res.get("data", [])
+                  if "nextUri" not in res:
+                      return rows
+                  time.sleep(0.2)
+                  res = json.load(urllib.request.urlopen(res["nextUri"], timeout=60))
+
+          spark = SparkSession.builder.remote(url).getOrCreate()
+          ok = False
+          try:
+              spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {cat}.{ns} LOCATION '{os.environ['WAREHOUSE']}/{ns}.db'")
+              spark.sql(f"CREATE TABLE {fq} (id INT, name STRING) USING iceberg")
+              spark.sql(f"INSERT INTO {fq} VALUES (1, 'a'), (2, 'b'), (3, 'c')")
+              print("spark wrote", spark.table(fq).count(), "rows to", fq)
+              rows = trino(f"SELECT count(*), sum(id) FROM iceberg.{ns}.{tbl}")
+              print("trino read", rows)
+              ok = rows == [[3, 6]]
+          finally:
+              spark.sql(f"DROP TABLE IF EXISTS {fq} PURGE")
+              if not spark.sql(f"SHOW TABLES IN {cat}.{ns}").collect():
+                  spark.sql(f"DROP NAMESPACE IF EXISTS {cat}.{ns}")
+              spark.stop()
+          print("PASS" if ok else "FAIL")
+          sys.exit(0 if ok else 1)
+          PY
+      resources:
+        {{- toYaml .Values.tests.resources | nindent 8 }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

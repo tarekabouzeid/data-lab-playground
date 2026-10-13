@@ -1,0 +1,210 @@
+{{- if .Values.airflow.enabled }}
+{{- $c := .Values.airflow -}}
+{{- $name := include "datalab.componentName" (list . "airflow") -}}
+{{- $db := include "datalab.componentName" (list . "airflow-db") -}}
+{{- $gitSync := eq $c.dags.source "gitSync" -}}
+{{- $dagsMount := ternary "/git" "/opt/airflow/dags" $gitSync -}}
+{{- $dagsFolder := ternary (printf "/git/repo/%s" $c.dags.subPath) (printf "/opt/airflow/dags/%s" $c.dags.subPath) $gitSync | trimSuffix "/" -}}
+{{- $secrets := include "datalab.airflowSecretsSecretName" . -}}
+{{- if and (eq $c.dags.source "pvc") (not $c.dags.pvc.existingClaim) }}
+{{ include "datalab.pvc" (list . "airflow-dags" (merge (dict "enabled" true) $c.dags.pvc)) }}
+---
+{{- end }}
+{{- if $c.logs.persistence.enabled }}
+{{ include "datalab.pvc" (list . "airflow-logs" $c.logs.persistence) }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "airflow") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "airflow") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "airflow") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "airflow") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "airflow" $c) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      initContainers:
+        {{- include "datalab.waitForPostgres" (list . "airflow-db" $c.database) | nindent 8 }}
+        - name: auth-file
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          command:
+            - python
+            - -c
+            - |
+              import json, os
+              users = {os.environ["ADMIN_USER"]: os.environ["ADMIN_PASSWORD"]}
+              if os.environ.get("MCP_USER"):
+                  users[os.environ["MCP_USER"]] = os.environ["MCP_PASSWORD"]
+              json.dump(users, open("/opt/airflow/auth/passwords.json", "w"))
+          env:
+            - name: ADMIN_USER
+              value: {{ $c.auth.username | quote }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "datalab.airflowAuthSecretName" . }}
+                  key: {{ $c.auth.passwordKey }}
+            {{- if .Values.airflowMcp.enabled }}
+            - name: MCP_USER
+              value: {{ .Values.airflowMcp.username | quote }}
+            - name: MCP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "datalab.airflowMcpSecretName" . }}
+                  key: {{ .Values.airflowMcp.auth.passwordKey }}
+            {{- end }}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - name: auth
+              mountPath: /opt/airflow/auth
+        - name: db-migrate
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          args: ["db", "migrate"]
+          env:
+            {{- include "datalab.airflowEnv" (list . $dagsFolder) | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources.scheduler | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        {{- if $gitSync }}
+        - name: git-sync-init
+          {{- include "datalab.gitSyncContainer" (list . true) | nindent 10 }}
+        {{- end }}
+      containers:
+        - name: api-server
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          args: ["api-server", "--port", "8080"]
+          env:
+            {{- include "datalab.airflowEnv" (list . $dagsFolder) | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "datalab.componentName" (list . "endpoints") }}
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /api/v2/monitor/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/v2/monitor/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v2/monitor/health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            {{- toYaml $c.resources.apiServer | nindent 12 }}
+          volumeMounts:
+            {{- include "datalab.airflowMounts" (list . $dagsMount) | nindent 12 }}
+            - name: auth
+              mountPath: /opt/airflow/auth
+        {{- $jobs := list (list "scheduler" "SchedulerJob" $c.resources.scheduler) (list "dag-processor" "DagProcessorJob" $c.resources.dagProcessor) }}
+        {{- if $c.triggerer.enabled }}
+        {{- $jobs = append $jobs (list "triggerer" "TriggererJob" $c.resources.triggerer) }}
+        {{- end }}
+        {{- range $jobs }}
+        - name: {{ index . 0 }}
+          image: {{ include "datalab.image" (list $ $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list $ $c) | nindent 12 }}
+          args: [{{ index . 0 | quote }}]
+          env:
+            {{- include "datalab.airflowEnv" (list $ $dagsFolder) | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "datalab.componentName" (list $ "endpoints") }}
+          startupProbe:
+            exec:
+              command: ["airflow", "jobs", "check", "--job-type", {{ index . 1 | quote }}, "--local"]
+            periodSeconds: 15
+            timeoutSeconds: 30
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command: ["airflow", "jobs", "check", "--job-type", {{ index . 1 | quote }}, "--local"]
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 5
+          resources:
+            {{- toYaml (index . 2) | nindent 12 }}
+          volumeMounts:
+            {{- include "datalab.airflowMounts" (list $ $dagsMount) | nindent 12 }}
+        {{- end }}
+        {{- if $gitSync }}
+        - name: git-sync
+          {{- include "datalab.gitSyncContainer" (list . false) | nindent 10 }}
+        {{- end }}
+      volumes:
+        - name: dags
+          {{- if eq $c.dags.source "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ $c.dags.pvc.existingClaim | default (include "datalab.componentName" (list . "airflow-dags")) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: logs
+          {{- include "datalab.volumeSource" (list . "airflow-logs" $c.logs.persistence) | nindent 10 }}
+        - name: auth
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if and $gitSync $c.dags.gitSync.existingSecret }}
+        - name: git-secret
+          secret:
+            secretName: {{ $c.dags.gitSync.existingSecret }}
+            defaultMode: 0440
+        {{- end }}
+---
+{{ include "datalab.postgres" (list . "airflow-db" $c.database (include "datalab.airflowDbSecretName" .)) }}
+{{- end }}
+

@@ -1,0 +1,65 @@
+name: chart-e2e
+
+on:
+  pull_request:
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
+  push:
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v3.19.0
+
+jobs:
+  kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [minimal, default, parallel]
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Free disk space (images ~12 GB, copied into kind)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Build the lab images (tag = Chart appVersion)
+        run: |
+          APP=$(yq '.appVersion' charts/data-lab/Chart.yaml)
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          docker build -t "ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore:$APP" hive-metastore
+          docker build -t "ghcr.io/tarekabouzeid/data-lab-playground/spark:$APP" spark
+          docker build -t "ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp:$APP" airflow-mcp
+
+      - uses: helm/kind-action@v1.15.1
+        with:
+          cluster_name: datalab
+
+      - name: Load images into kind (so the timed install measures start-up, not pulls)
+        run: |
+          imgs="ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore:$APP ghcr.io/tarekabouzeid/data-lab-playground/spark:$APP"
+          imgs="$imgs ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp:$APP"
+          for i in chrislusf/seaweedfs:4.48 trinodb/trino:483 postgres:17.11 apache/airflow:3.3.2-python3.12 busybox:1.36 \
+                   ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1; do
+            docker pull -q "$i"; imgs="$imgs $i"
+          done
+          for i in $imgs; do kind load docker-image --name datalab "$i"; docker rmi "$i" >/dev/null || true; done
+          df -h /
+
+      - name: e2e (${{ matrix.scenario }})
+        id: e2e
+        run: hack/chart-e2e-kind.sh ${{ matrix.scenario }}
+
+      - name: Minimal profile start-up time
+        if: matrix.scenario == 'minimal' && always()
+        run: echo "### minimal profile Ready in ${{ steps.e2e.outputs.minimal_ready_seconds }} s (budget 180 s)" >> "$GITHUB_STEP_SUMMARY"

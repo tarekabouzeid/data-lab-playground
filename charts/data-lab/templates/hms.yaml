@@ -1,0 +1,136 @@
+{{- if .Values.hms.enabled }}
+{{- $c := .Values.hms -}}
+{{- $name := include "datalab.componentName" (list . "hms") -}}
+{{- $bucket := .Values.s3.bucket -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "hms") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "hms") | nindent 4 }}
+  ports:
+    - name: thrift
+      port: 9083
+      targetPort: thrift
+    - name: iceberg-rest
+      port: 9084
+      targetPort: iceberg-rest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "hms") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "hms") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "hms" $c (dict "checksum/config" (include (print $.Template.BasePath "/hms-configmap.yaml") . | sha256sum))) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      initContainers:
+        {{- include "datalab.waitForPostgres" (list . "hms-db" $c.database) | nindent 8 }}
+        - name: wait-for-s3
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          env:
+            {{- include "datalab.s3Env" . | nindent 12 }}
+          command:
+            - bash
+            - -c
+            - |
+              # List the bucket with Hadoop S3A: same client, config and credentials as the metastore.
+              # (Plain curl cannot tell "bucket missing" from "no access" without SigV4.)
+              mkdir -p /tmp/s3check
+              envsubst < /opt/hive/conf/core-site.xml.template > /tmp/s3check/core-site.xml
+              export HADOOP_CONF_DIR=/tmp/s3check HADOOP_OPTIONAL_TOOLS=hadoop-aws
+              export HADOOP_CLASSPATH="$(ls /opt/hive/lib/bundle-*.jar | tr '\n' ':')"
+              until /opt/hadoop/bin/hadoop fs -ls "s3a://{{ $bucket }}/" >/dev/null 2>/tmp/s3check/err; do
+                echo "waiting for s3a://{{ $bucket }}/: $(grep -m1 -oE '[A-Za-z]+Exception[^:]*: .{0,120}' /tmp/s3check/err)"
+                sleep 3
+              done
+          volumeMounts:
+            - name: config
+              mountPath: /opt/hive/conf/core-site.xml.template
+              subPath: core-site.xml.template
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 512Mi}
+      containers:
+        - name: hms
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          env:
+            - name: SERVICE_NAME
+              value: metastore
+            - name: DB_DRIVER
+              value: postgres
+            - name: SERVICE_OPTS
+              value: "-Xmx{{ $c.heapSize }}"
+            - name: HMS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "datalab.hmsDbSecretName" . }}
+                  key: {{ $c.database.auth.passwordKey }}
+            {{- include "datalab.s3Env" . | nindent 12 }}
+          ports:
+            - name: thrift
+              containerPort: 9083
+            - name: iceberg-rest
+              containerPort: 9084
+          # schematool -initOrUpgradeSchema runs before the server starts.
+          startupProbe:
+            tcpSocket:
+              port: thrift
+            periodSeconds: 3
+            failureThreshold: 100
+          readinessProbe:
+            httpGet:
+              path: /iceberg/v1/config
+              port: iceberg-rest
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: thrift
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/hive/conf/metastore-site.xml.template
+              subPath: metastore-site.xml.template
+            - name: config
+              mountPath: /opt/hive/conf/core-site.xml.template
+              subPath: core-site.xml.template
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: tmp
+          emptyDir: {}
+---
+{{ include "datalab.postgres" (list . "hms-db" $c.database (include "datalab.hmsDbSecretName" .)) }}
+{{- end }}

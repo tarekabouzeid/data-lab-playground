@@ -39,6 +39,72 @@ One-paragraph description.
 
 ---
 
+## [v3.0.0] — 2026-10-12
+
+**Tag:** `v3.0.0`  
+**Branch merged:** `main`
+
+### Summary
+Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and Trino 483, and replaces MinIO with SeaweedFS. Iceberg now goes through the Hive Metastore's built-in Iceberg REST catalog. A new end-to-end test checks that the same data is readable as plain Parquet and as Iceberg from both Spark and Trino. The release also adds a Kubernetes Helm chart (`charts/data-lab`, chart `0.1.0`) built for many parallel, short-lived installs. The chart includes Spark Connect, Airflow 3 and optional GenAI services, has no default passwords, and meets Pod Security "restricted". It is tested on kind in CI.
+
+### Component Version Changes
+| Component | Before | After |
+|---|---|---|
+| Apache Spark | 4.1.0 | **4.1.3** |
+| Apache Iceberg (Spark runtime) | 1.11.0 | **1.12.0** |
+| Hive Metastore | 4.0.0 | **4.2.1** |
+| Trino | 481 | **483** |
+| Object storage | MinIO | **SeaweedFS 4.48** |
+| HMS S3 client | — | AWS SDK v2 `bundle-2.24.6` (matches `hadoop-aws` 3.4.1) |
+| Spark image Python libs | — | PySpark Connect client deps (`pandas` 2.3.3, `pyarrow` 21.0.0, `grpcio` 1.76.0, …) |
+| Helm chart | — | **0.1.0** (adds Airflow 3.3.2, Postgres 17.11, git-sync v4.7.1, Spark History Server, Kubeflow Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1; pins Qdrant v1.19.2, Phoenix 20.21.0, Ollama 0.40.3) |
+
+### Breaking Changes
+- **Spark Iceberg catalog is now `type=rest`** (`http://hive-metastore:9084/iceberg`, `io-impl=org.apache.iceberg.hadoop.HadoopFileIO`). `type=hive` fails against HMS ≥ 4.0.1 with `Invalid method name: 'get_table'`.
+- **Trino `iceberg` catalog now uses `iceberg.catalog.type=rest`**. The `hive` and `lakehouse` catalogs stay on Thrift `:9083`.
+- **MinIO is gone.** S3 is SeaweedFS at `http://seaweedfs:8333` with keys `seaweedadmin` / `seaweedadmin123`. Data in old `minio_data` volumes is not migrated.
+- **HMS warehouse roots split**: managed `s3a://warehouse/managed/`, external (including all Iceberg tables) `s3a://warehouse/`.
+- Spark stays on 4.1.x until Iceberg ships `iceberg-spark-runtime-4.2_2.13`.
+
+### What's New
+- `tests/e2e/run-e2e.sh`: 19 checks across Spark/Trino × `hive`/`iceberg`/`lakehouse` catalogs, plus plain-Parquet reads of Iceberg and Trino-written files.
+- `docs/VERSIONS.md`: the authoritative version matrix (runtimes per container, pinned jars, access matrix, upgrade blockers). `docs/UPGRADE_PLAN.md` holds the compatibility research.
+- **Helm chart `charts/data-lab`**:
+  - Components and toggles: SeaweedFS, HMS + Postgres, Spark Connect (executors as pods), Trino and Airflow 3.3.2 (LocalExecutor) are on by default. Jupyter, Ollama, Qdrant and Phoenix are off by default. Invalid combinations fail at render.
+  - Consumer contract: the `<release>-data-lab-endpoints` ConfigMap lists every endpoint and the Secret holding its credential.
+  - Credentials: every one has an `existingSecret` option, otherwise it is generated once and kept across upgrades.
+  - Isolation: Pod Security "restricted" everywhere, namespaced RBAC only, ClusterIP-only Services, and a NetworkPolicy limited to the release.
+  - Strict `values.schema.json` and a generated values table in the chart README.
+  - Airflow DAGs come from a PVC or git-sync, and task logs are kept on a PVC so finished runs stay viewable after pod restarts.
+  - Spark History Server (on by default), reading Spark event logs from SeaweedFS.
+  - Optional MCP servers for agents: Kubeflow Spark History MCP 1.0.1 and Astronomer Airflow MCP 0.9.1. The Airflow MCP logs in as a dedicated `viewer` user when read-only.
+  - `helm test`: Spark writes an Iceberg table, Trino reads it, then it is dropped.
+- CI workflows:
+  - `chart-lint`: helm lint, ct lint, kubeconform, policy checks.
+  - `chart-e2e` on kind: the minimal profile is Ready in 29 s, the default profile installs, two releases run in one namespace and one release name in two namespaces, `helm test` passes, and uninstall leaves each namespace empty.
+  - `chart-release`: on a `v*` tag, pushes the HMS/Spark/Jupyter images to GHCR and the chart to `oci://ghcr.io/<owner>/charts`.
+- `docs/HELM_GAP_REPORT.md`: requirements audit, with the conflicts against component limits and how each was resolved.
+
+### Bug Fixes / Config Changes
+- SeaweedFS runs with `-volume.max=64`. Without it, auto-sizing from free disk left no writable volume and S3A PUTs returned HTTP 500.
+- HMS starts only after Postgres is healthy (`depends_on: service_healthy`). Both `metastore.*` and `hive.metastore.*` warehouse keys are set because the REST servlet reads the legacy names.
+- The Iceberg REST server moved to port 9084 to avoid a clash with the old MinIO console port.
+- The Spark image installs pip with `ensurepip --upgrade`, because Ubuntu jammy's pip 22 breaks on Python 3.12.
+- The chart's Trino catalogs use `fs.s3.enabled`, which replaces the deprecated `fs.native-s3.enabled` in Trino 483. Compose still uses the old key, which only produces a warning.
+
+### Known Limitations
+- The Spark Connect token must be passed as `sc://host:15002/;authorization=Bearer <token>`. The PySpark client sends `;token=` only over TLS, and Spark 4.1 Connect has no TLS.
+- HMS (Thrift and Iceberg REST), Trino and Ollama are unauthenticated. In the chart, the NetworkPolicy is the isolation boundary. Add consumers through `networkPolicy.extraIngressFrom`.
+- Chart secrets generated with `lookup` change on every render under `helm template`, Argo CD or Flux. Those tools must use `existingSecret`.
+- The chart's Ollama, Jupyter and git-sync paths are verified by rendering only. Ollama needs a GPU to be useful.
+- Compose HMS still runs Postgres 13 (EOL); the chart uses 17.11.
+- The REST catalog embeds Iceberg 1.9.1 and Trino bundles 1.11.0, so stay on format v2 tables.
+- The chart's lab images exist on GHCR only after the `v3.0.0` tag triggers `chart-release`.
+- The Spark History Server shows the long-running Spark Connect app only up to its last rolled event log (10 MiB) or after it stops, because S3 shows files only once closed. Use the live Spark UI (or the MCP `live` server) for running work.
+- MCP servers have no caller authentication; the NetworkPolicy is the boundary.
+
+---
+
 ## [v2.0.0] — 2026-05-24
 
 **Tag:** `v2.0.0`  

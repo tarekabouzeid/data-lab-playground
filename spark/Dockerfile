@@ -23,6 +23,15 @@ RUN mkdir -p /opt/conda/bin && \
     ln -sf /usr/bin/python3.12 /opt/conda/bin/python && \
     ln -sf /usr/bin/python3.12 /opt/conda/bin/python3
 
+# Spark Connect Python client deps (pyspark 4.1 "connect" extra). Used by the Helm
+# chart's `helm test` pod and by pandas/Arrow UDFs on executors.
+# --upgrade: jammy ships pip 22 in dist-packages, which breaks on 3.12 (no distutils).
+RUN python3.12 -m ensurepip --upgrade \
+    && python3.12 -m pip install --no-cache-dir --break-system-packages \
+       pandas==2.3.3 pyarrow==21.0.0 numpy==2.3.4 \
+       grpcio==1.76.0 grpcio-status==1.76.0 googleapis-common-protos==1.71.0 \
+       zstandard==0.25.0
+
 ENV PYSPARK_PYTHON=/opt/conda/bin/python
 ENV PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python
 
@@ -38,9 +47,8 @@ RUN curl -fsSL https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.4.2
     curl -fsSL https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.12.0/iceberg-aws-bundle-1.12.0.jar \
       -o /opt/spark/jars/iceberg-aws-bundle-1.12.0.jar
 
-# NOTE: Spark's bundled Hive 2.3.10 metastore client is intentionally kept.
-# Iceberg 1.12's HiveCatalog uses it, and it is why HMS is pinned to 4.0.0
-# (HMS >= 4.0.1 removed the `get_table` Thrift call — see AGENTS.md pitfall #1).
+# NOTE: Iceberg goes through the HMS Iceberg REST catalog (type=rest). Iceberg's
+# HiveCatalog (Hive 2.3.10 client) cannot talk to HMS 4.2.1 — see AGENTS.md pitfall #1.
 
 # -----------------------------------------
 # Permissions
