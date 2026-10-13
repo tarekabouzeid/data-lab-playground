@@ -114,12 +114,15 @@ Chart `0.1.0`, `appVersion` **3.0.0** (the lab release these versions ship in). 
 | SeaweedFS | `chrislusf/seaweedfs` | `4.48` | ✅ |
 | Postgres (HMS, Airflow) | `postgres` | `17.11` | ❌ Compose HMS uses 13 (see §1) |
 | Airflow | `apache/airflow` | `3.3.2-python3.12` | chart only |
+| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` | chart only |
+| Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` | chart only |
+| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` | chart only |
 | git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` | chart only |
 | Ollama | `ollama/ollama` | `0.40.3` | Compose: `latest` |
 | Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` | Compose: `latest` |
 | Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` | Compose: `latest` |
 
-The three `ghcr.io/.../data-lab-playground/*` images are pushed by `.github/workflows/chart-release.yaml` on the
+The four `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp) are pushed by `.github/workflows/chart-release.yaml` on the
 `v<appVersion>` tag. The workflow refuses to run if the values tags differ from `appVersion`. The kind e2e builds
 them locally instead.
 

@@ -188,6 +188,8 @@ All services use the same hardcoded credentials (intentional for local dev — *
     - HMS in Kubernetes: templates are mounted over `/opt/hive/conf/*.xml.template` with `${HMS_DB_PASSWORD}`/`${S3_*}` placeholders (the entrypoint envsubsts them). The `wait-for-s3` init container lists the bucket with Hadoop S3A, because curl 7.76 SigV4 is rejected by SeaweedFS and anonymous 403 cannot tell "missing" from "exists".
     - SeaweedFS creates the bucket in a `postStart` hook (`weed shell -master=localhost:9333`). Its S3 identity is written from the Secret at start.
     - Airflow task logs live on the `<fullname>-airflow-logs` PVC (default on; the api-server reads them locally because LocalExecutor tasks share the pod), with no S3 remote logging. Postgres in the chart is 17.11 (Compose HMS stays on 13). Airflow is 3.3.2 with SimpleAuthManager. Its password file is written by an init container, and the API server is also the execution API for LocalExecutor tasks (`http://localhost:8080/execution/`).
+    - Spark History Server (`sparkHistory`, default on) reads `s3a://<bucket>/spark-events`. An `event-log-dir` init container creates it with Spark's own Hadoop client (`FsShell` + a generated `core-site.xml`), because Spark refuses to start if the dir is missing. Spark Connect is started with `exec spark-submit --class org.apache.spark.sql.connect.service.SparkConnectServer`, **not** `sbin/start-connect-server.sh`. That script keeps the JVM a child of bash, so SIGTERM never reaches Spark and the event log is never closed (S3 shows a file only once closed). History `/tmp` must allow exec (zstd native lib).
+    - MCP servers (off by default): Kubeflow Spark History MCP (official image, config from a ConfigMap; servers `history` and `live` = Connect UI :4040; DNS-rebinding protection lists the release's Service names). Airflow MCP = `astro-airflow-mcp` in `airflow-mcp/Dockerfile`, logging in as its own SimpleAuthManager user (`viewer` when `readOnly`, else `op`), added to `AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS` and the auth-file init. Neither MCP authenticates callers. The e2e calls both through `hack/mcp-call.py`.
     - Local verification without a cluster: render, then run each container in Docker with `--user <uid> --cap-drop ALL --security-opt no-new-privileges` and the rendered command/config. Nested kind/k3s does not work in the cloud sandbox (`oom_score_adj` is forbidden).
 
 ---
@@ -227,6 +229,8 @@ hack/
   gen-chart-schema.py         # values.yaml -> values.schema.json (--check in CI)
   check-chart-render.py       # policy checks on helm template output
   chart-e2e-kind.sh           # kind e2e: minimal (timed) / default / parallel + helm test + clean uninstall
+  mcp-call.py, airflow-logs-check.py  # in-cluster helpers used by the e2e
+airflow-mcp/Dockerfile        # Airflow MCP image (astro-airflow-mcp) for the chart
 ct.yaml                       # chart-testing config
 .github/workflows/chart-*.yaml # lint, kind e2e, OCI release (images + chart on v* tags)
 docs/

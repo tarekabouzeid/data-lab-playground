@@ -34,6 +34,9 @@ helm uninstall lab1 -n lab1 # removes everything, PVCs and Secrets included
 | Spark Connect | `spark.enabled` | on | `ghcr.io/tarekabouzeid/data-lab-playground/spark` (Spark 4.1.3, Iceberg 1.12.0) | 15002 gRPC, 4040 UI | hms |
 | Trino | `trino.enabled` | on | `trinodb/trino:483` | 8080 | hms |
 | Airflow (+ Postgres) | `airflow.enabled` | on | `apache/airflow:3.3.2-python3.12`, `postgres:17.11` | 8080 | — |
+| Spark History Server | `sparkHistory.enabled` | on | same image as Spark | 18080 | spark |
+| Spark History MCP (Kubeflow) | `sparkHistoryMcp.enabled` | off | `ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1` | 18888 (`/mcp`) | sparkHistory |
+| Airflow MCP (Astronomer) | `airflowMcp.enabled` | off | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (astro-airflow-mcp 0.9.1) | 8000 (`/mcp`) | airflow |
 | JupyterLab | `jupyter.enabled` | off | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` | 8888 | — |
 | Ollama | `ollama.enabled` | off | `ollama/ollama:0.40.3` | 11434 | GPU recommended |
 | Qdrant | `qdrant.enabled` | off | `qdrant/qdrant:v1.19.2-unprivileged` | 6333 HTTP, 6334 gRPC | — |
@@ -58,6 +61,8 @@ Every enabled endpoint, plus the name and key of the Secret holding its credenti
 | `TRINO_URL`, `TRINO_CATALOGS` | `http://lab1-data-lab-trino.lab1.svc:8080`, `hive,iceberg,lakehouse` |
 | `SPARK_CONNECT_URL`, `SPARK_CONNECT_AUTH`, `SPARK_CONNECT_CREDENTIALS_SECRET`, `SPARK_CONNECT_CREDENTIALS_TOKEN_KEY` | `sc://lab1-data-lab-spark-connect.lab1.svc:15002`, `bearer`, `lab1-data-lab-spark-connect`, `token` |
 | `SPARK_UI_URL`, `SPARK_ICEBERG_CATALOG` | `http://lab1-data-lab-spark-connect.lab1.svc:4040`, `iceberg_catalog` |
+| `SPARK_HISTORY_URL`, `SPARK_EVENT_LOG_DIR` | `http://lab1-data-lab-spark-history.lab1.svc:18080`, `s3a://warehouse/spark-events` |
+| `SPARK_HISTORY_MCP_URL`, `AIRFLOW_MCP_URL` | `http://lab1-data-lab-spark-history-mcp.lab1.svc:18888/mcp`, `http://lab1-data-lab-airflow-mcp.lab1.svc:8000/mcp` (when enabled) |
 | `AIRFLOW_URL`, `AIRFLOW_API_URL`, `AIRFLOW_USERNAME`, `AIRFLOW_CREDENTIALS_SECRET`, `AIRFLOW_CREDENTIALS_PASSWORD_KEY` | `http://lab1-data-lab-airflow.lab1.svc:8080`, `.../api/v2`, `admin`, `lab1-data-lab-airflow`, `password` |
 | `AIRFLOW_DAGS_SOURCE`, `AIRFLOW_DAGS_PVC` | `pvc`, `lab1-data-lab-airflow-dags` |
 | `JUPYTER_URL`, `JUPYTER_CREDENTIALS_SECRET`, `JUPYTER_CREDENTIALS_TOKEN_KEY` | when enabled |
@@ -85,6 +90,37 @@ only needed when logs must outlive the release. Set `airflow.logs.persistence.en
 survive task completion but not a pod restart. CI checks this: a DAG written into the DAG PVC runs, then its task log
 is read through the API, the Airflow pod is restarted, and the same log is read again.
 
+### Spark History Server
+
+Spark Connect writes rolled event logs (`sparkHistory.rollingMaxFileSize`, default 10m) to `sparkHistory.eventLogDir`
+(default `s3a://<bucket>/spark-events`). The History Server reads them on port 18080 and cleans up logs older than
+`cleanerMaxAge`. The Connect server is one long-running Spark application, and S3 shows a file only once it is
+closed. So the History Server sees that app up to its last rolled file, and completely after it stops: every pod
+restart or upgrade stops it gracefully, which closes the log. For what is running now, use the live Spark UI on the
+Connect server (port 4040), or the MCP's `live` server.
+
+### MCP servers for agents
+
+Both servers use MCP streamable HTTP and are off by default. Neither authenticates its callers, so only the
+NetworkPolicy protects them: add agents through `networkPolicy.extraIngressFrom`.
+
+- **Spark History MCP** (Kubeflow `mcp-apache-spark-history-server` 1.0.1) offers 17 tools: applications, jobs,
+  stages, executors, SQL plans, bottleneck and comparison tools. It has two server names: `history` (default, the
+  History Server) and `live` (the running Connect server's Spark UI; `sparkHistoryMcp.liveServer`). DNS-rebinding
+  protection accepts only this release's Service names and `localhost` (for `kubectl port-forward`).
+- **Airflow MCP** (Astronomer `astro-airflow-mcp` 0.9.1) offers 34 tools: DAGs, runs, task logs, diagnostics,
+  variables, pools and assets. It logs in as its own Airflow user (`airflowMcp.username`, default `mcp`), never as
+  the admin. With `readOnly: true` (default) that user has the `viewer` role and the MCP blocks write tools, so even
+  a misbehaving client gets 403 from Airflow. With `readOnly: false` the user gets the `op` role (trigger, pause,
+  clear). Telemetry to Astronomer is off.
+
+Example client entry (from inside the release, or through `kubectl port-forward`):
+
+```json
+{"mcpServers": {"spark-history": {"type": "http", "url": "http://localhost:18888/mcp"},
+                "airflow": {"type": "http", "url": "http://localhost:8000/mcp"}}}
+```
+
 ### Delivering Airflow DAGs
 
 - `airflow.dags.source=pvc` (default): DAGs are read from `airflow.dags.pvc.existingClaim`, or from the chart-made
@@ -106,6 +142,7 @@ random value once and reuses it on every upgrade (`lookup` on the live Secret).
 | Airflow admin password | `<fullname>-airflow` | `username`, `password` | `airflow.auth.existingSecret` |
 | Airflow fernet key, JWT secret, API secret key | `<fullname>-airflow` | `fernet-key`, `jwt-secret`, `api-secret-key` | `airflow.secrets.existingSecret` |
 | Airflow Postgres password (must be URL-safe) | `<fullname>-airflow-db` | `password` | `airflow.database.auth.existingSecret` |
+| Airflow MCP user password (`viewer`/`op` role) | `<fullname>-airflow-mcp` | `password` | `airflowMcp.auth.existingSecret` |
 | Jupyter token | `<fullname>-jupyter` | `token` | `jupyter.auth.existingSecret` |
 | Qdrant API key | `<fullname>-qdrant` | `api-key` | `qdrant.auth.existingSecret` |
 | Phoenix signing secret, admin password | `<fullname>-phoenix` | `secret`, `admin-password` | `phoenix.auth.existingSecret` |
@@ -115,7 +152,8 @@ random value once and reuses it on every upgrade (`lookup` on the live Secret).
 > every `existingSecret`. `helm install/upgrade` and the Helm Go SDK keep the values stable.
 
 **Endpoints without authentication.** In this setup, HMS Thrift and Iceberg REST (`metastore.catalog.servlet.auth=none`),
-Trino (password auth needs HTTPS and a shared secret) and Ollama (no auth feature) are unauthenticated. With
+Trino (password auth needs HTTPS and a shared secret), the Spark History Server, both MCP servers and Ollama (no
+auth feature) are unauthenticated. With
 `networkPolicy.enabled=true` (the default), only pods of the same release can reach any component. Add
 consumers through `networkPolicy.extraIngressFrom`, for example:
 
@@ -148,13 +186,15 @@ component. Services are `ClusterIP` only.
 | SeaweedFS | 1000:1000 | Image entrypoint only chowns when root, so that step is skipped |
 | HMS | 1000:1000 | Entrypoint renders config into `/opt/hive/conf` (image layer), so the root FS is not read-only |
 | Postgres (HMS, Airflow) | 999:999 | |
-| Spark Connect + executors | 185:185 | |
+| Spark Connect + executors, Spark History Server | 185:185 | `/tmp` is an emptyDir (exec allowed): zstd event-log decoding loads a native library from it |
 | Trino | 1000:1000 | |
 | Airflow | 50000:0 | Official image convention (group 0) |
 | Jupyter | 1000:100 | |
 | Ollama | 1000:1000 | `HOME` and models on the data volume. **Not run-tested** (image too large for the authoring sandbox, no GPU in CI) |
 | Qdrant | 1000:1000 | `-unprivileged` image |
 | Phoenix | 65532:65532 | distroless `nonroot` image |
+| Spark History MCP | 1000:1000 | official Kubeflow image |
+| Airflow MCP | 1000:1000 | |
 
 `readOnlyRootFilesystem` is not set (not required by "restricted"). HMS and Spark write to their image
 directories at start-up.
@@ -171,6 +211,9 @@ Requests/limits are the chart defaults. "Idle RSS" was measured with the rendere
 | Spark Connect server (driver) | 250m | 1536Mi | 2Gi | 890Mi | — |
 | Spark executor (per pod, `master: kubernetes`) | 250m | 1408Mi (1g + 384m overhead) | same | — | — |
 | Trino | 250m | 2Gi | 2Gi | 1.1Gi | — |
+| Spark History Server | 100m | 768Mi | 1Gi | — | event logs in S3 |
+| Spark History MCP | 50m | 128Mi | 512Mi | — | — |
+| Airflow MCP | 50m | 128Mi | 512Mi | — | — |
 | Airflow (api-server + scheduler + dag-processor) | 250m | 1408Mi | 3.5Gi | 910Mi | DAGs 1Gi, task logs 2Gi |
 | Airflow Postgres | 50m | 128Mi | 512Mi | 90Mi | 2Gi |
 | Jupyter | 100m | 512Mi | 4Gi | — | 5Gi |
@@ -180,7 +223,7 @@ Requests/limits are the chart defaults. "Idle RSS" was measured with the rendere
 
 Profiles (sum of requests):
 - **minimal** (`ci/minimal-values.yaml`: hms, seaweedfs, spark, trino, 1 executor): ≈1.1 CPU, ≈6.3Gi.
-- **default** (minimal + Airflow): ≈1.4 CPU, ≈7.8Gi.
+- **default** (minimal + Airflow + Spark History Server): ≈1.5 CPU, ≈8.5Gi. Each MCP server adds 50m / 128Mi.
 
 Start-up times measured per component on the rendered configs: SeaweedFS + bucket ≈10 s, HMS schema init on an
 empty DB ≈30 s, Trino ≈60 s, Spark Connect ≈15 s, Airflow ≈30 s (migrate + api-server). Components start in

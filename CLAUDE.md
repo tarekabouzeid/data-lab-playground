@@ -34,7 +34,7 @@ Do not leave these files stale after a change.
 
 ## Project Summary
 
-A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.3, Iceberg 1.12.0, Trino 483, Hive Metastore 4.2.1 (Thrift + built-in Iceberg REST catalog), SeaweedFS (S3), Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`. The same lakehouse also ships as a Helm chart (`charts/data-lab`) for many parallel, ephemeral installs (Spark Connect, Airflow 3, optional GenAI).
+A local Docker Compose–based **AI-enhanced data lakehouse** for experimentation. Services: Spark 4.1.3, Iceberg 1.12.0, Trino 483, Hive Metastore 4.2.1 (Thrift + built-in Iceberg REST catalog), SeaweedFS (S3), Ollama (LLMs), Qdrant (vectors), Phoenix (AI observability), JupyterLab — all wired together via `docker-compose.yaml`. The same lakehouse also ships as a Helm chart (`charts/data-lab`) for many parallel, ephemeral installs (Spark Connect, Spark History Server, Airflow 3, optional MCP servers and GenAI).
 
 ## Key Things to Know
 
@@ -68,7 +68,7 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 9. **Storage is SeaweedFS 4.48** (replaced MinIO, whose image left Docker Hub). Endpoint `http://seaweedfs:8333`, keys in `seaweedfs/s3.json`. The bucket is created via `weed shell` (no `mc`). Keep `-volume.max=64`, because auto-sizing from free disk left no writable volumes and S3A PUTs returned 500. Filer UI is on host 8889.
 10. **Trino 483**: the new Web UI is the default at `/ui`. Breaking changes in 482/483 (Alluxio removal, char/varchar coercion, `$files` bounds type, `s3.auth-type`) don't affect current catalogs. Full research: `docs/UPGRADE_PLAN.md`.
 
-11. **Helm chart**: `values.yaml` is a public API (Sandpiper), so only add keys, and give each one a `# --` doc comment. `values.schema.json` is generated (`hack/gen-chart-schema.py`) and closed. Names come only from `datalab.componentName`, and nothing is cluster-scoped. Spark Connect tokens go in `sc://host:15002/;authorization=Bearer <token>`, because `;token=` forces TLS that Spark 4.1 Connect lacks. Chart Postgres is 17.11 (Compose 13). Custom image tags = `appVersion`. Details are in AGENTS.md pitfall 14 and `docs/HELM_GAP_REPORT.md`.
+11. **Helm chart**: `values.yaml` is a public API (Sandpiper), so only add keys, and give each one a `# --` doc comment. `values.schema.json` is generated (`hack/gen-chart-schema.py`) and closed. Names come only from `datalab.componentName`, and nothing is cluster-scoped. Spark Connect tokens go in `sc://host:15002/;authorization=Bearer <token>`, because `;token=` forces TLS that Spark 4.1 Connect lacks. Chart Postgres is 17.11 (Compose 13). Custom image tags = `appVersion`. Spark Connect must be started with `exec spark-submit` (not `start-connect-server.sh`) so SIGTERM closes the event log for the Spark History Server. The Airflow MCP logs in as its own `viewer`/`op` user, never as admin. Details are in AGENTS.md pitfall 14 and `docs/HELM_GAP_REPORT.md`.
 
 ## When Modifying Services
 
@@ -85,4 +85,4 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 Full matrix: [docs/VERSIONS.md](docs/VERSIONS.md).
 
-Spark 4.1.3 (capped: no Iceberg Spark 4.2 runtime) · Iceberg 1.12.0 · Helm chart 0.1.0 (appVersion 3.0.0; adds Airflow 3.3.2, Postgres 17.11 — VERSIONS.md §8) · Hive Metastore 4.2.1 · Trino 483 · SeaweedFS 4.48 · Python 3.12 · Java: Spark 21 / Jupyter driver 17 / HMS 21 / Trino 25 · Hadoop 3.4.2 (Spark) / 3.4.1 (HMS) · AWS SDK bundle 2.41.1 (Spark) / 2.24.6 (HMS)
+Spark 4.1.3 (capped: no Iceberg Spark 4.2 runtime) · Iceberg 1.12.0 · Helm chart 0.1.0 (appVersion 3.0.0; adds Airflow 3.3.2, Postgres 17.11, Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1 — VERSIONS.md §8) · Hive Metastore 4.2.1 · Trino 483 · SeaweedFS 4.48 · Python 3.12 · Java: Spark 21 / Jupyter driver 17 / HMS 21 / Trino 25 · Hadoop 3.4.2 (Spark) / 3.4.1 (HMS) · AWS SDK bundle 2.41.1 (Spark) / 2.24.6 (HMS)

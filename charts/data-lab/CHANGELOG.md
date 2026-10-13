@@ -20,5 +20,9 @@ First version of the chart.
 - Airflow DAGs from a PVC (existing or chart-made) or git-sync. Task logs on a PVC by default
   (`airflow.logs.persistence.enabled: true`), so finished runs' logs survive pod restarts.
 - `helm test`: Spark writes an Iceberg table through Spark Connect, Trino reads it, then it is dropped.
+- Spark History Server (`sparkHistory`, on): reads Spark event logs from `s3a://<bucket>/spark-events`; Spark Connect
+  writes rolled event logs there and now shuts down gracefully (SIGTERM reaches the JVM), closing its log.
+- MCP servers for agents (off by default): Kubeflow Spark History MCP 1.0.1 (`sparkHistoryMcp`, servers `history`
+  and `live`) and Astronomer Airflow MCP 0.9.1 (`airflowMcp`, own Airflow user with `viewer` role when read-only).
 - CI: helm lint, ct lint, kubeconform, schema/README drift checks, kind e2e (default, minimal, two parallel
   releases in one namespace and across namespaces, helm test, clean uninstall), OCI publish on `v*` tags.

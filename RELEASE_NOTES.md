@@ -57,7 +57,7 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
 | Object storage | MinIO | **SeaweedFS 4.48** |
 | HMS S3 client | — | AWS SDK v2 `bundle-2.24.6` (matches `hadoop-aws` 3.4.1) |
 | Spark image Python libs | — | PySpark Connect client deps (`pandas` 2.3.3, `pyarrow` 21.0.0, `grpcio` 1.76.0, …) |
-| Helm chart | — | **0.1.0** (adds Airflow 3.3.2, Postgres 17.11, git-sync v4.7.1; pins Qdrant v1.19.2, Phoenix 20.21.0, Ollama 0.40.3) |
+| Helm chart | — | **0.1.0** (adds Airflow 3.3.2, Postgres 17.11, git-sync v4.7.1, Spark History Server, Kubeflow Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1; pins Qdrant v1.19.2, Phoenix 20.21.0, Ollama 0.40.3) |
 
 ### Breaking Changes
 - **Spark Iceberg catalog is now `type=rest`** (`http://hive-metastore:9084/iceberg`, `io-impl=org.apache.iceberg.hadoop.HadoopFileIO`). `type=hive` fails against HMS ≥ 4.0.1 with `Invalid method name: 'get_table'`.
@@ -76,6 +76,8 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
   - Isolation: Pod Security "restricted" everywhere, namespaced RBAC only, ClusterIP-only Services, and a NetworkPolicy limited to the release.
   - Strict `values.schema.json` and a generated values table in the chart README.
   - Airflow DAGs come from a PVC or git-sync, and task logs are kept on a PVC so finished runs stay viewable after pod restarts.
+  - Spark History Server (on by default), reading Spark event logs from SeaweedFS.
+  - Optional MCP servers for agents: Kubeflow Spark History MCP 1.0.1 and Astronomer Airflow MCP 0.9.1. The Airflow MCP logs in as a dedicated `viewer` user when read-only.
   - `helm test`: Spark writes an Iceberg table, Trino reads it, then it is dropped.
 - CI workflows:
   - `chart-lint`: helm lint, ct lint, kubeconform, policy checks.
@@ -98,6 +100,8 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
 - Compose HMS still runs Postgres 13 (EOL); the chart uses 17.11.
 - The REST catalog embeds Iceberg 1.9.1 and Trino bundles 1.11.0, so stay on format v2 tables.
 - The chart's lab images exist on GHCR only after the `v3.0.0` tag triggers `chart-release`.
+- The Spark History Server shows the long-running Spark Connect app only up to its last rolled event log (10 MiB) or after it stops, because S3 shows files only once closed. Use the live Spark UI (or the MCP `live` server) for running work.
+- MCP servers have no caller authentication; the NetworkPolicy is the boundary.
 
 ---
 
