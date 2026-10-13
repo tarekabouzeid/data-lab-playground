@@ -2,9 +2,9 @@ name: chart-e2e
 
 on:
   pull_request:
-    paths: ["charts/**", "hack/chart-e2e-kind.sh", "spark/**", "hive-metastore/**", ".github/workflows/chart-e2e.yaml"]
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
   push:
-    paths: ["charts/**", "hack/chart-e2e-kind.sh", "spark/**", "hive-metastore/**", ".github/workflows/chart-e2e.yaml"]
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
   workflow_dispatch:
 
 permissions:
@@ -39,6 +39,7 @@ jobs:
           echo "APP=$APP" >> "$GITHUB_ENV"
           docker build -t "ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore:$APP" hive-metastore
           docker build -t "ghcr.io/tarekabouzeid/data-lab-playground/spark:$APP" spark
+          docker build -t "ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp:$APP" airflow-mcp
 
       - uses: helm/kind-action@v1.15.1
         with:
@@ -47,7 +48,9 @@ jobs:
       - name: Load images into kind (so the timed install measures start-up, not pulls)
         run: |
           imgs="ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore:$APP ghcr.io/tarekabouzeid/data-lab-playground/spark:$APP"
-          for i in chrislusf/seaweedfs:4.48 trinodb/trino:483 postgres:17.11 apache/airflow:3.3.2-python3.12 busybox:1.36; do
+          imgs="$imgs ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp:$APP"
+          for i in chrislusf/seaweedfs:4.48 trinodb/trino:483 postgres:17.11 apache/airflow:3.3.2-python3.12 busybox:1.36 \
+                   ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1; do
             docker pull -q "$i"; imgs="$imgs $i"
           done
           for i in $imgs; do kind load docker-image --name datalab "$i"; docker rmi "$i" >/dev/null || true; done

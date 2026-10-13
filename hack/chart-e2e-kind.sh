@@ -3,7 +3,8 @@
 #
 # Scenarios (run one at a time so a single kind node can hold them):
 #   default   - chart defaults (hms, seaweedfs, spark on k8s executors, trino, airflow); helm test;
-#               a DAG delivered through the DAG PVC runs, and its task log is still readable after an Airflow restart
+#               a DAG delivered through the DAG PVC runs, and its task log is still readable after an Airflow restart;
+#               Spark History Server shows the Connect app after a restart; both MCP servers answer (read-only enforced)
 #   minimal   - ci/minimal-values.yaml; must be Ready in < MINIMAL_BUDGET_S seconds; helm test
 #   parallel  - two releases in one namespace + the same release name in two namespaces (ci/small-values.yaml);
 #               all four installed at once, helm test on all
@@ -134,14 +135,53 @@ YAML
   echo "Airflow task logs survive a pod restart for $rel"
 }
 
+assert_spark_history() {  # release namespace: a stopped Connect server shows up as a completed app with its jobs
+  local rel=$1 ns=$2 apps=""
+  # graceful stop closes the event log (S3 makes it visible only once closed)
+  kubectl -n "$ns" rollout restart "deploy/$rel-data-lab-spark-connect" >/dev/null
+  kubectl -n "$ns" rollout status "deploy/$rel-data-lab-spark-connect" --timeout=10m
+  for _ in $(seq 1 40); do
+    apps=$(kubectl -n "$ns" exec "deploy/$rel-data-lab-spark-history" -- curl -sf 'http://localhost:18080/api/v1/applications?status=completed' || true)
+    echo "$apps" | grep -q '"completed" : true' && break
+    sleep 5
+  done
+  echo "$apps" | grep -q '"completed" : true' || { echo "FAIL: no completed app in the Spark History Server"; dump "$ns"; return 1; }
+  local app; app=$(echo "$apps" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+  local jobs; jobs=$(kubectl -n "$ns" exec "deploy/$rel-data-lab-spark-history" -- curl -sf "http://localhost:18080/api/v1/applications/$app/jobs" \
+    | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
+  [ "$jobs" -ge 1 ] || { echo "FAIL: history app $app has no jobs"; return 1; }
+  echo "Spark History Server shows completed app $app with $jobs jobs"
+}
+
+mcp_call() {  # release namespace url tool args: run hack/mcp-call.py inside a pod of the release (NetworkPolicy)
+  kubectl -n "$2" exec -i "deploy/$1-data-lab-airflow" -c api-server -- python - "$3" "$4" "$5" < "$(dirname "$0")/mcp-call.py"
+}
+
+assert_mcps() {  # release namespace: both MCP servers answer real questions; Airflow rejects writes from the MCP user
+  local rel=$1 ns=$2 out
+  local shs="http://$rel-data-lab-spark-history-mcp.$ns.svc:18888/mcp" af="http://$rel-data-lab-airflow-mcp.$ns.svc:8000/mcp"
+  out=$(mcp_call "$rel" "$ns" "$shs" list_applications '{"server": "history"}') || { echo "$out"; return 1; }
+  echo "$out" | grep -q '"completed": true' || { echo "FAIL: spark MCP history: $out" | head -c 1500; return 1; }
+  out=$(mcp_call "$rel" "$ns" "$shs" list_applications '{"server": "live"}') || { echo "$out"; return 1; }
+  echo "$out" | grep -q 'Spark Connect server' || { echo "FAIL: spark MCP live: $out" | head -c 1500; return 1; }
+  echo "Spark History MCP answers for history and live"
+  out=$(mcp_call "$rel" "$ns" "$af" list_dags '{}') || { echo "$out"; return 1; }
+  echo "$out" | grep -q 'e2e_logs' || { echo "FAIL: airflow MCP list_dags: $out" | head -c 1500; return 1; }
+  out=$(mcp_call "$rel" "$ns" "$af" trigger_dag '{"dag_id": "e2e_logs"}') || { echo "$out"; return 1; }
+  echo "$out" | grep -qiE 'read-only|403|forbidden' || { echo "FAIL: airflow MCP trigger_dag was not refused: $out" | head -c 1500; return 1; }
+  echo "Airflow MCP lists DAGs and its trigger_dag is refused (read-only, viewer role)"
+}
+
 scenario_default() {
   log "default profile"
-  install lab dl-default
+  install lab dl-default --set sparkHistoryMcp.enabled=true,airflowMcp.enabled=true
   assert_contract lab dl-default
   assert_executors dl-default
   run_test lab dl-default
   assert_stable_secrets lab dl-default
   assert_airflow_logs_persist lab dl-default
+  assert_spark_history lab dl-default
+  assert_mcps lab dl-default
   uninstall_and_assert_clean dl-default lab
 }
 
