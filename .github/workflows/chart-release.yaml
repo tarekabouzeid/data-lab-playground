@@ -50,7 +50,8 @@ jobs:
         run: |
           for c in hive-metastore spark jupyter; do
             img="$REGISTRY/$OWNER/data-lab-playground/$c:$APP"
-            docker build -t "$img" "$c"
+            # source label links the GHCR package to this repo
+            docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c"
             docker push "$img"
           done
 
