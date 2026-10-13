@@ -806,9 +806,31 @@
             }
           }
         },
-        "extraAllowedHosts": {
+        "liveServer": {
+          "type": "boolean",
+          "description": "Also query the live Spark UI of the running Spark Connect server (MCP server name `live`); `history` is always the default."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "HTTP timeout in seconds for calls to the History Server / Spark UI."
+        },
+        "includePlanDescription": {
+          "type": "boolean",
+          "description": "Include SQL plan descriptions in SQL tool results (larger responses, more detail for query tuning)."
+        },
+        "debug": {
+          "type": "boolean",
+          "description": "Verbose MCP server logging."
+        },
+        "extraEnv": {
           "type": "array",
-          "description": "Extra Host header values accepted besides this release's Service names and `localhost` (DNS-rebinding protection), e.g. `my-gateway:*`."
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ]
+          },
+          "description": "Extra environment variables for the MCP container (list of EnvVar)."
         },
         "resources": {
           "type": "object",
@@ -866,7 +888,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as the admin user from `airflow.auth`. No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`."
+          "description": "Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as its own least-privilege user (`username`). No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`."
         },
         "image": {
           "type": "object",
@@ -898,7 +920,35 @@
         },
         "readOnly": {
           "type": "boolean",
-          "description": "Block every write tool (trigger, pause, clear, delete). Set `false` to let MCP clients change Airflow state."
+          "description": "Read-only mode. `true`: the MCP's Airflow user gets the `viewer` role and the MCP blocks write tools, so Airflow itself rejects writes too. `false`: the user gets the `op` role (trigger, pause, clear; no admin settings)."
+        },
+        "username": {
+          "type": "string",
+          "description": "Dedicated Airflow user the MCP logs in as (added to Airflow's SimpleAuthManager users)."
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string",
+              "description": "Existing Secret holding the MCP user's Airflow password. Empty: the chart generates `<fullname>-airflow-mcp`."
+            },
+            "passwordKey": {
+              "type": "string",
+              "description": "Key in the Secret holding the password."
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ]
+          },
+          "description": "Extra environment variables for the MCP container (list of EnvVar)."
         },
         "resources": {
           "type": "object",

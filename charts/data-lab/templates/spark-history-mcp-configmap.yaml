@@ -1,6 +1,7 @@
 {{- if and .Values.spark.enabled .Values.sparkHistory.enabled .Values.sparkHistoryMcp.enabled }}
 {{- $c := .Values.sparkHistoryMcp -}}
 {{- $name := include "datalab.componentName" (list . "spark-history-mcp") -}}
+{{- $srv := printf "timeout: %d\n        include_plan_description: %t" (int $c.timeout) $c.includePlanDescription -}}
 {{- $hosts := list (printf "%s:*" $name) (printf "%s.%s:*" $name .Release.Namespace) (printf "%s:*" (include "datalab.host" (list . "spark-history-mcp"))) (printf "%s.cluster.local:*" (include "datalab.host" (list . "spark-history-mcp"))) "localhost:*" "127.0.0.1:*" -}}
 apiVersion: v1
 kind: ConfigMap
@@ -15,15 +16,20 @@ data:
       history:
         default: true
         url: "http://{{ include "datalab.host" (list . "spark-history") }}:18080"
+        {{ $srv }}
+      {{- if $c.liveServer }}
       # live Spark UI of the running Spark Connect server (same REST API as the History Server)
       live:
         url: "http://{{ include "datalab.host" (list . "spark-connect") }}:4040"
+        {{ $srv }}
+      {{- end }}
     mcp:
       transport: "streamable-http"
       address: "0.0.0.0"
       port: "18888"
+      debug: {{ $c.debug }}
       transport_security:
         enable_dns_rebinding_protection: true
-        allowed_hosts: {{ concat $hosts $c.extraAllowedHosts | toJson }}
+        allowed_hosts: {{ $hosts | toJson }}
         allowed_origins: ["http://localhost:*", "http://127.0.0.1:*"]
 {{- end }}

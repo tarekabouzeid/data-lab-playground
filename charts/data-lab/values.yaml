@@ -334,8 +334,16 @@ sparkHistoryMcp:
     tag: "1.0.1"
     # -- Image pull policy.
     pullPolicy: IfNotPresent
-  # -- Extra Host header values accepted besides this release's Service names and `localhost` (DNS-rebinding protection), e.g. `my-gateway:*`.
-  extraAllowedHosts: []
+  # -- Also query the live Spark UI of the running Spark Connect server (MCP server name `live`); `history` is always the default.
+  liveServer: true
+  # -- HTTP timeout in seconds for calls to the History Server / Spark UI.
+  timeout: 30
+  # -- Include SQL plan descriptions in SQL tool results (larger responses, more detail for query tuning).
+  includePlanDescription: false
+  # -- Verbose MCP server logging.
+  debug: false
+  # -- Extra environment variables for the MCP container (list of EnvVar).
+  extraEnv: []
   # -- Container resources.
   resources:
     requests: {cpu: 50m, memory: 128Mi}
@@ -362,8 +370,8 @@ sparkHistoryMcp:
   # -- Extra pod annotations.
   podAnnotations: {}
 airflowMcp:
-  # -- Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as the admin user from
-  # `airflow.auth`. No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`.
+  # -- Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as its own
+  # least-privilege user (`username`). No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`.
   enabled: false
   image:
     # -- Image registry.
@@ -374,8 +382,18 @@ airflowMcp:
     tag: "3.0.0"
     # -- Image pull policy.
     pullPolicy: IfNotPresent
-  # -- Block every write tool (trigger, pause, clear, delete). Set `false` to let MCP clients change Airflow state.
+  # -- Read-only mode. `true`: the MCP's Airflow user gets the `viewer` role and the MCP blocks write tools, so Airflow
+  # itself rejects writes too. `false`: the user gets the `op` role (trigger, pause, clear; no admin settings).
   readOnly: true
+  # -- Dedicated Airflow user the MCP logs in as (added to Airflow's SimpleAuthManager users).
+  username: mcp
+  auth:
+    # -- Existing Secret holding the MCP user's Airflow password. Empty: the chart generates `<fullname>-airflow-mcp`.
+    existingSecret: ""
+    # -- Key in the Secret holding the password.
+    passwordKey: password
+  # -- Extra environment variables for the MCP container (list of EnvVar).
+  extraEnv: []
   # -- Container resources.
   resources:
     requests: {cpu: 50m, memory: 128Mi}

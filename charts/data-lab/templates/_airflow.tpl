@@ -36,7 +36,7 @@
 - name: AIRFLOW__CORE__AUTH_MANAGER
   value: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
 - name: AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS
-  value: "{{ $c.auth.username }}:admin"
+  value: "{{ $c.auth.username }}:admin{{ if $root.Values.airflowMcp.enabled }},{{ $root.Values.airflowMcp.username }}:{{ include "datalab.airflowMcpRole" $root }}{{ end }}"
 - name: AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE
   value: /opt/airflow/auth/passwords.json
 - name: AIRFLOW__CORE__EXECUTION_API_SERVER_URL

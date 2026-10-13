@@ -25,11 +25,11 @@ Flat UPPER_CASE keys work with envFrom; ENDPOINTS_JSON has the same data structu
 {{- if and $v.spark.enabled $v.sparkHistory.enabled -}}
 {{- $_ := set $e "sparkHistory" (dict "url" (printf "http://%s:18080" (include "datalab.host" (list . "spark-history"))) "eventLogDir" (include "datalab.eventLogDir" .) "auth" "none") -}}
 {{- if $v.sparkHistoryMcp.enabled -}}
-{{- $_ := set $e "sparkHistoryMcp" (dict "url" (printf "http://%s:18888/mcp" (include "datalab.host" (list . "spark-history-mcp"))) "transport" "streamable-http" "servers" (list "history" "live") "auth" "none") -}}
+{{- $_ := set $e "sparkHistoryMcp" (dict "url" (printf "http://%s:18888/mcp" (include "datalab.host" (list . "spark-history-mcp"))) "transport" "streamable-http" "servers" (ternary (list "history" "live") (list "history") $v.sparkHistoryMcp.liveServer) "auth" "none") -}}
 {{- end -}}
 {{- end -}}
 {{- if and $v.airflow.enabled $v.airflowMcp.enabled -}}
-{{- $_ := set $e "airflowMcp" (dict "url" (printf "http://%s:8000/mcp" (include "datalab.host" (list . "airflow-mcp"))) "transport" "streamable-http" "readOnly" $v.airflowMcp.readOnly "auth" "none") -}}
+{{- $_ := set $e "airflowMcp" (dict "url" (printf "http://%s:8000/mcp" (include "datalab.host" (list . "airflow-mcp"))) "transport" "streamable-http" "readOnly" $v.airflowMcp.readOnly "airflowUser" $v.airflowMcp.username "airflowRole" (include "datalab.airflowMcpRole" .) "auth" "none") -}}
 {{- end -}}
 {{- if $v.airflow.enabled -}}
 {{- $url := printf "http://%s:8080" (include "datalab.host" (list . "airflow")) -}}

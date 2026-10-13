@@ -9,3 +9,5 @@ spark:
 trino:
   heapSize: 768M
   resources: {requests: {cpu: 100m, memory: 1Gi}, limits: {memory: 1280Mi}}
+# keep the profile at hms + seaweedfs + spark + trino
+sparkHistory: {enabled: false}

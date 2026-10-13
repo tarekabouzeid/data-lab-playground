@@ -52,18 +52,21 @@ spec:
             - name: AIRFLOW_API_URL
               value: http://{{ include "datalab.host" (list . "airflow") }}:8080
             - name: AIRFLOW_USERNAME
-              value: {{ .Values.airflow.auth.username | quote }}
+              value: {{ $c.username | quote }}
             - name: AIRFLOW_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "datalab.airflowAuthSecretName" . }}
-                  key: {{ .Values.airflow.auth.passwordKey }}
+                  name: {{ include "datalab.airflowMcpSecretName" . }}
+                  key: {{ $c.auth.passwordKey }}
             - name: AF_READ_ONLY
               value: {{ $c.readOnly | quote }}
             - name: AF_TELEMETRY_DISABLED
               value: "true"
             - name: HOME
               value: /tmp
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8000

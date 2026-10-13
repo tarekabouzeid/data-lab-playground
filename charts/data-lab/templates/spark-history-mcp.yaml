@@ -45,6 +45,9 @@ spec:
           env:
             - name: SHS_MCP_CONFIG
               value: /etc/spark-mcp/config.yaml
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 18888

@@ -321,7 +321,11 @@ Kubernetes: `>=1.29.0-0`
 | sparkHistoryMcp.image.repository | string | `"kubeflow/mcp-apache-spark-history-server"` | Image repository (official Kubeflow image). |
 | sparkHistoryMcp.image.tag | string | `"1.0.1"` | Image tag. |
 | sparkHistoryMcp.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
-| sparkHistoryMcp.extraAllowedHosts | list | `[]` | Extra Host header values accepted besides this release's Service names and `localhost` (DNS-rebinding protection), e.g. `my-gateway:*`. |
+| sparkHistoryMcp.liveServer | bool | `true` | Also query the live Spark UI of the running Spark Connect server (MCP server name `live`); `history` is always the default. |
+| sparkHistoryMcp.timeout | int | `30` | HTTP timeout in seconds for calls to the History Server / Spark UI. |
+| sparkHistoryMcp.includePlanDescription | bool | `false` | Include SQL plan descriptions in SQL tool results (larger responses, more detail for query tuning). |
+| sparkHistoryMcp.debug | bool | `false` | Verbose MCP server logging. |
+| sparkHistoryMcp.extraEnv | list | `[]` | Extra environment variables for the MCP container (list of EnvVar). |
 | sparkHistoryMcp.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Container resources. |
 | sparkHistoryMcp.podSecurityContext | object | `{"fsGroup":1000,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext. |
 | sparkHistoryMcp.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |
@@ -331,12 +335,16 @@ Kubernetes: `>=1.29.0-0`
 | sparkHistoryMcp.affinity | object | `{}` | Affinity for the pod. |
 | sparkHistoryMcp.podLabels | object | `{}` | Extra pod labels. |
 | sparkHistoryMcp.podAnnotations | object | `{}` | Extra pod annotations. |
-| airflowMcp.enabled | bool | `false` | Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as the admin user from `airflow.auth`. No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`. |
+| airflowMcp.enabled | bool | `false` | Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as its own least-privilege user (`username`). No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`. |
 | airflowMcp.image.registry | string | `"ghcr.io"` | Image registry. |
 | airflowMcp.image.repository | string | `"tarekabouzeid/data-lab-playground/airflow-mcp"` | Image repository (built from `airflow-mcp/Dockerfile`: astro-airflow-mcp 0.9.1, published by the release workflow). |
 | airflowMcp.image.tag | string | `"3.0.0"` | Image tag (lab release). |
 | airflowMcp.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
-| airflowMcp.readOnly | bool | `true` | Block every write tool (trigger, pause, clear, delete). Set `false` to let MCP clients change Airflow state. |
+| airflowMcp.readOnly | bool | `true` | Read-only mode. `true`: the MCP's Airflow user gets the `viewer` role and the MCP blocks write tools, so Airflow itself rejects writes too. `false`: the user gets the `op` role (trigger, pause, clear; no admin settings). |
+| airflowMcp.username | string | `"mcp"` | Dedicated Airflow user the MCP logs in as (added to Airflow's SimpleAuthManager users). |
+| airflowMcp.auth.existingSecret | string | `""` | Existing Secret holding the MCP user's Airflow password. Empty: the chart generates `<fullname>-airflow-mcp`. |
+| airflowMcp.auth.passwordKey | string | `"password"` | Key in the Secret holding the password. |
+| airflowMcp.extraEnv | list | `[]` | Extra environment variables for the MCP container (list of EnvVar). |
 | airflowMcp.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Container resources. |
 | airflowMcp.podSecurityContext | object | `{"fsGroup":1000,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext. |
 | airflowMcp.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |

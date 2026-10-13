@@ -220,6 +220,14 @@ Usage: include "datalab.secretValue" (list $ "<secret name>" "<key>" 32)
 {{- .Values.airflow.secrets.existingSecret | default (include "datalab.componentName" (list . "airflow")) -}}
 {{- end -}}
 
+{{- define "datalab.airflowMcpSecretName" -}}
+{{- .Values.airflowMcp.auth.existingSecret | default (include "datalab.componentName" (list . "airflow-mcp")) -}}
+{{- end -}}
+
+{{- define "datalab.airflowMcpRole" -}}
+{{- ternary "viewer" "op" .Values.airflowMcp.readOnly -}}
+{{- end -}}
+
 {{- define "datalab.airflowDbSecretName" -}}
 {{- .Values.airflow.database.auth.existingSecret | default (include "datalab.componentName" (list . "airflow-db")) -}}
 {{- end -}}

@@ -33,3 +33,6 @@ jupyter: {enabled: true, auth: {existingSecret: my-jupyter}}
 ollama: {enabled: true, models: ["llama3.2:1b"], gpu: {enabled: true}, runtimeClassName: nvidia}
 qdrant: {enabled: true, auth: {existingSecret: my-qdrant}}
 phoenix: {enabled: true, auth: {existingSecret: my-phoenix}}
+sparkHistory: {cleanerMaxAge: 3d}
+sparkHistoryMcp: {enabled: true, liveServer: false, timeout: 60, includePlanDescription: true, debug: true, extraEnv: [{name: TZ, value: UTC}]}
+airflowMcp: {enabled: true, readOnly: false, username: agent, auth: {existingSecret: my-airflow-mcp}, extraEnv: [{name: TZ, value: UTC}]}

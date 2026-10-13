@@ -63,7 +63,10 @@ spec:
             - -c
             - |
               import json, os
-              json.dump({os.environ["ADMIN_USER"]: os.environ["ADMIN_PASSWORD"]}, open("/opt/airflow/auth/passwords.json", "w"))
+              users = {os.environ["ADMIN_USER"]: os.environ["ADMIN_PASSWORD"]}
+              if os.environ.get("MCP_USER"):
+                  users[os.environ["MCP_USER"]] = os.environ["MCP_PASSWORD"]
+              json.dump(users, open("/opt/airflow/auth/passwords.json", "w"))
           env:
             - name: ADMIN_USER
               value: {{ $c.auth.username | quote }}
@@ -72,6 +75,15 @@ spec:
                 secretKeyRef:
                   name: {{ include "datalab.airflowAuthSecretName" . }}
                   key: {{ $c.auth.passwordKey }}
+            {{- if .Values.airflowMcp.enabled }}
+            - name: MCP_USER
+              value: {{ .Values.airflowMcp.username | quote }}
+            - name: MCP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "datalab.airflowMcpSecretName" . }}
+                  key: {{ .Values.airflowMcp.auth.passwordKey }}
+            {{- end }}
           resources:
             requests: {cpu: 10m, memory: 32Mi}
             limits: {memory: 128Mi}
