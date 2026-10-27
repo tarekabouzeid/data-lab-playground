@@ -1,0 +1,59 @@
+{{- if .Values.qdrant.enabled }}
+{{- $n := "qdrant" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: http, port: 6333}
+    - {name: grpc, port: 6334}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  serviceName: qdrant
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+    whenScaled: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      containers:
+        - name: qdrant
+          image: {{ include "datalab.image" .Values.images.qdrant }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - {name: QDRANT__SERVICE__HTTP_PORT, value: "6333"}
+            - {name: QDRANT__SERVICE__GRPC_PORT, value: "6334"}
+          ports:
+            - {name: http, containerPort: 6333}
+            - {name: grpc, containerPort: 6334}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 6333}
+            periodSeconds: 10
+          resources: {{- toYaml .Values.qdrant.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /qdrant/storage}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.qdrant.storage }}
+{{- end }}

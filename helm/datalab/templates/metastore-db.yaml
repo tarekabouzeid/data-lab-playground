@@ -1,0 +1,78 @@
+{{- if .Values.metastoreDb.enabled }}
+{{- $n := "metastore-db" }}
+{{- $c := .Values.credentials.metastoreDb }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: metastore-db
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_DB: {{ $c.database | quote }}
+  POSTGRES_USER: {{ $c.user | quote }}
+  POSTGRES_PASSWORD: {{ $c.password | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metastore-db
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: postgres, port: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: metastore-db
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  serviceName: metastore-db
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+    whenScaled: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      containers:
+        - name: postgres
+          image: {{ include "datalab.image" .Values.images.metastoreDb }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          envFrom:
+            - secretRef: {name: metastore-db}
+          env:
+            # a subdirectory: the volume root can contain lost+found, which initdb rejects
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          readinessProbe:      # compose healthcheck: pg_isready -U hive -d metastore
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 20
+            failureThreshold: 6
+          resources: {{- toYaml .Values.metastoreDb.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.metastoreDb.storage }}
+{{- end }}

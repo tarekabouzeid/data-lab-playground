@@ -1,0 +1,80 @@
+{{- if .Values.hiveMetastore.enabled }}
+{{- $n := "hive-metastore" }}
+{{- $c := .Values.credentials.metastoreDb }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: hive-metastore
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: thrift, port: 9083}
+    - {name: iceberg-rest, port: 9084}
+---
+# Hive Metastore 4.2.1: Thrift :9083 (Trino hive/lakehouse) + Iceberg REST :9084 (Spark, Trino iceberg).
+# The image entrypoint renders metastore-site.xml/core-site.xml from the baked-in templates on every start,
+# so (as in compose) nothing is mounted over them. Single replica + Recreate: the schema init runs on start.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hive-metastore
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      # compose: depends_on metastore-db + seaweedfs with condition service_healthy
+      initContainers:
+        {{- if .Values.metastoreDb.enabled }}
+        - name: wait-metastore-db
+          image: {{ include "datalab.image" .Values.images.metastoreDb }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["sh", "-c", "until pg_isready -h metastore-db -p 5432 -U {{ $c.user }} -d {{ $c.database }}; do echo waiting for metastore-db; sleep 2; done"]
+        {{- end }}
+        {{- if .Values.seaweedfs.enabled }}
+        - name: wait-seaweedfs
+          image: {{ include "datalab.image" .Values.images.seaweedfs }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["sh", "-c", "until wget -qO- http://seaweedfs:8333/healthz >/dev/null 2>&1; do echo waiting for seaweedfs; sleep 2; done"]
+        {{- end }}
+      containers:
+        - name: hive-metastore
+          image: {{ include "datalab.image" .Values.images.hiveMetastore }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - {name: SERVICE_NAME, value: metastore}
+            - {name: DB_DRIVER, value: postgres}
+            - name: HIVE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: metastore-db, key: POSTGRES_PASSWORD}
+            # $(HIVE_DB_PASSWORD) is expanded by Kubernetes (it is defined above this entry)
+            - name: SERVICE_OPTS
+              value: >-
+                -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+                -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://metastore-db:5432/{{ $c.database }}
+                -Djavax.jdo.option.ConnectionUserName={{ $c.user }}
+                -Djavax.jdo.option.ConnectionPassword=$(HIVE_DB_PASSWORD)
+          ports:
+            - {name: thrift, containerPort: 9083}
+            - {name: iceberg-rest, containerPort: 9084}
+          startupProbe:         # schema init on first start can take minutes
+            tcpSocket: {port: 9083}
+            periodSeconds: 5
+            failureThreshold: 90
+          readinessProbe:       # the REST catalog must answer too (Spark and Trino iceberg use it)
+            httpGet: {path: /iceberg/v1/config, port: 9084}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: 9083}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources: {{- toYaml .Values.hiveMetastore.resources | nindent 12 }}
+{{- end }}

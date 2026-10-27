@@ -56,7 +56,11 @@ USER $NB_UID
 # Note: Elyra removed due to incompatibility with JupyterLab 4.x (base image uses 4.4.5)
 RUN pip install --no-cache-dir \
     'pyyaml>=6.0' \
-    pyspark==${SPARK_VERSION} \
+    "pyspark[connect]==${SPARK_VERSION}" \
+    kubeflow==0.5.0 \
+    kubeflow-spark-api==2.4.0 \
+    dbt-core==1.12.5 \
+    dbt-trino==1.10.6 \
     trino \
     boto3 \
     pandas \

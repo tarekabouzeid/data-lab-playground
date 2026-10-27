@@ -1,0 +1,25 @@
+# Values for the official Headlamp chart (https://kubernetes-sigs.github.io/headlamp/), installed by
+# helm/scripts/install-headlamp.sh into the platform namespace. Keep the pins in sync with helm/scripts/versions.env
+# (check-parity.sh enforces it).
+
+# The Service is called "headlamp": the datalab chart's HTTPRoute (headlamp.<gateway.domain>) points at it.
+fullnameOverride: headlamp
+
+image:
+  tag: v0.45.0              # chart default would be v<appVersion>; pinned explicitly
+
+config:
+  inCluster: true           # users sign in with a ServiceAccount token (helm/scripts/headlamp-token.sh)
+
+# The plugin manager is a sidecar (npx @headlamp-k8s/pluginctl install --watch) that installs plugins from Artifact Hub
+# into the pod's plugins dir. It needs outbound access to registry.npmjs.org, artifacthub.io and github.com.
+pluginsManager:
+  enabled: true
+  version: "0.1.1"          # @headlamp-k8s/pluginctl (chart default is "latest")
+  configContent: |
+    plugins:
+      # Kubeflow resources in Headlamp. Detects installed CRDs and shows only what exists; for this platform that is the
+      # Spark Operator: SparkApplication / ScheduledSparkApplication (SparkConnect, v1alpha1, is not covered by the plugin).
+      - name: headlamp_kubeflow
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_kubeflow
+        version: 0.2.0-alpha
