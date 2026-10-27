@@ -127,7 +127,7 @@ helm/scripts/e2e-k8s.sh                 # the 19-check lakehouse e2e on the clus
 
 ## Manual test checklist (first run on a real cluster)
 
-The chart was validated against a real API server and its Spark pieces were run in our images, but **never on a live Kubernetes node**.
+First run on a real node (minikube + RTX GPU, 2026-10-27): every step below passed, apart from the optional DRA step 11, which was not run. Results are in `docs/K8S_HELM_PLAN.md` §16.
 Work through this in order; each step says what "good" looks like and how to look closer when it is not.
 
 | # | Step | Good looks like | If not, look at |
@@ -136,7 +136,7 @@ Work through this in order; each step says what "good" looks like and how to loo
 | 2 | `helm/scripts/setup-minikube.sh --gpu-mode none` (CPU first; add the GPU later) | ends with `Cluster ready`; `kubectl get pods -A` all Running | `kubectl -n spark-operator get pods`, `kubectl -n envoy-gateway-system get pods` |
 | 3 | `helm/scripts/build-images.sh` | `minikube image ls` lists the 4 `datalab-playground/*` images | the Jupyter build needs `quay.io`; a corporate proxy/CA usually shows here |
 | 4 | `helm/scripts/e2e-k8s.sh --mode connect` | `connect mode: 19/19` (this path was run in Docker already) | `kubectl -n datalab-e2e get pods,sparkconnect`; `kubectl -n datalab-e2e logs sparkconnect-pod...` |
-| 5 | `helm/scripts/e2e-k8s.sh --mode application` | `application mode: 19/19` | `kubectl -n datalab-e2e describe sparkapplication datalab-e2e`; the operator's 4.0.4 `spark-submit` against our 4.1.3 image is the least-tested link |
+| 5 | `helm/scripts/e2e-k8s.sh --mode application` | `application mode: 19/19` (the script installs the core, waits for it, then enables the e2e run) | `kubectl -n datalab-e2e describe sparkapplication datalab-e2e`; the operator's 4.0.4 `spark-submit` against our 4.1.3 image is the least-tested link |
 | 6 | `helm/scripts/deploy.sh --set gpu.mode=none --set ollama.enabled=false` | `helm status datalab` deployed; all pods Ready; the script also waits for `SparkConnect/datalab-spark` Ready (`helm --wait` ignores custom resources) | `kubectl -n datalab get pods`; `kubectl -n datalab describe pod <name>`; no Connect server: `kubectl -n spark-operator logs deploy/spark-operator-controller` |
 | 7 | `helm/scripts/gateway-forward.sh`, then open Jupyter | http://jupyter.datalab.localhost:8080 loads; a cell runs (WebSocket works); the last notebook cell lists `datalab-spark` | `kubectl -n datalab get gateway,httproute`; Trino through the Gateway needs `process-forwarded` (see *Configuration notes*) |
 | 8 | Run `data_lab_playground.ipynb` | no `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER`; Iceberg/Trino cells pass | Jupyter pod logs; `kubectl -n datalab logs datalab-spark-server` |

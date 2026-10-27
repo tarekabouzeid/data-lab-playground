@@ -152,7 +152,7 @@ Same images and Spark config as compose (enforced by `helm/scripts/check-parity.
 | Headlamp Kubeflow plugin | `headlamp_kubeflow` 0.2.0-alpha (Artifact Hub `headlamp-plugins/headlamp_kubeflow`; covers `SparkApplication`/`ScheduledSparkApplication`, not `SparkConnect`; archive SHA-256 `e8d3369b…06ac` verified) | `helm/headlamp-values.yaml` |
 | NVIDIA DRA driver (optional, experimental) | 0.5.0, DeviceClass `gpu.nvidia.com`, `resource.k8s.io/v1` | `helm/scripts/versions.env` |
 
-Headlamp: the official chart renders with our values and is accepted by a real kube-apiserver v1.37.0 (`lint.sh --server-dry-run`); pluginctl 0.1.1 parses our plugin config and reaches the Artifact Hub fetch; the plugin archive matches its published checksum. Not verified: the Headlamp image running and loading the plugin (its registry was unreachable from the build sandbox).
+Headlamp: the official chart renders with our values and is accepted by a real kube-apiserver v1.37.0 (`lint.sh --server-dry-run`); pluginctl 0.1.1 parses our plugin config and reaches the Artifact Hub fetch; the plugin archive matches its published checksum. Verified on minikube (2026-10-27): Headlamp runs, pluginctl installs the plugin, and the sidebar shows *Kubeflow → Spark*.
 
 Verification status of the chart: manifests are validated against a real kube-apiserver v1.37.0 with the real CRDs (`helm/scripts/lint.sh --server-dry-run`), the
 Spark Connect server was run in our image with the chart's rendered conf and passed the 19-check e2e through Spark Connect, and the Kubeflow SDK

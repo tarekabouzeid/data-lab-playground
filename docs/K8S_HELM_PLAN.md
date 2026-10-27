@@ -456,3 +456,24 @@ Deviations from the plan above, found while implementing:
   `gateway.domain` now defaults to `datalab.localhost` (resolves to 127.0.0.1 without `/etc/hosts`). `minikube tunnel` + `hosts.sh` remains as the standard-port alternative.
 * **Not verified**: Headlamp actually running and loading the plugin (the image registry was unreachable from the build sandbox), and the Artifact Hub package URL itself
   (inferred from the documented `headlamp-plugins/<package>` pattern and the plugin's `artifacthub-pkg.yml`; check with the `curl` in `helm/README.md` checklist step 9b).
+
+### Addendum (2026-10-27): first run on a real node
+
+minikube 1.39.0 (docker driver, Kubernetes v1.37.0, 10 CPUs / 14 GiB) on WSL2 with an RTX 5070 Ti, `--gpu-mode device-plugin`, Helm 4.2.4.
+Every item of the two "Not verified" lists above was run:
+
+| Item | Result |
+|---|---|
+| `setup-minikube.sh` (device plugin, Headlamp) | verified, 123 s; node advertises `nvidia.com/gpu: 1` |
+| `build-images.sh --load` | verified, 1180 s (mostly `minikube image load`); the Jupyter image builds from `quay.io` |
+| `deploy.sh` | **fixed**: `helm --wait` ignores custom resources, and the operator had lost its leader lease during the image loads, so `SparkConnect/datalab-spark` never started. The script now waits for it to be Ready (`e475ddf`) |
+| `e2e-k8s.sh --mode application` (R1: operator's 4.0.4 `spark-submit` vs our 4.1.3 image) | **fixed**, then 19/19: the chart created the SparkApplication in the same install as Trino, so the driver hit Trino before it was up (`17e0f49`, two-step deploy) |
+| `e2e-k8s.sh --mode connect` | 19/19 (both modes together: 115 s) |
+| Gateway: Trino forwarded headers | **fixed**: HTTP 406 until `http-server.process-forwarded=true` (`38f7655`) |
+| Gateway: Jupyter WebSockets | verified: kernel `execute_request` over `ws://jupyter.datalab.localhost:8080` returns output |
+| Gateway: all 10 hostnames | verified (`s3` answers 403 to an anonymous `GET /`, as expected) |
+| hostPath notebooks | verified: a file written in the pod as `jovyan` appears in `jupyter/notebooks/` |
+| GPU (device plugin) | verified: `nvidia-smi` in the Ollama pod sees the GPU; `rag_demo` answers |
+| GPU (DRA) | not run (optional, needs a fresh cluster) |
+| Notebooks over `SPARK_REMOTE` | verified: all 10 (`data_lab_playground`, `rag_demo`, `iceberg/00-04`, `dbt/01-03`) run without errors; their `try_sql` limitation probes print the same `FAILED` lines as on Compose |
+| Headlamp + Kubeflow plugin (Artifact Hub URL) | verified: pluginctl installs it (`successful: 1`); token login works; the sidebar shows *Kubeflow → Spark* |
