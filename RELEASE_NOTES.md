@@ -39,13 +39,13 @@ One-paragraph description.
 
 ---
 
-## [v3.0.0] — 2026-10-12
+## [v3.0.0] — 2026-10-27
 
 **Tag:** `v3.0.0`  
 **Branch merged:** `main`
 
 ### Summary
-Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and Trino 483, and replaces MinIO with SeaweedFS. Iceberg now goes through the Hive Metastore's built-in Iceberg REST catalog. A new end-to-end test checks that the same data is readable as plain Parquet and as Iceberg from both Spark and Trino. The release also adds a Kubernetes Helm chart (`charts/data-lab`, chart `0.1.0`) built for many parallel, short-lived installs. The chart includes Spark Connect, Airflow 3 and optional GenAI services, has no default passwords, and meets Pod Security "restricted". It is tested on kind in CI.
+Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and Trino 483, and replaces MinIO with SeaweedFS. Iceberg now goes through the Hive Metastore's built-in Iceberg REST catalog. A new end-to-end test checks that the same data is readable as plain Parquet and as Iceberg from both Spark and Trino. The release also adds a Kubernetes Helm chart (`charts/data-lab`, chart `0.1.0`) built for many parallel, short-lived installs. The chart includes Spark Connect, Airflow 3 and optional GenAI services, has no default passwords, and meets Pod Security "restricted". It is tested on kind in CI. A second chart, `helm/datalab`, runs the whole lab on minikube with an NVIDIA GPU, the Kubeflow Spark Operator, Envoy Gateway and Headlamp; it was verified end to end on a real node. New notebooks cover Iceberg 1.12 features and dbt on Trino.
 
 ### Component Version Changes
 | Component | Before | After |
@@ -57,6 +57,8 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
 | Object storage | MinIO | **SeaweedFS 4.48** |
 | HMS S3 client | — | AWS SDK v2 `bundle-2.24.6` (matches `hadoop-aws` 3.4.1) |
 | Spark image Python libs | — | PySpark Connect client deps (`pandas` 2.3.3, `pyarrow` 21.0.0, `grpcio` 1.76.0, …) |
+| minikube lab (`helm/datalab`) | — | Kubernetes v1.37.0, minikube 1.39.0, Helm 4.x (tested 4.2.4), Kubeflow Spark Operator 2.5.2, Envoy Gateway v1.9.2, Headlamp 0.45.0 + `headlamp_kubeflow` 0.2.0-alpha |
+| dbt (Jupyter image) | — | dbt-core 1.12.5 + dbt-trino 1.10.6 |
 | Helm chart | — | **0.1.0** (adds Airflow 3.3.2, Postgres 17.11, git-sync v4.7.1, Spark History Server, Kubeflow Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1; pins Qdrant v1.19.2, Phoenix 20.21.0, Ollama 0.40.3) |
 
 ### Breaking Changes
@@ -84,6 +86,9 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
   - `chart-e2e` on kind: the minimal profile is Ready in 29 s, the default profile installs, two releases run in one namespace and one release name in two namespaces, `helm test` passes, and uninstall leaves each namespace empty.
   - `chart-release`: on a `v*` tag, pushes the HMS/Spark/Jupyter images to GHCR and the chart to `oci://ghcr.io/<owner>/charts`.
 - `docs/HELM_GAP_REPORT.md`: requirements audit, with the conflicts against component limits and how each was resolved.
+- **minikube lab `helm/datalab`** (`helm/README.md`): the same images and versions as Compose, with Spark Connect launched by the Kubeflow Spark Operator, Jupyter wired through `SPARK_REMOTE`, Ollama on the GPU (device plugin, or DRA as an option), and every UI at `http://<name>.datalab.localhost:8080` via `helm/scripts/gateway-forward.sh`. `setup-minikube.sh`, `build-images.sh` and `deploy.sh` set it up; `e2e-k8s.sh` runs the 19-check e2e as a SparkApplication or through Spark Connect. Headlamp ships with the Kubeflow plugin.
+- **Notebooks**: `iceberg/00–04` (what's new in Iceberg 1.12 and what this stack supports, Hilbert clustering, variant, deletion vectors and row lineage, streaming and Parquet tuning), `dbt/01–03` with the `dbt/lakehouse_demo` project (incremental models, snapshots, tests, contracts, unit tests), and the shared `lab_utils.py`. They run unchanged on Compose and on Spark Connect.
+- `hack/kind-up.sh`: creates a local kind cluster and loads the chart's images for `hack/chart-e2e-kind.sh`. `--calico` replaces kindnet with Calico v3.32.2 on hosts where kindnet cannot enforce NetworkPolicy (WSL2).
 
 ### Bug Fixes / Config Changes
 - SeaweedFS runs with `-volume.max=64`. Without it, auto-sizing from free disk left no writable volume and S3A PUTs returned HTTP 500.
@@ -91,6 +96,11 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
 - The Iceberg REST server moved to port 9084 to avoid a clash with the old MinIO console port.
 - The Spark image installs pip with `ensurepip --upgrade`, because Ubuntu jammy's pip 22 breaks on Python 3.12.
 - The chart's Trino catalogs use `fs.s3.enabled`, which replaces the deprecated `fs.native-s3.enabled` in Trino 483. Compose still uses the old key, which only produces a warning.
+- The Jupyter image installs `git`, which `dbt debug` needs. Without it the first dbt cell reported FAILED.
+- Trino sets `http-server.process-forwarded=true`. Behind the Kubernetes Gateway it otherwise answered every request with HTTP 406.
+- `helm/scripts/deploy.sh` waits for `SparkConnect/datalab-spark` to be Ready, because `helm --wait` ignores custom resources.
+- `helm/scripts/e2e-k8s.sh` installs the core first and only then starts the e2e run. In one install the Spark driver reached Trino before it was up.
+- `helm/scripts/setup-minikube.sh` defaults `--memory` to 24g or 75% of Docker's memory, whichever is less, so it starts on 24 GiB WSL2 hosts.
 
 ### Known Limitations
 - The Spark Connect token must be passed as `sc://host:15002/;authorization=Bearer <token>`. The PySpark client sends `;token=` only over TLS, and Spark 4.1 Connect has no TLS.
@@ -102,6 +112,9 @@ Upgrades the lakehouse to Spark 4.1.3, Iceberg 1.12.0, Hive Metastore 4.2.1 and 
 - The chart's lab images exist on GHCR only after the `v3.0.0` tag triggers `chart-release`.
 - The Spark History Server shows the long-running Spark Connect app only up to its last rolled event log (10 MiB) or after it stops, because S3 shows files only once closed. Use the live Spark UI (or the MCP `live` server) for running work.
 - MCP servers have no caller authentication; the NetworkPolicy is the boundary.
+- `helm/datalab`: the DRA GPU mode is experimental and was not run on a real node; the device-plugin mode was. The Headlamp Kubeflow plugin shows `SparkApplication`s, not `SparkConnect`. Its Headlamp login token has cluster-admin (single-user clusters only).
+- On WSL2, kindnet cannot enforce NetworkPolicy (no NFQUEUE in the kernel); use `hack/kind-up.sh --calico` for the kind e2e.
+- The Iceberg notebooks probe known engine limits with `try_sql` (GEOMETRY tables, DELETE on shredded variant, lineage aggregate push-down, changelog with deletion vectors); those probes print `FAILED` by design.
 
 ---
 
