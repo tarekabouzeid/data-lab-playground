@@ -138,7 +138,7 @@ Work through this in order; each step says what "good" looks like and how to loo
 | 4 | `helm/scripts/e2e-k8s.sh --mode connect` | `connect mode: 19/19` (this path was run in Docker already) | `kubectl -n datalab-e2e get pods,sparkconnect`; `kubectl -n datalab-e2e logs sparkconnect-pod...` |
 | 5 | `helm/scripts/e2e-k8s.sh --mode application` | `application mode: 19/19` | `kubectl -n datalab-e2e describe sparkapplication datalab-e2e`; the operator's 4.0.4 `spark-submit` against our 4.1.3 image is the least-tested link |
 | 6 | `helm/scripts/deploy.sh --set gpu.mode=none --set ollama.enabled=false` | `helm status datalab` deployed; all pods Ready | `kubectl -n datalab get pods`; `kubectl -n datalab describe pod <name>` |
-| 7 | `helm/scripts/gateway-forward.sh`, then open Jupyter | http://jupyter.datalab.localhost:8080 loads; a cell runs (WebSocket works); the last notebook cell lists `datalab-spark` | `kubectl -n datalab get gateway,httproute`; if Trino rejects proxied requests see *Configuration notes* |
+| 7 | `helm/scripts/gateway-forward.sh`, then open Jupyter | http://jupyter.datalab.localhost:8080 loads; a cell runs (WebSocket works); the last notebook cell lists `datalab-spark` | `kubectl -n datalab get gateway,httproute`; Trino through the Gateway needs `process-forwarded` (see *Configuration notes*) |
 | 8 | Run `data_lab_playground.ipynb` | no `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER`; Iceberg/Trino cells pass | Jupyter pod logs; `kubectl -n datalab logs datalab-spark-server` |
 | 9 | Save a notebook | the file appears in `jupyter/notebooks/` on the host | hostPath permission: switch to `--set jupyter.notebooks.mode=pvc` |
 | 9b | Headlamp: `helm/scripts/headlamp-token.sh`, open http://headlamp.datalab.localhost:8080 | login works; the sidebar has a **Kubeflow** section with *Spark* entries; `datalab-spark` visible under Custom Resources | `kubectl -n datalab logs deploy/headlamp -c headlamp-plugin` (plugin install: check `curl -s https://artifacthub.io/api/v1/packages/headlamp/headlamp-plugins/headlamp_kubeflow` returns version 0.2.0-alpha); browser console for plugin load errors |
@@ -157,7 +157,7 @@ Useful everywhere: `kubectl -n datalab get pods -w`, `kubectl -n datalab get eve
   `seaweedfs-http` is the ClusterIP used by the Gateway.
 * `values-minikube.yaml` lowers Trino's heap (`-Xmx4G` instead of the image's `-Xmx8G`) and nothing else about the services.
 * Data stores are StatefulSets whose PVCs survive `helm uninstall` (`persistence.retainOnDelete`). Delete them with `kubectl -n datalab delete pvc --all`.
-* If a Trino UI request through the Gateway is rejected because of `X-Forwarded-*` headers, add `http-server.process-forwarded=true` to `trino/etc/config.properties`.
+* `trino/etc/config.properties` sets `http-server.process-forwarded=true`: Envoy adds `X-Forwarded-*` and Trino otherwise answers every Gateway request with HTTP 406 (verified on minikube).
 
 ## Layout
 
