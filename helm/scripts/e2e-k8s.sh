@@ -35,13 +35,22 @@ K="kubectl -n $E2E_NAMESPACE"
 deploy() {   # deploy <mode>
   local mode=$1 extra=()
   [[ $mode == application ]] && extra=(--set spark.enabled=false)
+  local core=(--set jupyter.enabled=false --set phoenix.enabled=false --set qdrant.enabled=false
+              --set ollama.enabled=false --set gateway.enabled=false --set "e2e.mode=$mode" ${extra[@]+"${extra[@]}"})
+  # Two steps: the chart creates the e2e SparkApplication/Job together with Trino, HMS and the Spark Connect server,
+  # so in one install the driver can call Trino before it is up (connection refused).
   log "Deploying the lakehouse core for mode=$mode into $E2E_NAMESPACE"
   helm upgrade --install "$E2E_RELEASE" "$CHART" -n "$E2E_NAMESPACE" --wait --timeout "${TIMEOUT}s" \
-    --set jupyter.enabled=false --set phoenix.enabled=false --set qdrant.enabled=false \
-    --set ollama.enabled=false --set gateway.enabled=false \
-    --set e2e.enabled=true --set "e2e.mode=$mode" ${extra[@]+"${extra[@]}"}
+    "${core[@]}" --set e2e.enabled=false
   log "Waiting for the warehouse bucket"
   $K wait --for=condition=complete --timeout=300s job -l app.kubernetes.io/name=seaweedfs-bucket
+  if [[ $mode == connect ]]; then   # helm --wait ignores custom resources
+    log "Waiting for the Spark Connect server (SparkConnect/datalab-spark)"
+    $K wait --for=jsonpath='{.status.state}'=Ready --timeout="${TIMEOUT}s" sparkconnect/datalab-spark
+  fi
+  log "Starting the e2e run"
+  helm upgrade "$E2E_RELEASE" "$CHART" -n "$E2E_NAMESPACE" --wait --timeout "${TIMEOUT}s" \
+    "${core[@]}" --set e2e.enabled=true
 }
 
 summary_ok() { grep -q "E2E SUMMARY: 19/19 checks passed" <<<"$1"; }
@@ -64,8 +73,6 @@ run_application() {
 
 run_connect() {
   deploy connect
-  log "Waiting for the Spark Connect server (SparkConnect/datalab-spark)"
-  $K wait --for=jsonpath='{.status.state}'=Ready --timeout="${TIMEOUT}s" sparkconnect/datalab-spark
   log "Waiting for Job/datalab-e2e-connect"
   $K wait --for=condition=complete --timeout="${TIMEOUT}s" job/datalab-e2e-connect \
     || { $K logs job/datalab-e2e-connect | tail -40; die "connect-mode e2e Job did not complete"; }
