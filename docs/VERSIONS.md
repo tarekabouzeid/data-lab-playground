@@ -130,7 +130,8 @@ Chart `0.1.0`, `appVersion` **3.0.0** (the lab release these versions ship in). 
 
 The four `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp) are pushed by `.github/workflows/chart-release.yaml` on the
 `v<appVersion>` tag. The workflow refuses to run if the values tags differ from `appVersion`. The kind e2e builds
-them locally instead.
+them locally instead. Locally `hack/kind-up.sh` creates the kind cluster and loads the images; with `--calico` it installs
+Calico v3.32.2 in place of kindnet (WSL2 kernels lack NFQUEUE, so kindnet cannot enforce NetworkPolicy there).
 
 The Spark image also carries the PySpark Connect client deps (`pandas==2.3.3`, `pyarrow==21.0.0`,
 `numpy==2.3.4`, `grpcio`/`grpcio-status==1.76.0`, `googleapis-common-protos==1.71.0`, `zstandard==0.25.0`), as
@@ -145,7 +146,7 @@ Same images and Spark config as compose (enforced by `helm/scripts/check-parity.
 |---|---|---|
 | Kubernetes | v1.37.0 (minikube default; latest patch v1.37.1) | `helm/scripts/versions.env`, `Chart.yaml` `kubeVersion >=1.36.0-0` |
 | minikube | v1.39.0 (`nvidia-device-plugin` addon v0.20.0) | `helm/scripts/versions.env` |
-| Helm | v4.3 (chart `apiVersion: v2`) | `helm/scripts/versions.env` |
+| Helm | v4.x, tested with v4.2.4 (chart `apiVersion: v2`; `versions.env` checks the major version only) | `helm/scripts/versions.env` |
 | Kubeflow Spark Operator | 2.5.2 (chart = app version; its own image is based on Spark 4.0.4, our Spark Connect server uses our 4.1.3 image) | `helm/scripts/versions.env` |
 | Envoy Gateway / Gateway API | v1.9.2 / v1.6.3 (CRDs come with the Envoy Gateway chart) | `helm/scripts/versions.env` |
 | Headlamp (Kubernetes UI) | 0.45.0 (chart = app), image `ghcr.io/headlamp-k8s/headlamp:v0.45.0`; plugin-manager sidecar `node:lts-alpine` (rolling, chart default) running `@headlamp-k8s/pluginctl@0.1.1` | `helm/scripts/versions.env`, `helm/headlamp-values.yaml` |

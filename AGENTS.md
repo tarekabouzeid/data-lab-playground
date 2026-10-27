@@ -65,7 +65,8 @@ docker compose restart [service-name]
 hack/gen-chart-schema.py && helm-docs -c charts -s file
 helm lint --strict charts/data-lab --kube-version 1.34.0 -f charts/data-lab/ci/full-values.yaml
 helm template r charts/data-lab -n ns | hack/check-chart-render.py r-data-lab ns   # PSS/labels/namespace policy
-hack/chart-e2e-kind.sh minimal   # on a kind cluster with the images loaded (see .github/workflows/chart-e2e.yaml)
+hack/kind-up.sh [--calico]       # local kind cluster + images (--calico on WSL2: kindnet cannot enforce NetworkPolicy there)
+hack/chart-e2e-kind.sh minimal   # on a kind cluster with the images loaded (CI: .github/workflows/chart-e2e.yaml)
 
 # End-to-end lakehouse test (no GPU needed): SeaweedFS + HMS + Trino + Spark + Iceberg
 tests/e2e/run-e2e.sh --build
@@ -135,7 +136,7 @@ Authoritative matrix: **[docs/VERSIONS.md](docs/VERSIONS.md)** (runtimes, bundle
 | Postgres JDBC (HMS) | 42.7.5 |
 | Jupyter base image | `quay.io/jupyter/base-notebook:python-3.12` (rolling tag), `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` + `kubeflow-spark-api==2.4.0` (**no** `[spark]` extra) |
 | Phoenix · Ollama · Qdrant | `arizephoenix/phoenix:version-20.20.0` · `ollama/ollama:0.40.2` · `qdrant/qdrant:v1.19.2` (pinned; were `latest`) |
-| Kubernetes (`helm/`) | Kubernetes 1.37 · minikube 1.39.0 · Helm 4.3 · Kubeflow Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 + `headlamp_kubeflow` 0.2.0-alpha (pluginctl 0.1.1) · NVIDIA DRA driver 0.5.0 (optional) |
+| Kubernetes (`helm/`) | Kubernetes 1.37 · minikube 1.39.0 · Helm 4.x (4.2.4 tested) · Kubeflow Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 + `headlamp_kubeflow` 0.2.0-alpha (pluginctl 0.1.1) · NVIDIA DRA driver 0.5.0 (optional) |
 
 ---
 
@@ -246,6 +247,7 @@ charts/data-lab/              # Helm chart (Kubernetes): values.yaml = public AP
 hack/
   gen-chart-schema.py         # values.yaml -> values.schema.json (--check in CI)
   check-chart-render.py       # policy checks on helm template output
+  kind-up.sh                  # local kind cluster (optionally Calico) + image loading for the kind e2e
   chart-e2e-kind.sh           # kind e2e: minimal (timed) / default / parallel + helm test + clean uninstall
   mcp-call.py, airflow-logs-check.py  # in-cluster helpers used by the e2e
 airflow-mcp/Dockerfile        # Airflow MCP image (astro-airflow-mcp) for the chart

@@ -44,7 +44,7 @@ A local Docker Compose–based **AI-enhanced data lakehouse** for experimentatio
 - **Kubernetes**: `helm/` holds a Helm chart with the same images/versions (`helm/README.md`); `helm/scripts/lint.sh` (no cluster) and `helm/scripts/e2e-k8s.sh` (on minikube) are its tests
 - **Jupyter** at http://localhost:8888, password `123456`
 - **All Compose credentials are intentionally hardcoded** (local dev only — SeaweedFS S3 `seaweedadmin`/`seaweedadmin123`, Postgres, Jupyter). The Helm chart has none: `existingSecret` or generated.
-- **Helm chart**: `charts/data-lab` (README there). Lint with `helm lint --strict charts/data-lab --kube-version 1.34.0`; policy check with `helm template r charts/data-lab -n ns | hack/check-chart-render.py r-data-lab ns`; kind e2e with `hack/chart-e2e-kind.sh`.
+- **Helm chart**: `charts/data-lab` (README there). Lint with `helm lint --strict charts/data-lab --kube-version 1.34.0`; policy check with `helm template r charts/data-lab -n ns | hack/check-chart-render.py r-data-lab ns`; kind e2e with `hack/chart-e2e-kind.sh` (local cluster + images: `hack/kind-up.sh`, `--calico` on WSL2 whose kernel lacks the NFQUEUE that kindnet's NetworkPolicy needs).
 
 ## Architecture
 
