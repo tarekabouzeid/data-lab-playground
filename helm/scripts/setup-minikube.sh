@@ -3,11 +3,11 @@
 # Kubeflow Spark Operator, Envoy Gateway (Gateway API) and, optionally, the NVIDIA DRA driver.
 # GPU steps follow https://minikube.sigs.k8s.io/docs/tutorials/nvidia/ (docker driver, Linux only).
 #
-# Usage: helm/scripts/setup-minikube.sh [--cpus 8] [--memory 24g] [--disk-size 80g]
+# Usage: helm/scripts/setup-minikube.sh [--cpus 8] [--memory 24g (default: 24g or 75% of Docker's memory, whichever is less)] [--disk-size 80g]
 #                                       [--gpu-mode device-plugin|dra|none] [--profile minikube] [--no-headlamp]
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-CPUS=8; MEMORY=24g; DISK=80g; GPU_MODE=device-plugin; HEADLAMP=true
+CPUS=8; MEMORY=""; DISK=80g; GPU_MODE=device-plugin; HEADLAMP=true
 while [[ $# -gt 0 ]]; do
   case $1 in
     --cpus) CPUS=$2; shift 2;;
@@ -41,6 +41,14 @@ if [[ $GPU_MODE != none ]]; then
   GPU_ARGS=(--gpus "${MINIKUBE_GPUS:-all}")      # docs also allow --gpus nvidia.com (CDI)
 fi
 
+# minikube refuses more memory than Docker has (WSL2 gives Docker only part of the host's RAM)
+docker_mib=$(( $(docker info --format '{{.MemTotal}}') / 1048576 ))
+if [[ -z $MEMORY ]]; then
+  MEMORY="$(( docker_mib * 3 / 4 < 24576 ? docker_mib * 3 / 4 : 24576 ))m"
+elif [[ $MEMORY =~ ^([0-9]+)([gGmM])b?$ ]]; then
+  want=${BASH_REMATCH[1]}; [[ ${BASH_REMATCH[2]} =~ [gG] ]] && want=$(( want * 1024 ))
+  (( want <= docker_mib )) || warn "--memory $MEMORY is more than Docker's ${docker_mib} MiB; minikube will refuse it"
+fi
 log "Starting minikube $MINIKUBE_VERSION / Kubernetes $KUBERNETES_VERSION (profile $MINIKUBE_PROFILE)"
 # --container-runtime docker: required by the GPU docs, and what makes `eval $(minikube docker-env)` builds work.
 # The mount makes jupyter/notebooks editable from the host (chart: jupyter.notebooks.mode=hostPath).
