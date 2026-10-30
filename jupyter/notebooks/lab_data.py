@@ -13,7 +13,8 @@ real customers, products and orders:
                    (routers have a connectivity defect and are returned most, SSDs arrive damaged) (rag_demo)
 
 Layers: raw = dbt_demo_raw (seeds), bronze = shop_bronze (Spark, format v2, Trino reads it), shop_v3 = format-v3
-feature demos (Spark only), models = dbt_demo. Standard library only, so it imports anywhere.
+feature tables (Spark writes them; Spark and Trino 483 read them), models = dbt_demo, gold = shop_gold (the Airflow
+DAG northwind_daily). Standard library only, so it imports anywhere.
 """
 import csv
 import random
