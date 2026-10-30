@@ -65,8 +65,10 @@ docker compose restart [service-name]
 hack/gen-chart-schema.py && helm-docs -c charts -s file
 helm lint --strict charts/data-lab --kube-version 1.34.0 -f charts/data-lab/ci/full-values.yaml
 helm template r charts/data-lab -n ns | hack/check-chart-render.py r-data-lab ns   # PSS/labels/namespace policy
+python3 -m pytest tests/chart tests/unit -q   # render tests (needs helm) + unit tests (lab_utils, parity)
+hack/check-compose-parity.py     # Compose spark-defaults vs the chart's rendered conf, e2e script copy
 hack/kind-up.sh [--calico]       # local kind cluster + images (--calico on WSL2: kindnet cannot enforce NetworkPolicy there)
-hack/chart-e2e-kind.sh minimal   # on a kind cluster with the images loaded (CI: .github/workflows/chart-e2e.yaml)
+hack/chart-e2e-kind.sh minimal   # minimal|default|parallel|semantic on a kind cluster (CI: .github/workflows/chart-e2e.yaml)
 
 # End-to-end lakehouse test (no GPU needed): SeaweedFS + HMS + Trino + Spark + Iceberg
 tests/e2e/run-e2e.sh --build
@@ -74,15 +76,16 @@ tests/e2e/run-e2e.sh --build
 
 ---
 
-## Kubernetes (Helm) Commands
+## Workstation lab (minikube) Commands
+
+charts/data-lab with `ci/workstation-values.yaml`, release and namespace `datalab`. Test checklist: `docs/WORKSTATION_TESTING.md`.
 
 ```bash
-helm/scripts/setup-minikube.sh [--gpu-mode device-plugin|dra|none]   # cluster + Spark Operator + Envoy Gateway
-helm/scripts/build-images.sh && helm/scripts/deploy.sh               # images into minikube, then the chart
-helm/scripts/lint.sh [--server-dry-run]                               # static checks + parity (no cluster needed)
-helm/scripts/e2e-k8s.sh [--mode application|connect|both]            # the 19-check lakehouse e2e on Kubernetes
-helm/scripts/gateway-forward.sh                                       # Envoy Gateway → localhost:8080 (*.datalab.localhost, no tunnel/hosts edit)
-helm/scripts/install-headlamp.sh && helm/scripts/headlamp-token.sh    # Headlamp + Kubeflow plugin, login token
+hack/workstation/setup-minikube.sh [--gpu-mode device-plugin|dra|none]   # cluster + every cluster-wide prerequisite
+hack/workstation/build-images.sh && hack/workstation/deploy.sh          # images into minikube, then the chart
+hack/workstation/e2e.sh [--skip helm-test,spark-app,notebooks,gateway]  # helm test, SparkApplication 19/19, notebooks, URLs
+hack/workstation/gateway-forward.sh                                      # Envoy Gateway → localhost:8080 (*.datalab.localhost)
+hack/workstation/install-headlamp.sh && hack/workstation/headlamp-token.sh   # Headlamp + Kubeflow plugin, login token
 ```
 
 ## Service Ports
@@ -135,8 +138,9 @@ Authoritative matrix: **[docs/VERSIONS.md](docs/VERSIONS.md)** (runtimes, bundle
 | AWS SDK v2 bundle | 2.41.1 (Spark, Jupyter) · 2.24.6 (HMS) |
 | Postgres JDBC (HMS) | 42.7.5 |
 | Jupyter base image | `quay.io/jupyter/base-notebook:python-3.12` (rolling tag), `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` + `kubeflow-spark-api==2.4.0` (**no** `[spark]` extra) |
-| Phoenix · Ollama · Qdrant | `arizephoenix/phoenix:version-20.20.0` · `ollama/ollama:0.40.2` · `qdrant/qdrant:v1.19.2` (pinned; were `latest`) |
-| Kubernetes (`helm/`) | Kubernetes 1.37 · minikube 1.39.0 · Helm 4.x (4.2.4 tested) · Kubeflow Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 + `headlamp_kubeflow` 0.2.0-alpha (pluginctl 0.1.1) · NVIDIA DRA driver 0.5.0 (optional) |
+| Phoenix · Ollama · Qdrant | Compose: `arizephoenix/phoenix:version-20.20.0` · `ollama/ollama:0.40.2` · `qdrant/qdrant:v1.19.2`; chart: non-root tags in VERSIONS.md §8 |
+| Helm chart | `charts/data-lab` 0.2.0 (appVersion 3.0.0): Airflow 3.3.2, Postgres 17.11, Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1, Kubeflow Semantic Operator v0.1.1 (CRD from `4fd7057`) |
+| Workstation lab | Kubernetes 1.37 · minikube 1.39.0 · Helm 4.x (4.2.4 tested) · Kubeflow Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 + `headlamp_kubeflow` 0.2.0-alpha (pluginctl 0.1.1) · NVIDIA DRA driver 0.5.0 (optional) |
 
 ---
 
@@ -191,10 +195,10 @@ All services use the same hardcoded credentials (intentional for local dev — *
 12. **Trino 482/483 breaking changes** (none affect current configs): Alluxio FS removed; `char`→`varchar` coercion reversed; `hive.max-initial-split*` removed; Iceberg `$files.lower_bounds/upper_bounds` are now typed rows; `s3.iam-role` now needs `s3.auth-type=IAM_ROLE`; the new Web UI is the default at `/ui` (legacy at `/ui/legacy`, disabled by default).
 
 13. **Docker builds need network access**: the Dockerfiles fetch jars from Maven Central (`curl -fsSL`, so they fail loudly on a 404 or 429), including the HMS Postgres JDBC driver and AWS SDK bundle. The Spark and Jupyter images also install packages via `apt`.
-14. **Helm chart parity (`helm/`)**: the chart must use the *same* images as `docker-compose.yaml` and the same Spark config. `helm/scripts/check-parity.sh` (run by `helm/scripts/lint.sh`) fails on drift in images, `spark/conf/spark-defaults.conf` vs `spark.sparkConf` in `values.yaml`, and `helm/datalab/files/e2e_lakehouse.py` vs `tests/e2e/e2e_lakehouse.py`. Change one side → change the other. Service names on Kubernetes equal the compose service names (the baked-in Trino/HMS/Spark configs rely on that).
-15. **Spark on Kubernetes = Spark Connect, not a master**: notebooks get `SPARK_REMOTE=sc://datalab-spark-server:15002`. With `SPARK_REMOTE` set, pyspark 4.1 raises `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER` if the code also calls `.master(...)`, so notebooks must not (compose gets `spark.master` from `spark-defaults.conf`). `SparkContext`/RDD APIs do not exist under Connect. Static confs (`spark.sql.extensions`) cannot be set by a Connect client; they live in the chart's `spark.sparkConf` (server side).
-16. **Kubeflow SDK: `connect(base_url=...)` only, never `pip install kubeflow[spark]`.** SDK 0.5.0 hardcodes Spark/image 4.0.4 in create mode and `submit_job()`, and the extra pins `pyspark-connect==4.2.0` (conflicts with `pyspark==4.1.3`). Re-check on every SDK/operator upgrade with the commands in `docs/K8S_HELM_PLAN.md` §1 (blocker row in `docs/VERSIONS.md` §6).
-17. **Kubernetes gotchas**: local images need `imagePullPolicy: IfNotPresent` (`:latest` defaults to `Always`); pods use `enableServiceLinks: false` (a Service named `phoenix` injects `PHOENIX_PORT=tcp://…`); SeaweedFS needs a **headless** Service named `seaweedfs`; the `ollama` image has no `curl` (use `ollama list`); the Spark Operator must watch the release namespace (`spark.jobNamespaces`) and the namespace must exist first. **Headlamp** is a separate Helm release (official chart; values in `helm/headlamp-values.yaml`) whose plugin manager installs plugins **only from Artifact Hub** (`https://artifacthub.io/packages/headlamp/...`) at pod start; its Kubeflow plugin covers `SparkApplication`/`ScheduledSparkApplication`, not `SparkConnect`; keep its pins equal to `helm/scripts/versions.env` (`check-parity.sh`). Gateway hostnames default to `*.datalab.localhost`, reached with `helm/scripts/gateway-forward.sh`. Trino behind the Gateway needs `http-server.process-forwarded=true` (set in `trino/etc/config.properties`, so compose gets it too), or it answers HTTP 406 to Envoy's `X-Forwarded-For`. `helm --wait` ignores custom resources: `deploy.sh` waits for `SparkConnect/datalab-spark` itself, and `e2e-k8s.sh` installs the core first and only then enables the e2e SparkApplication/Job (in one install the driver reached Trino before it was up). Verified end to end on minikube with a GPU (2026-10-27, `docs/K8S_HELM_PLAN.md` §16).
+14. **Compose parity and frozen Compose**: Docker Compose is frozen (version alignment only; new features are chart-only). `hack/check-compose-parity.py` (chart-lint CI) fails when a `spark/conf/spark-defaults.conf` key is missing from or differs in the chart's rendered Spark conf (allowed differences are listed with a reason in the script), or when `charts/data-lab/files/e2e_lakehouse.py` differs from `tests/e2e/e2e_lakehouse.py`. **Notebooks never hardcode a service host**: every endpoint is a `lab_utils.py` constant (env set by the chart, Compose host as default); `tests/unit/test_notebook_endpoints.py` enforces it, and `tests/chart/test_jupyter.py` checks the chart sets every env var `lab_utils.py` reads.
+15. **Spark on Kubernetes = Spark Connect, not a master**: notebooks get `SPARK_REMOTE=sc://<release>-data-lab-spark-connect:15002/;authorization=Bearer $(SPARK_CONNECT_TOKEN)`. With `SPARK_REMOTE` set, pyspark 4.1 raises `CANNOT_CONFIGURE_SPARK_CONNECT_MASTER` if the code also calls `.master(...)`, so notebooks must not (compose gets `spark.master` from `spark-defaults.conf`). `SparkContext`/RDD APIs do not exist under Connect. Static confs (`spark.sql.extensions`) cannot be set by a Connect client; they live in the chart's Spark ConfigMap. Catalog confs (`spark.sql.catalog.*.uri`) *can* be set at runtime, so scripts read them from env (`ICEBERG_REST_URI`), never a hardcoded host.
+16. **Kubeflow SDK: `connect(base_url=...)` only, never `pip install kubeflow[spark]`.** SDK 0.5.0 hardcodes Spark/image 4.0.4 in create mode and `submit_job()`, and the extra pins `pyspark-connect==4.2.0` (conflicts with `pyspark==4.1.3`). The chart's Spark Connect is a Deployment, not a `SparkConnect` CR, so `list_sessions()` finds nothing (the notebook treats that as expected). Re-check on every SDK/operator upgrade (`docs/K8S_HELM_PLAN.md` §1, blocker row in `docs/VERSIONS.md` §6).
+17. **Workstation (minikube) gotchas**: the chart stays namespaced, so `setup-minikube.sh` installs the cluster-wide pieces: Spark Operator (`spark.jobNamespaces={datalab}`, its own SA/RBAC off), Envoy Gateway **and the GatewayClass `datalab`**, the SemanticModel CRD, the GPU plugin or DRA driver, and the host notebooks folder as a PV + PVC `datalab-notebooks` (the chart only claims it: `jupyter.persistence.existingClaim`, no hostPath in the pod). Images are built with the chart's names (`ghcr.io/tarekabouzeid/data-lab-playground/<name>:<appVersion>`, `IfNotPresent`). **Headlamp** is a separate Helm release (values in `hack/workstation/headlamp-values.yaml`, pins in `versions.env`) whose plugin manager installs plugins **only from Artifact Hub** at pod start; its Kubeflow plugin covers `SparkApplication`, not `SparkConnect`. Trino behind the Gateway needs `http-server.process-forwarded=true` (the chart sets it when `gateway.enabled`; Compose's `trino/etc/config.properties` has it too), or it answers HTTP 406. `helm --wait` ignores custom resources (SemanticModel, SparkApplication): scripts wait on their status themselves. The SparkApplication e2e is applied only after the release is up (in one install the driver reached Trino before it was ready). The previous `helm/datalab` chart was verified end to end on minikube with a GPU (2026-10-27, `docs/K8S_HELM_PLAN.md` §16); the merged chart's workstation run is in `docs/WORKSTATION_TESTING.md`.
 18. **New notebooks (Iceberg 1.12 / dbt)**: dbt runs in-process via `lab_utils.dbt()`; never name a Python module `dbt_*` on `sys.path` (dbt imports it as a plugin). Notebooks never `DROP SCHEMA` (a dropped schema cannot be recreated: leftover `managed/<name>.db` dir in SeaweedFS); `reset_dbt_demo()` drops tables/views only. Verified on this stack (Spark Connect, all notebooks twice; Compose path by spark-submit smoke of the same helper): Hilbert `rewrite_data_files`, VARIANT v3 (shredded-variant DML in 1.12.0 needs the vectorization workaround shown in nb 02), deletion vectors (PUFFIN), row lineage (aggregates over lineage columns need the workaround in nb 03), `remove-dangling-deletes`, merge-append for streaming, per-column dictionary encoding, `rewrite_manifests sort_by` (partitioned tables only). **Not supported here**: geometry/geography (REST server answers 406), Spark SQL column defaults, bloom filters, changelog view with delete files. All 10 notebooks run headless (`jupyter nbconvert --execute`) inside the real Compose Jupyter image (2026-10-27). The Jupyter image needs `git`: `dbt debug` checks for it and reports FAILED without it. `rag_demo.ipynb` asks `input()` when the Qdrant collection already has documents, so a headless run must answer that prompt (it otherwise skips the QA chain).
 
 19. **Helm chart (`charts/data-lab`) rules** (full detail in its README; audit in `docs/HELM_GAP_REPORT.md`):
@@ -209,6 +213,11 @@ All services use the same hardcoded credentials (intentional for local dev — *
     - Airflow task logs live on the `<fullname>-airflow-logs` PVC (default on; the api-server reads them locally because LocalExecutor tasks share the pod), with no S3 remote logging. Postgres in the chart is 17.11 (Compose HMS stays on 13). Airflow is 3.3.2 with SimpleAuthManager. Its password file is written by an init container, and the API server is also the execution API for LocalExecutor tasks (`http://localhost:8080/execution/`).
     - Spark History Server (`sparkHistory`, default on) reads `s3a://<bucket>/spark-events`. An `event-log-dir` init container creates it with Spark's own Hadoop client (`FsShell` + a generated `core-site.xml`), because Spark refuses to start if the dir is missing. Spark Connect is started with `exec spark-submit --class org.apache.spark.sql.connect.service.SparkConnectServer`, **not** `sbin/start-connect-server.sh`. That script keeps the JVM a child of bash, so SIGTERM never reaches Spark and the event log is never closed (S3 shows a file only once closed). History `/tmp` must allow exec (zstd native lib).
     - MCP servers (off by default): Kubeflow Spark History MCP (official image, config from a ConfigMap; servers `history` and `live` = Connect UI :4040; DNS-rebinding protection lists the release's Service names). Airflow MCP = `astro-airflow-mcp` in `airflow-mcp/Dockerfile`, logging in as its own SimpleAuthManager user (`viewer` when `readOnly`, else `op`), added to `AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS` and the auth-file init. Neither MCP authenticates callers. The e2e calls both through `hack/mcp-call.py`.
+    - **Gateway** (`gateway.enabled`, off): HTTPRoutes per enabled UI on a namespaced Gateway (`gatewayClassName`) or a shared one (`parentRef`), hostnames `{{route}}.{{release}}.{{domain}}` so releases never collide; the chart never creates a GatewayClass. `gateway.allowFromNamespaces` opens the NetworkPolicy to the proxy pods.
+    - **API checks**: gateway, `ollama.gpu.dra` and `semantic` fail rendering without their APIs. `helm lint`/`ct lint` cannot pass `--api-versions`, so CI lints with `global.apiChecks=false` (ct.yaml `helm-lint-extra-args`) and renders with `--api-versions` for kubeconform. New namespaced kinds go into `hack/check-chart-render.py`'s allow-list.
+    - **Semantic Operator** (`semantic.enabled`, off): upstream manager + server images, configs ported from `kubeflow/semantic-operator@4fd7057` (`templates/_semantic.tpl`), engine = the release's Trino (no password, static identity). The CRD is vendored in `hack/crds/` and installed separately. **C13**: `header` auth trusts `X-Semantic-User`/`X-Semantic-Role`; it is the default only because the release NetworkPolicy is the boundary (use `jwt` + `jwksURL` on shared clusters). **C14**: the manager has no label selector, so at most one semantic-enabled release per namespace (a `lookup` guard in `validate.yaml` refuses a second one). The manager's finalizer would block uninstall, so a **pre-delete hook** (`semantic-cleanup-hook.yaml`, stdlib Python in the Spark image) deletes the release's SemanticModels first and strips the finalizer after 90 s. Ossie expressions are `ANSI_SQL` (no `TRINO` dialect yet, apache/ossie#607); no `spec.views` (Iceberg views via the HMS REST catalog unverified). The MCP model name is `spec.ossie.name` (`dbt_demo`, endpoints key `SEMANTIC_DEMO_MODEL`).
+    - **Chat notebook**: `qwen3:4b` (Ollama tool calling; `gemma3` has none). `lab_utils` speaks MCP with stdlib HTTP (no `mcp` SDK); unit tests fake the LLM, MCP and Trino.
+    - **Render tests**: `tests/chart` renders the chart (`tests/chart/conftest.py`); `golden/default-resources.txt` pins the default resource set to chart 0.1.0, so a Sandpiper upgrade with defaults creates and deletes nothing. Regenerate it only for a deliberate default change (and say so in the CHANGELOG).
     - Local verification without a cluster: render, then run each container in Docker with `--user <uid> --cap-drop ALL --security-opt no-new-privileges` and the rendered command/config. Nested kind/k3s does not work in the cloud sandbox (`oom_score_adj` is forbidden).
 
 ---
@@ -231,7 +240,7 @@ spark/
 jupyter/
   Dockerfile                  # JupyterLab + PySpark + full GenAI stack
   spark-defaults.conf         # Same as spark/conf/spark-defaults.conf
-  notebooks/                  # Example notebooks (iceberg/, dbt/ + lab_utils.py)
+  notebooks/                  # Example notebooks (iceberg/, dbt/, semantic/ + lab_utils.py: endpoints + helpers)
 trino/
   Dockerfile                  # Trino 483
   etc/catalog/hive.properties       # Hive connector → HMS thrift
@@ -239,29 +248,32 @@ trino/
   etc/catalog/lakehouse.properties  # Lakehouse connector (Hive + Iceberg tables) → HMS thrift
 tests/e2e/
   run-e2e.sh                  # Starts core services, runs the e2e test via spark-submit
-  e2e_lakehouse.py            # 19 checks: Spark/Trino × hive/iceberg/lakehouse catalogs
+  e2e_lakehouse.py            # 19 checks: Spark/Trino × hive/iceberg/lakehouse catalogs (endpoints from env, Compose defaults)
+tests/chart/                  # render tests for charts/data-lab (pytest, needs helm); golden/ = default resource set
+tests/unit/                   # lab_utils (semantic chat helpers, endpoints rule), compose parity
 charts/data-lab/              # Helm chart (Kubernetes): values.yaml = public API, values.schema.json generated
   templates/                  # one file per component; _helpers.tpl (names, labels, images, secrets), tests/
-  ci/*-values.yaml            # profiles: default, minimal, small, ephemeral, full (ct lint + kind e2e)
+  ci/*-values.yaml            # profiles: default, minimal, small, ephemeral, full, semantic, workstation (ct lint + kind e2e)
+  files/e2e_lakehouse.py      # copy of tests/e2e/e2e_lakehouse.py for the lakehouse helm test
   README.md(.gotmpl), CHANGELOG.md
 hack/
   gen-chart-schema.py         # values.yaml -> values.schema.json (--check in CI)
   check-chart-render.py       # policy checks on helm template output
   kind-up.sh                  # local kind cluster (optionally Calico) + image loading for the kind e2e
-  chart-e2e-kind.sh           # kind e2e: minimal (timed) / default / parallel + helm test + clean uninstall
+  chart-e2e-kind.sh           # kind e2e: minimal (timed) / default / parallel / semantic + helm test + clean uninstall
+  check-compose-parity.py     # Compose Spark conf + e2e script copy vs the chart
+  crds/                       # vendored SemanticModel CRD (Kubeflow Semantic Operator, cluster-scoped)
+  workstation/                # minikube lab: setup-minikube, build-images, deploy, e2e, Headlamp, gateway/port forwards, versions.env
   mcp-call.py, airflow-logs-check.py  # in-cluster helpers used by the e2e
 airflow-mcp/Dockerfile        # Airflow MCP image (astro-airflow-mcp) for the chart
 ct.yaml                       # chart-testing config
 .github/workflows/chart-*.yaml # lint, kind e2e, OCI release (images + chart on v* tags)
-helm/
-  README.md                   # Kubernetes quick start, GPU modes, access
-  datalab/                    # Helm chart (templates per service, values.yaml, values-minikube.yaml, files/e2e_lakehouse.py)
-  headlamp-values.yaml        # Headlamp (official chart) + Kubeflow plugin; pins mirrored in scripts/versions.env
-  scripts/                    # setup-minikube, build-images, deploy, install-headlamp, headlamp-token, gateway-forward, hosts, port-forward, lint, check-parity, e2e-k8s
 docs/
-  K8S_HELM_PLAN.md            # Design/decisions for the Kubernetes chart
+  K8S_HELM_PLAN.md            # Design of the former helm/datalab minikube chart (superseded; its real-node findings still apply)
+  WORKSTATION_TESTING.md      # Manual test runbook: Compose, kind, workstation, Sandpiper portability
+  superpowers/plans/          # implementation plans
   HELM_GAP_REPORT.md          # Helm requirements audit, conflicts with component limits
-  VERSIONS.md                 # Authoritative version matrix (components, runtimes, access paths, blockers, §8 chart images, §9 helm/ tooling)
+  VERSIONS.md                 # Authoritative version matrix (components, runtimes, access paths, blockers, §8 chart images, §9 workstation tooling)
   UPGRADE_PLAN.md             # Compatibility research + version pins rationale (2026-10 upgrade)
 ```
 
@@ -273,4 +285,5 @@ docs/
 - [`jupyter/notebooks/rag_demo.ipynb`](jupyter/notebooks/rag_demo.ipynb) — RAG pipeline: Qdrant + `mxbai-embed-large` embeddings + `gemma3:4b` LLM + LangChain
 - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
 - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
+- [`jupyter/notebooks/semantic/01_chat_with_your_data.ipynb`](jupyter/notebooks/semantic/01_chat_with_your_data.ipynb) — `qwen3:4b` answers 5 questions through the Semantic Operator's MCP tools vs raw text-to-SQL, scored against ground truth; governance refusal for role `marketing`. Chart with `semantic.enabled` only (stops on Compose).
 - `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`)
