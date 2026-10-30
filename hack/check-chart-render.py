@@ -15,7 +15,8 @@ import sys
 import yaml
 
 NAMESPACED = {"ConfigMap", "Secret", "Service", "Deployment", "PersistentVolumeClaim", "ServiceAccount",
-              "Role", "RoleBinding", "NetworkPolicy", "Pod"}
+              "Role", "RoleBinding", "NetworkPolicy", "Pod",
+              "Gateway", "HTTPRoute"}  # namespaced Gateway API kinds (gateway.enabled)
 LABELS = ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/version",
           "app.kubernetes.io/managed-by", "helm.sh/chart"]
 

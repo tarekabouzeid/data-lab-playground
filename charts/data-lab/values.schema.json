@@ -95,6 +95,55 @@
         }
       }
     },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create an HTTPRoute for each enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant, ollama, s3)."
+        },
+        "gatewayClassName": {
+          "type": "string",
+          "description": "Create a namespaced Gateway `<fullname>-gateway` on this existing GatewayClass. Set this or `parentRef`, not both."
+        },
+        "parentRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of the existing Gateway."
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Namespace of the existing Gateway (empty = the release namespace)."
+            },
+            "sectionName": {
+              "type": "string",
+              "description": "Listener (section) name on the existing Gateway (empty = all listeners)."
+            }
+          },
+          "description": "Attach the routes to an existing Gateway instead (for example a shared one in another namespace)."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Domain the route hostnames are built on."
+        },
+        "hostTemplate": {
+          "type": "string",
+          "description": "Hostname template. `{{ .route }}`, `{{ .release }}` and `{{ .domain }}` are replaced; keep the release in it so parallel releases get distinct hostnames."
+        },
+        "allowFromNamespaces": {
+          "type": "array",
+          "description": "Namespaces whose pods may reach the release (the gateway's proxy pods), added to the NetworkPolicy."
+        },
+        "extraRoutes": {
+          "type": "array",
+          "description": "Extra routes to Services the chart does not manage, e.g. `{name: headlamp, service: headlamp, port: 80, longLived: true}`."
+        }
+      }
+    },
     "s3": {
       "type": "object",
       "additionalProperties": false,

@@ -137,5 +137,10 @@ data:
   PHOENIX_CREDENTIALS_ADMIN_PASSWORD_KEY: {{ .adminPasswordKey | quote }}
   {{- end }}
   {{- end }}
+  {{- if $v.gateway.enabled }}
+  {{- range (include "datalab.gatewayRoutes" . | fromYamlArray) }}
+  GATEWAY_URL_{{ .name | upper | replace "-" "_" }}: {{ printf "http://%s" .host | quote }}
+  {{- end }}
+  {{- end }}
   ENDPOINTS_JSON: |
     {{- toPrettyJson $e | nindent 4 }}

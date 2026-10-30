@@ -252,6 +252,16 @@ Kubernetes: `>=1.29.0-0`
 | commonLabels | object | `{}` | Labels added to every resource. |
 | networkPolicy.enabled | bool | `true` | Create a NetworkPolicy that only admits ingress from pods of this release (same namespace) plus `extraIngressFrom`. HMS, Trino and Ollama have no authentication in this setup (see the chart README), so keep this on in shared clusters. |
 | networkPolicy.extraIngressFrom | list | `[]` | Extra NetworkPolicyPeer entries allowed to reach every component (for example the consumer's namespace). |
+| gateway.enabled | bool | `false` | Create an HTTPRoute for each enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant, ollama, s3). |
+| gateway.gatewayClassName | string | `""` | Create a namespaced Gateway `<fullname>-gateway` on this existing GatewayClass. Set this or `parentRef`, not both. |
+| gateway.parentRef | object | `{"name":"","namespace":"","sectionName":""}` | Attach the routes to an existing Gateway instead (for example a shared one in another namespace). |
+| gateway.parentRef.name | string | `""` | Name of the existing Gateway. |
+| gateway.parentRef.namespace | string | `""` | Namespace of the existing Gateway (empty = the release namespace). |
+| gateway.parentRef.sectionName | string | `""` | Listener (section) name on the existing Gateway (empty = all listeners). |
+| gateway.domain | string | `"localhost"` | Domain the route hostnames are built on. |
+| gateway.hostTemplate | string | `"{{ .route }}.{{ .release }}.{{ .domain }}"` | Hostname template. `{{ .route }}`, `{{ .release }}` and `{{ .domain }}` are replaced; keep the release in it so parallel releases get distinct hostnames. |
+| gateway.allowFromNamespaces | list | `[]` | Namespaces whose pods may reach the release (the gateway's proxy pods), added to the NetworkPolicy. |
+| gateway.extraRoutes | list | `[]` | Extra routes to Services the chart does not manage, e.g. `{name: headlamp, service: headlamp, port: 80, longLived: true}`. |
 | s3.endpoint | string | `""` | External S3 endpoint URL. Leave empty to use the bundled SeaweedFS (requires `seaweedfs.enabled`). |
 | s3.bucket | string | `"warehouse"` | Bucket holding the warehouse. The bundled SeaweedFS creates it; an external bucket must already exist. |
 | s3.region | string | `"us-east-1"` | S3 region. |

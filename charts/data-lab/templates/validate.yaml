@@ -13,6 +13,9 @@
 {{- if and $v.trino.enabled (not $v.hms.enabled) -}}
 {{- fail "data-lab: trino.enabled=true requires hms.enabled=true (Trino's hive/iceberg/lakehouse catalogs use the Hive Metastore)" -}}
 {{- end -}}
+{{- if and $v.gateway.enabled (eq (empty $v.gateway.gatewayClassName) (empty $v.gateway.parentRef.name)) -}}
+{{- fail "data-lab: gateway.enabled=true needs exactly one of gateway.gatewayClassName or gateway.parentRef.name" -}}
+{{- end -}}
 {{- if and $v.spark.enabled (not $v.hms.enabled) -}}
 {{- fail "data-lab: spark.enabled=true requires hms.enabled=true (Spark's Iceberg catalog is the HMS Iceberg REST catalog)" -}}
 {{- end -}}

@@ -45,6 +45,31 @@ networkPolicy:
   # -- Extra NetworkPolicyPeer entries allowed to reach every component (for example the consumer's namespace).
   extraIngressFrom: []
 
+# Browser access through Gateway API HTTPRoutes (needs a Gateway API implementation, e.g. Envoy Gateway).
+# Off by default; the chart never creates a GatewayClass (cluster-scoped).
+gateway:
+  # -- Create an HTTPRoute for each enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant, ollama, s3).
+  enabled: false
+  # -- Create a namespaced Gateway `<fullname>-gateway` on this existing GatewayClass. Set this or `parentRef`, not both.
+  gatewayClassName: ""
+  # -- Attach the routes to an existing Gateway instead (for example a shared one in another namespace).
+  parentRef:
+    # -- Name of the existing Gateway.
+    name: ""
+    # -- Namespace of the existing Gateway (empty = the release namespace).
+    namespace: ""
+    # -- Listener (section) name on the existing Gateway (empty = all listeners).
+    sectionName: ""
+  # -- Domain the route hostnames are built on.
+  domain: localhost
+  # -- Hostname template. `{{ .route }}`, `{{ .release }}` and `{{ .domain }}` are replaced; keep the release in it so
+  # parallel releases get distinct hostnames.
+  hostTemplate: "{{ .route }}.{{ .release }}.{{ .domain }}"
+  # -- Namespaces whose pods may reach the release (the gateway's proxy pods), added to the NetworkPolicy.
+  allowFromNamespaces: []
+  # -- Extra routes to Services the chart does not manage, e.g. `{name: headlamp, service: headlamp, port: 80, longLived: true}`.
+  extraRoutes: []
+
 # Object storage used by HMS, Spark and Trino. SeaweedFS (below) serves it unless `s3.endpoint` points elsewhere.
 s3:
   # -- External S3 endpoint URL. Leave empty to use the bundled SeaweedFS (requires `seaweedfs.enabled`).

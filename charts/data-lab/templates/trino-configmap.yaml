@@ -14,6 +14,10 @@ data:
     node-scheduler.include-coordinator=true
     http-server.http.port=8080
     discovery.uri=http://localhost:8080
+    {{- if .Values.gateway.enabled }}
+    # behind the Gateway's proxy: honour X-Forwarded-* (otherwise the UI answers 406)
+    http-server.process-forwarded=true
+    {{- end }}
     {{- range $k, $val := $c.extraConfig }}
     {{ $k }}={{ $val }}
     {{- end }}
