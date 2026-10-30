@@ -84,7 +84,7 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 - `jupyter/notebooks/data_lab_playground.ipynb` — Platform integration demo
 - `jupyter/notebooks/rag_demo.ipynb` — RAG pipeline (Qdrant + Ollama + LangChain)
-- `jupyter/notebooks/iceberg/` (00–04) — Iceberg 1.12 features; `jupyter/notebooks/dbt/` (01–03) + `dbt/lakehouse_demo` project; `jupyter/notebooks/semantic/01_chat_with_your_data.ipynb` (Semantic Operator vs raw text-to-SQL, chart only); shared `lab_utils.py` (all endpoints). Rules: no module named `dbt_*`, never `DROP SCHEMA` in notebooks, no `.master()` (works on Compose and Spark Connect). The Jupyter image needs `git` for `dbt debug`. See AGENTS.md pitfall 18.
+- `jupyter/notebooks/iceberg/` (00–04) — Iceberg 1.12 features; `jupyter/notebooks/dbt/` (01–03) + `dbt/lakehouse_demo` project; `jupyter/notebooks/semantic/01_chat_with_your_data.ipynb` (Semantic Operator vs raw text-to-SQL, chart only); shared `lab_utils.py` (all endpoints) and `lab_data.py` (Northwind Gear: the one shop all notebooks use, derived deterministically from the dbt seeds; layers `dbt_demo_raw` → `shop_bronze` (v2) / `shop_v3` (v3, Spark only) → `dbt_demo`). Rules: no module named `dbt_*`, never `DROP SCHEMA` in notebooks, no `.master()` (works on Compose and Spark Connect). The Jupyter image needs `git` for `dbt debug`. See AGENTS.md pitfall 18.
 
 ## Versions Reference
 
