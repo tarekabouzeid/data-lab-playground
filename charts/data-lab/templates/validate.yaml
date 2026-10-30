@@ -16,6 +16,25 @@
 {{- if and $v.gateway.enabled (eq (empty $v.gateway.gatewayClassName) (empty $v.gateway.parentRef.name)) -}}
 {{- fail "data-lab: gateway.enabled=true needs exactly one of gateway.gatewayClassName or gateway.parentRef.name" -}}
 {{- end -}}
+{{- if and $v.semantic.enabled (not $v.trino.enabled) -}}
+{{- fail "data-lab: semantic.enabled=true requires trino.enabled=true (the semantic layer compiles to Trino SQL)" -}}
+{{- end -}}
+{{- if and $v.semantic.enabled (eq $v.semantic.server.auth.mode "jwt") (empty $v.semantic.server.auth.jwt.jwksURL) -}}
+{{- fail "data-lab: semantic.server.auth.mode=jwt requires semantic.server.auth.jwt.jwksURL" -}}
+{{- end -}}
+{{- if and $v.semantic.enabled (not (has $v.semantic.server.auth.mode (list "header" "jwt"))) -}}
+{{- fail "data-lab: semantic.server.auth.mode must be header or jwt" -}}
+{{- end -}}
+{{- if $v.semantic.enabled -}}
+{{- /* The upstream manager reconciles every SemanticModel in its namespace and the server serves every compiled
+       model there, so two semantic-enabled releases in one namespace would fight. lookup is empty under helm template. */ -}}
+{{- range (lookup "apps/v1" "Deployment" .Release.Namespace "").items -}}
+{{- $l := .metadata.labels | default dict -}}
+{{- if and (eq (get $l "app.kubernetes.io/component") "semantic-manager") (ne (get $l "app.kubernetes.io/instance") $.Release.Name) -}}
+{{- fail (printf "data-lab: release %q already runs the Semantic Operator in namespace %q; one semantic-enabled release per namespace (C14)" (get $l "app.kubernetes.io/instance") $.Release.Namespace) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- if and $v.spark.enabled (not $v.hms.enabled) -}}
 {{- fail "data-lab: spark.enabled=true requires hms.enabled=true (Spark's Iceberg catalog is the HMS Iceberg REST catalog)" -}}
 {{- end -}}

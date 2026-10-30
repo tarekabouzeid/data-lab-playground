@@ -1,0 +1,58 @@
+{{- if .Values.semantic.enabled }}
+{{- /* Namespaced only (upstream rbac.yaml with watchNamespaces = the release namespace). */ -}}
+{{- $m := include "datalab.componentName" (list . "semantic-manager") }}
+{{- $s := include "datalab.componentName" (list . "semantic-server") }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $m }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic-manager") | nindent 4 }}
+rules:
+  - apiGroups: [semantic.ossie.io]
+    resources: [semanticmodels]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [semantic.ossie.io]
+    resources: [semanticmodels/status, semanticmodels/finalizers]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $s }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic-server") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch]
+{{- range list $m $s }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list $ "semantic") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ . }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

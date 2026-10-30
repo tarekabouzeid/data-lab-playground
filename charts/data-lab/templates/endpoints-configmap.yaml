@@ -141,6 +141,11 @@ data:
   PHOENIX_CREDENTIALS_ADMIN_PASSWORD_KEY: {{ .adminPasswordKey | quote }}
   {{- end }}
   {{- end }}
+  {{- if $v.semantic.enabled }}
+  SEMANTIC_MCP_URL: {{ printf "http://%s:8090/mcp" (include "datalab.host" (list . "semantic")) | quote }}
+  SEMANTIC_REST_URL: {{ printf "http://%s:8090/v1" (include "datalab.host" (list . "semantic")) | quote }}
+  SEMANTIC_DEFAULT_ROLE: "analyst"
+  {{- end }}
   {{- if $v.gateway.enabled }}
   {{- range (include "datalab.gatewayRoutes" . | fromYamlArray) }}
   GATEWAY_URL_{{ .name | upper | replace "-" "_" }}: {{ printf "http://%s" .host | quote }}

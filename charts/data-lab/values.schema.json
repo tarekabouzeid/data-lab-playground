@@ -1585,6 +1585,280 @@
         }
       }
     },
+    "semantic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the Semantic Operator manager and server."
+        },
+        "manager": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "registry": {
+                  "type": "string",
+                  "description": "Image registry."
+                },
+                "repository": {
+                  "type": "string",
+                  "description": "Image repository."
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Image tag."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ],
+                  "description": "Image pull policy."
+                }
+              }
+            },
+            "resyncPeriod": {
+              "type": "string",
+              "description": "How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns Ready within this period once they do)."
+            },
+            "engineUser": {
+              "type": "string",
+              "description": "Trino user the manager introspects metadata as."
+            },
+            "resources": {
+              "type": "object",
+              "description": "Container resources."
+            },
+            "podSecurityContext": {
+              "type": "object",
+              "description": "Pod securityContext (the images are distroless, uid 65532)."
+            },
+            "securityContext": {
+              "type": "object",
+              "description": "Extra container securityContext, merged over `global.containerSecurityContext`."
+            },
+            "runtimeClassName": {
+              "type": "string",
+              "description": "RuntimeClass. Empty falls back to `global.runtimeClassName`."
+            },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Node selector. Empty falls back to `global.nodeSelector`."
+            },
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Tolerations. Empty falls back to `global.tolerations`."
+            },
+            "affinity": {
+              "type": "object",
+              "description": "Affinity."
+            },
+            "podLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod labels."
+            },
+            "podAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod annotations."
+            }
+          }
+        },
+        "server": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "registry": {
+                  "type": "string",
+                  "description": "Image registry."
+                },
+                "repository": {
+                  "type": "string",
+                  "description": "Image repository."
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Image tag."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ],
+                  "description": "Image pull policy."
+                }
+              }
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Server replicas."
+            },
+            "engineUser": {
+              "type": "string",
+              "description": "Trino user queries run as (static identity)."
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "header",
+                    "jwt"
+                  ],
+                  "description": "`header`: X-Semantic-User/X-Semantic-Role are trusted as sent; safe here only because the release NetworkPolicy admits nothing but this release's pods. `jwt`: bearer tokens checked against `jwt.jwksURL`."
+                },
+                "jwt": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "jwksURL": {
+                      "type": "string",
+                      "description": "JWKS URL of the identity provider (required for `jwt`)."
+                    },
+                    "issuer": {
+                      "type": "string",
+                      "description": "Expected issuer (optional)."
+                    },
+                    "audience": {
+                      "type": "string",
+                      "description": "Expected audience (optional)."
+                    },
+                    "principalClaim": {
+                      "type": "string",
+                      "description": "Claim naming the principal."
+                    },
+                    "roleClaim": {
+                      "type": "string",
+                      "description": "Claim holding the governance role."
+                    },
+                    "groupsClaim": {
+                      "type": "string",
+                      "description": "Claim holding groups (optional)."
+                    }
+                  }
+                }
+              }
+            },
+            "extraConfig": {
+              "type": "object",
+              "description": "Extra keys merged into the server's config.yaml (e.g. `query: {maxRowLimit: 5000}`); see the upstream chart."
+            },
+            "resources": {
+              "type": "object",
+              "description": "Container resources."
+            },
+            "podSecurityContext": {
+              "type": "object",
+              "description": "Pod securityContext (the images are distroless, uid 65532)."
+            },
+            "securityContext": {
+              "type": "object",
+              "description": "Extra container securityContext, merged over `global.containerSecurityContext`."
+            },
+            "runtimeClassName": {
+              "type": "string",
+              "description": "RuntimeClass. Empty falls back to `global.runtimeClassName`."
+            },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Node selector. Empty falls back to `global.nodeSelector`."
+            },
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Tolerations. Empty falls back to `global.tolerations`."
+            },
+            "affinity": {
+              "type": "object",
+              "description": "Affinity."
+            },
+            "podLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod labels."
+            },
+            "podAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod annotations."
+            }
+          }
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dbtDemo": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Render the `dbt-demo` SemanticModel over the dbt demo tables (jupyter/notebooks/dbt/lakehouse_demo)."
+                },
+                "catalog": {
+                  "type": "string",
+                  "description": "Trino catalog of the dbt demo tables."
+                },
+                "schema": {
+                  "type": "string",
+                  "description": "Schema of the dbt demo tables."
+                }
+              }
+            },
+            "extra": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "spec"
+                ]
+              },
+              "description": "Extra SemanticModel specs, each `{name: <suffix>, spec: <SemanticModel spec>}`."
+            }
+          }
+        }
+      }
+    },
     "jupyter": {
       "type": "object",
       "additionalProperties": false,

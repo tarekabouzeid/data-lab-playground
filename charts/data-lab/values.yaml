@@ -659,6 +659,119 @@ airflow:
     # -- Extra pod annotations.
     podAnnotations: {}
 
+# Kubeflow Semantic Operator: an Apache Ossie semantic layer on the release's Trino, served to agents over MCP
+# (`/mcp`) and to apps over REST (`/v1`). Needs the SemanticModel CRD (hack/crds/, cluster-scoped, installed
+# separately) and `trino.enabled`. At most one semantic-enabled release per namespace (the manager has no selector).
+semantic:
+  # -- Deploy the Semantic Operator manager and server.
+  enabled: false
+  manager:
+    image:
+      # -- Image registry.
+      registry: public.ecr.aws
+      # -- Image repository.
+      repository: data-on-eks/semantic-operator/manager
+      # -- Image tag.
+      tag: v0.1.1
+      # -- Image pull policy.
+      pullPolicy: IfNotPresent
+    # -- How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns
+    # Ready within this period once they do).
+    resyncPeriod: 30s
+    # -- Trino user the manager introspects metadata as.
+    engineUser: semantic-manager
+    # -- Container resources.
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 256Mi}
+    # -- Pod securityContext (the images are distroless, uid 65532).
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      seccompProfile: {type: RuntimeDefault}
+    # -- Extra container securityContext, merged over `global.containerSecurityContext`.
+    securityContext: {}
+    # -- RuntimeClass. Empty falls back to `global.runtimeClassName`.
+    runtimeClassName: ""
+    # -- Node selector. Empty falls back to `global.nodeSelector`.
+    nodeSelector: {}
+    # -- Tolerations. Empty falls back to `global.tolerations`.
+    tolerations: []
+    # -- Affinity.
+    affinity: {}
+    # -- Extra pod labels.
+    podLabels: {}
+    # -- Extra pod annotations.
+    podAnnotations: {}
+  server:
+    image:
+      # -- Image registry.
+      registry: public.ecr.aws
+      # -- Image repository.
+      repository: data-on-eks/semantic-operator/server
+      # -- Image tag.
+      tag: v0.1.1
+      # -- Image pull policy.
+      pullPolicy: IfNotPresent
+    # -- Server replicas.
+    replicas: 1
+    # -- Trino user queries run as (static identity).
+    engineUser: semantic-server
+    auth:
+      # -- `header`: X-Semantic-User/X-Semantic-Role are trusted as sent; safe here only because the release
+      # NetworkPolicy admits nothing but this release's pods. `jwt`: bearer tokens checked against `jwt.jwksURL`.
+      mode: header
+      jwt:
+        # -- JWKS URL of the identity provider (required for `jwt`).
+        jwksURL: ""
+        # -- Expected issuer (optional).
+        issuer: ""
+        # -- Expected audience (optional).
+        audience: ""
+        # -- Claim naming the principal.
+        principalClaim: sub
+        # -- Claim holding the governance role.
+        roleClaim: role
+        # -- Claim holding groups (optional).
+        groupsClaim: ""
+    # -- Extra keys merged into the server's config.yaml (e.g. `query: {maxRowLimit: 5000}`); see the upstream chart.
+    extraConfig: {}
+    # -- Container resources.
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 512Mi}
+    # -- Pod securityContext (the images are distroless, uid 65532).
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      seccompProfile: {type: RuntimeDefault}
+    # -- Extra container securityContext, merged over `global.containerSecurityContext`.
+    securityContext: {}
+    # -- RuntimeClass. Empty falls back to `global.runtimeClassName`.
+    runtimeClassName: ""
+    # -- Node selector. Empty falls back to `global.nodeSelector`.
+    nodeSelector: {}
+    # -- Tolerations. Empty falls back to `global.tolerations`.
+    tolerations: []
+    # -- Affinity.
+    affinity: {}
+    # -- Extra pod labels.
+    podLabels: {}
+    # -- Extra pod annotations.
+    podAnnotations: {}
+  models:
+    dbtDemo:
+      # -- Render the `dbt-demo` SemanticModel over the dbt demo tables (jupyter/notebooks/dbt/lakehouse_demo).
+      enabled: true
+      # -- Trino catalog of the dbt demo tables.
+      catalog: iceberg
+      # -- Schema of the dbt demo tables.
+      schema: dbt_demo
+    # -- Extra SemanticModel specs, each `{name: <suffix>, spec: <SemanticModel spec>}`.
+    extra: []
+
 jupyter:
   # -- Deploy JupyterLab (connects to Spark Connect, Trino and the GenAI services that are enabled).
   enabled: false

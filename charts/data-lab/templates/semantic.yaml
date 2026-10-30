@@ -1,0 +1,42 @@
+{{- if .Values.semantic.enabled }}
+{{- if not (.Capabilities.APIVersions.Has "semantic.ossie.io/v1alpha1/SemanticModel") -}}
+{{- fail "data-lab: semantic.enabled=true needs the SemanticModel CRD; apply hack/crds/semantic.ossie.io_semanticmodels.yaml first (cluster-scoped, once per cluster)" -}}
+{{- end }}
+{{- range list "manager" "server" }}
+{{- $comp := printf "semantic-%s" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datalab.componentName" (list $ $comp) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list $ $comp) | nindent 4 }}
+data:
+  config.yaml: |
+    {{- ternary (include "datalab.semanticServerConfig" $) (include "datalab.semanticManagerConfig" $) (eq . "server") | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "datalab.componentName" (list $ $comp) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list $ $comp) | nindent 4 }}
+---
+{{ include "datalab.semanticDeployment" (list $ .) }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "datalab.componentName" (list . "semantic") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic-server") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "semantic-server") | nindent 4 }}
+  ports:
+    - {name: http, port: 8090, targetPort: http}
+{{- end }}

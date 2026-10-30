@@ -486,6 +486,49 @@ Kubernetes: `>=1.29.0-0`
 | airflow.database.affinity | object | `{}` | Affinity for the pod. |
 | airflow.database.podLabels | object | `{}` | Extra pod labels. |
 | airflow.database.podAnnotations | object | `{}` | Extra pod annotations. |
+| semantic.enabled | bool | `false` | Deploy the Semantic Operator manager and server. |
+| semantic.manager.image.registry | string | `"public.ecr.aws"` | Image registry. |
+| semantic.manager.image.repository | string | `"data-on-eks/semantic-operator/manager"` | Image repository. |
+| semantic.manager.image.tag | string | `"v0.1.1"` | Image tag. |
+| semantic.manager.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| semantic.manager.resyncPeriod | string | `"30s"` | How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns Ready within this period once they do). |
+| semantic.manager.engineUser | string | `"semantic-manager"` | Trino user the manager introspects metadata as. |
+| semantic.manager.resources | object | `{"limits":{"memory":"256Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Container resources. |
+| semantic.manager.podSecurityContext | object | `{"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (the images are distroless, uid 65532). |
+| semantic.manager.securityContext | object | `{}` | Extra container securityContext, merged over `global.containerSecurityContext`. |
+| semantic.manager.runtimeClassName | string | `""` | RuntimeClass. Empty falls back to `global.runtimeClassName`. |
+| semantic.manager.nodeSelector | object | `{}` | Node selector. Empty falls back to `global.nodeSelector`. |
+| semantic.manager.tolerations | list | `[]` | Tolerations. Empty falls back to `global.tolerations`. |
+| semantic.manager.affinity | object | `{}` | Affinity. |
+| semantic.manager.podLabels | object | `{}` | Extra pod labels. |
+| semantic.manager.podAnnotations | object | `{}` | Extra pod annotations. |
+| semantic.server.image.registry | string | `"public.ecr.aws"` | Image registry. |
+| semantic.server.image.repository | string | `"data-on-eks/semantic-operator/server"` | Image repository. |
+| semantic.server.image.tag | string | `"v0.1.1"` | Image tag. |
+| semantic.server.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| semantic.server.replicas | int | `1` | Server replicas. |
+| semantic.server.engineUser | string | `"semantic-server"` | Trino user queries run as (static identity). |
+| semantic.server.auth.mode | string | `"header"` | `header`: X-Semantic-User/X-Semantic-Role are trusted as sent; safe here only because the release NetworkPolicy admits nothing but this release's pods. `jwt`: bearer tokens checked against `jwt.jwksURL`. |
+| semantic.server.auth.jwt.jwksURL | string | `""` | JWKS URL of the identity provider (required for `jwt`). |
+| semantic.server.auth.jwt.issuer | string | `""` | Expected issuer (optional). |
+| semantic.server.auth.jwt.audience | string | `""` | Expected audience (optional). |
+| semantic.server.auth.jwt.principalClaim | string | `"sub"` | Claim naming the principal. |
+| semantic.server.auth.jwt.roleClaim | string | `"role"` | Claim holding the governance role. |
+| semantic.server.auth.jwt.groupsClaim | string | `""` | Claim holding groups (optional). |
+| semantic.server.extraConfig | object | `{}` | Extra keys merged into the server's config.yaml (e.g. `query: {maxRowLimit: 5000}`); see the upstream chart. |
+| semantic.server.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"100m","memory":"256Mi"}}` | Container resources. |
+| semantic.server.podSecurityContext | object | `{"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (the images are distroless, uid 65532). |
+| semantic.server.securityContext | object | `{}` | Extra container securityContext, merged over `global.containerSecurityContext`. |
+| semantic.server.runtimeClassName | string | `""` | RuntimeClass. Empty falls back to `global.runtimeClassName`. |
+| semantic.server.nodeSelector | object | `{}` | Node selector. Empty falls back to `global.nodeSelector`. |
+| semantic.server.tolerations | list | `[]` | Tolerations. Empty falls back to `global.tolerations`. |
+| semantic.server.affinity | object | `{}` | Affinity. |
+| semantic.server.podLabels | object | `{}` | Extra pod labels. |
+| semantic.server.podAnnotations | object | `{}` | Extra pod annotations. |
+| semantic.models.dbtDemo.enabled | bool | `true` | Render the `dbt-demo` SemanticModel over the dbt demo tables (jupyter/notebooks/dbt/lakehouse_demo). |
+| semantic.models.dbtDemo.catalog | string | `"iceberg"` | Trino catalog of the dbt demo tables. |
+| semantic.models.dbtDemo.schema | string | `"dbt_demo"` | Schema of the dbt demo tables. |
+| semantic.models.extra | list | `[]` | Extra SemanticModel specs, each `{name: <suffix>, spec: <SemanticModel spec>}`. |
 | jupyter.enabled | bool | `false` | Deploy JupyterLab (connects to Spark Connect, Trino and the GenAI services that are enabled). |
 | jupyter.image.registry | string | `"ghcr.io"` | Image registry. |
 | jupyter.image.repository | string | `"tarekabouzeid/data-lab-playground/jupyter"` | Image repository (built from `jupyter/Dockerfile`, published by the release workflow). |
