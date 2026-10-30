@@ -1,0 +1,9 @@
+apiVersion: v2
+name: datalab
+description: DataLab Playground lakehouse on Kubernetes (same services and images as docker-compose.yaml)
+type: application
+version: 0.1.0
+# Platform release this chart mirrors (RELEASE_NOTES.md). The images are pinned in values.yaml.
+appVersion: "2.0.0"
+kubeVersion: ">=1.36.0-0"
+keywords: [lakehouse, spark, iceberg, trino, hive-metastore, seaweedfs, ollama, qdrant, phoenix, jupyter]

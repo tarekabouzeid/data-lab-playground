@@ -1,0 +1,98 @@
+{{- if .Values.trino.enabled }}
+{{- $c := .Values.trino -}}
+{{- $name := include "datalab.componentName" (list . "trino") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "trino") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "trino") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "trino") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "trino") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "trino" $c (dict "checksum/config" (include (print $.Template.BasePath "/trino-configmap.yaml") . | sha256sum))) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: trino
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          env:
+            {{- include "datalab.s3Env" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
+            periodSeconds: 3
+            failureThreshold: 100
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /v1/info
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/trino
+            - name: data
+              mountPath: /data/trino
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          projected:
+            sources:
+              - configMap:
+                  name: {{ $name }}
+                  items:
+                    - {key: config.properties, path: config.properties}
+                    - {key: node.properties, path: node.properties}
+                    - {key: jvm.config, path: jvm.config}
+                    - {key: log.properties, path: log.properties}
+                    - {key: hive.properties, path: catalog/hive.properties}
+                    - {key: iceberg.properties, path: catalog/iceberg.properties}
+                    - {key: lakehouse.properties, path: catalog/lakehouse.properties}
+                    {{- range $catalog, $_ := $c.additionalCatalogs }}
+                    - {key: {{ $catalog }}.properties, path: catalog/{{ $catalog }}.properties}
+                    {{- end }}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

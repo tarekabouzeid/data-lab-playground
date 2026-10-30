@@ -1,0 +1,82 @@
+{{- if and .Values.spark.enabled .Values.sparkHistory.enabled .Values.sparkHistoryMcp.enabled }}
+{{- $c := .Values.sparkHistoryMcp -}}
+{{- $name := include "datalab.componentName" (list . "spark-history-mcp") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-history-mcp") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "spark-history-mcp") | nindent 4 }}
+  ports:
+    - name: http
+      port: 18888
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-history-mcp") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "spark-history-mcp") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "spark-history-mcp" $c (dict "checksum/config" (include (print $.Template.BasePath "/spark-history-mcp-configmap.yaml") . | sha256sum))) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: mcp
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          env:
+            - name: SHS_MCP_CONFIG
+              value: /etc/spark-mcp/config.yaml
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 18888
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/spark-mcp
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

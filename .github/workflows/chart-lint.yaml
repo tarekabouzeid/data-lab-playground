@@ -1,0 +1,73 @@
+name: chart-lint
+
+on:
+  pull_request:
+    paths: ["charts/**", "hack/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
+  push:
+    paths: ["charts/**", "hack/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v3.19.0
+  KUBECONFORM_VERSION: v0.7.0
+  KUBE_VERSION: 1.34.0
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Python deps
+        run: pip install pyyaml==6.0.3
+
+      - name: values.schema.json is generated from values.yaml
+        run: hack/gen-chart-schema.py --check
+
+      - name: README values table is up to date (helm-docs)
+        run: |
+          docker run --rm -v "$PWD:/helm-docs" -u "$(id -u)" jnorwood/helm-docs:v1.14.2 -c charts -s file
+          git diff --exit-code charts/data-lab/README.md
+
+      - name: helm lint (every ci profile)
+        run: |
+          for f in charts/data-lab/ci/*-values.yaml; do
+            echo "::group::$f"; helm lint --strict charts/data-lab --kube-version "$KUBE_VERSION" -f "$f"; echo "::endgroup::"
+          done
+
+      - name: Invalid combinations fail at render
+        run: |
+          for s in hms.enabled=false seaweedfs.enabled=false "seaweedfs.enabled=false,s3.endpoint=https://s3.example" \
+                   airflow.dags.source=gitSync spark.master=yarn hms.typo=true; do
+            if helm template r charts/data-lab --kube-version "$KUBE_VERSION" --set "$s" >/dev/null 2>err.txt; then
+              echo "::error::--set $s rendered but must fail"; exit 1
+            fi
+            echo "$s -> $(head -c 200 err.txt | tr '\n' ' ')"
+          done
+
+      - uses: helm/chart-testing-action@v2.9.0
+      - name: ct lint
+        run: ct lint --config ct.yaml --target-branch "${{ github.event.repository.default_branch }}"
+
+      - name: kubeconform + policy checks (namespaced only, labels, ClusterIP, PSS restricted)
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar xz kubeconform
+          for f in charts/data-lab/ci/*-values.yaml; do
+            echo "::group::$f"
+            helm template rel charts/data-lab -n ns1 --kube-version "$KUBE_VERSION" -f "$f" > out.yaml
+            ./kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" out.yaml
+            hack/check-chart-render.py rel-data-lab ns1 < out.yaml
+            echo "::endgroup::"
+          done

@@ -1,0 +1,36 @@
+data-lab {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) installed as "{{ .Release.Name }}" in "{{ .Release.Namespace }}".
+
+Endpoints and the Secrets holding their credentials:
+  kubectl -n {{ .Release.Namespace }} get configmap {{ include "datalab.componentName" (list . "endpoints") }} -o jsonpath='{.data.ENDPOINTS_JSON}'
+{{- if .Values.trino.enabled }}
+
+Trino:   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "trino") }} 8080
+{{- end }}
+{{- if .Values.spark.enabled }}
+Spark:   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "spark-connect") }} 15002
+{{- if .Values.spark.auth.enabled }}
+         token: kubectl -n {{ .Release.Namespace }} get secret {{ include "datalab.sparkSecretName" . }} -o jsonpath='{.data.{{ .Values.spark.auth.tokenKey }}}' | base64 -d
+         connect with sc://localhost:15002/;authorization=Bearer <token>
+{{- end }}
+{{- end }}
+{{- if and .Values.spark.enabled .Values.sparkHistory.enabled }}
+Spark history: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "spark-history") }} 18080
+{{- end }}
+{{- if and .Values.spark.enabled .Values.sparkHistory.enabled .Values.sparkHistoryMcp.enabled }}
+Spark History MCP: http://{{ include "datalab.host" (list . "spark-history-mcp") }}:18888/mcp (servers: history, live)
+{{- end }}
+{{- if and .Values.airflow.enabled .Values.airflowMcp.enabled }}
+Airflow MCP: http://{{ include "datalab.host" (list . "airflow-mcp") }}:8000/mcp{{ if .Values.airflowMcp.readOnly }} (read-only){{ end }}
+{{- end }}
+{{- if .Values.airflow.enabled }}
+Airflow: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "airflow") }} 8080
+         user {{ .Values.airflow.auth.username }}, password in Secret {{ include "datalab.airflowAuthSecretName" . }} (key {{ .Values.airflow.auth.passwordKey }})
+{{- end }}
+{{- if .Values.jupyter.enabled }}
+Jupyter: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "jupyter") }} 8888
+         token in Secret {{ include "datalab.jupyterSecretName" . }} (key {{ .Values.jupyter.auth.tokenKey }})
+{{- end }}
+{{- if and .Values.tests.enabled .Values.spark.enabled .Values.trino.enabled }}
+
+Smoke test (Spark writes an Iceberg table, Trino reads it): helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+{{- end }}

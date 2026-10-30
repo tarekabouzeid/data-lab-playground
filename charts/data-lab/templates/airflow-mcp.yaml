@@ -1,0 +1,95 @@
+{{- if and .Values.airflow.enabled .Values.airflowMcp.enabled }}
+{{- $c := .Values.airflowMcp -}}
+{{- $name := include "datalab.componentName" (list . "airflow-mcp") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "airflow-mcp") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datalab.componentSelectorLabels" (list . "airflow-mcp") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "airflow-mcp") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "datalab.componentSelectorLabels" (list . "airflow-mcp") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "datalab.podMetadata" (list . "airflow-mcp" $c) | nindent 6 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: mcp
+          image: {{ include "datalab.image" (list . $c.image) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $c) | nindent 12 }}
+          env:
+            - name: MCP_TRANSPORT
+              value: http
+            - name: MCP_HOST
+              value: 0.0.0.0
+            - name: MCP_PORT
+              value: "8000"
+            - name: AIRFLOW_API_URL
+              value: http://{{ include "datalab.host" (list . "airflow") }}:8080
+            - name: AIRFLOW_USERNAME
+              value: {{ $c.username | quote }}
+            - name: AIRFLOW_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "datalab.airflowMcpSecretName" . }}
+                  key: {{ $c.auth.passwordKey }}
+            - name: AF_READ_ONLY
+              value: {{ $c.readOnly | quote }}
+            - name: AF_TELEMETRY_DISABLED
+              value: "true"
+            - name: HOME
+              value: /tmp
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

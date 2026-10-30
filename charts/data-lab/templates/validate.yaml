@@ -1,0 +1,36 @@
+{{- /* Render-time validation of component combinations. Nothing is rendered. */ -}}
+{{- $v := .Values -}}
+{{- $s3 := or $v.seaweedfs.enabled (ne $v.s3.endpoint "") -}}
+{{- if and $v.seaweedfs.enabled (ne $v.s3.endpoint "") -}}
+{{- fail "data-lab: set either seaweedfs.enabled=true or s3.endpoint, not both (s3.endpoint replaces the bundled SeaweedFS)" -}}
+{{- end -}}
+{{- if and (ne $v.s3.endpoint "") (eq $v.s3.auth.existingSecret "") -}}
+{{- fail "data-lab: s3.endpoint (external S3) requires s3.auth.existingSecret with the access key pair" -}}
+{{- end -}}
+{{- if and $v.hms.enabled (not $s3) -}}
+{{- fail "data-lab: hms.enabled=true needs object storage: enable seaweedfs or set s3.endpoint" -}}
+{{- end -}}
+{{- if and $v.trino.enabled (not $v.hms.enabled) -}}
+{{- fail "data-lab: trino.enabled=true requires hms.enabled=true (Trino's hive/iceberg/lakehouse catalogs use the Hive Metastore)" -}}
+{{- end -}}
+{{- if and $v.spark.enabled (not $v.hms.enabled) -}}
+{{- fail "data-lab: spark.enabled=true requires hms.enabled=true (Spark's Iceberg catalog is the HMS Iceberg REST catalog)" -}}
+{{- end -}}
+{{- if and $v.airflow.enabled (eq $v.airflow.dags.source "gitSync") (eq $v.airflow.dags.gitSync.repo "") -}}
+{{- fail "data-lab: airflow.dags.source=gitSync requires airflow.dags.gitSync.repo" -}}
+{{- end -}}
+{{- if and $v.spark.enabled (eq $v.spark.master "kubernetes") (not $v.spark.rbac.create) (not $v.spark.serviceAccount.name) -}}
+{{- fail "data-lab: spark.master=kubernetes with spark.rbac.create=false needs spark.serviceAccount.name of a ServiceAccount that may manage pods and configmaps in this namespace" -}}
+{{- end -}}
+{{- if and $v.ollama.enabled $v.ollama.gpu.enabled (not $v.ollama.gpu.resourceName) -}}
+{{- fail "data-lab: ollama.gpu.enabled=true requires ollama.gpu.resourceName" -}}
+{{- end -}}
+{{- if and $v.sparkHistoryMcp.enabled (not $v.spark.enabled) -}}
+{{- fail "data-lab: sparkHistoryMcp.enabled=true requires spark.enabled=true and sparkHistory.enabled=true (the MCP server queries the Spark History Server)" -}}
+{{- end -}}
+{{- if and $v.sparkHistoryMcp.enabled (not $v.sparkHistory.enabled) -}}
+{{- fail "data-lab: sparkHistoryMcp.enabled=true requires sparkHistory.enabled=true (the MCP server queries the Spark History Server)" -}}
+{{- end -}}
+{{- if and $v.airflowMcp.enabled (not $v.airflow.enabled) -}}
+{{- fail "data-lab: airflowMcp.enabled=true requires airflow.enabled=true" -}}
+{{- end -}}

@@ -1,0 +1,62 @@
+version: 2
+
+models:
+  - name: fct_orders
+    description: One row per order with its amount. Incremental, MERGE on order_id, partitioned by day (Iceberg).
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: amount
+        data_tests:
+          - not_null
+  - name: customer_summary
+    description: Customers with order count, spend and a spend tier (see macro spend_tier).
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: spend_tier
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [gold, silver, bronze]
+  - name: daily_revenue
+    description: Revenue per day, partitioned by month (Iceberg).
+  - name: dim_products
+    description: "Products with an enforced contract (dbt checks column names and types before building)."
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: product_id
+        data_type: integer
+        data_tests: [unique, not_null]
+      - name: product_name
+        data_type: varchar
+      - name: category
+        data_type: varchar
+      - name: unit_price
+        data_type: double
+
+unit_tests:
+  - name: spend_tier_boundaries
+    description: The tier thresholds are 500 and 2000 (inclusive lower bound).
+    model: customer_summary
+    given:
+      - input: ref('stg_customers')
+        rows:
+          - {customer_id: 1, name: a, email: A@X.COM, country: DE, plan: free}
+          - {customer_id: 2, name: b, email: b@x.com, country: DE, plan: pro}
+          - {customer_id: 3, name: c, email: c@x.com, country: FR, plan: pro}
+          - {customer_id: 4, name: d, email: d@x.com, country: FR, plan: free}
+      - input: ref('fct_orders')
+        rows:
+          - {order_id: 1, customer_id: 1, amount: 499.99, status: fulfilled}
+          - {order_id: 2, customer_id: 2, amount: 500.0,  status: fulfilled}
+          - {order_id: 3, customer_id: 3, amount: 2000.0, status: open}
+          - {order_id: 4, customer_id: 3, amount: 900.0,  status: returned}
+    expect:
+      rows:
+        - {customer_id: 1, orders: 1, total_spend: 499.99, spend_tier: bronze}
+        - {customer_id: 2, orders: 1, total_spend: 500.0,  spend_tier: silver}
+        - {customer_id: 3, orders: 1, total_spend: 2000.0, spend_tier: gold}
+        - {customer_id: 4, orders: 0, total_spend: 0.0,    spend_tier: bronze}

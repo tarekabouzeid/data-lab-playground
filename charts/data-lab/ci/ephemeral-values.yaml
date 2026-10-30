@@ -1,0 +1,11 @@
+# Fully ephemeral: no PVCs at all, Spark executors as threads, git-sync DAGs.
+seaweedfs: {persistence: {enabled: false}}
+hms: {database: {persistence: {enabled: false}}}
+spark: {master: local}
+airflow:
+  database: {persistence: {enabled: false}}
+  logs: {persistence: {enabled: false}}
+  dags:
+    source: gitSync
+    subPath: airflow-core/src/airflow/example_dags
+    gitSync: {repo: "https://github.com/apache/airflow.git", ref: main}

@@ -1,0 +1,141 @@
+{{- /*
+Consumer contract: every enabled endpoint and the Secret (name + key) holding its credential.
+Flat UPPER_CASE keys work with envFrom; ENDPOINTS_JSON has the same data structured.
+*/ -}}
+{{- $v := .Values -}}
+{{- $e := dict "release" .Release.Name "namespace" .Release.Namespace "chartVersion" .Chart.Version "labVersion" .Chart.AppVersion -}}
+{{- if or $v.seaweedfs.enabled $v.s3.endpoint -}}
+{{- $_ := set $e "s3" (dict "endpoint" (include "datalab.s3Endpoint" .) "bucket" $v.s3.bucket "region" $v.s3.region "pathStyleAccess" $v.s3.pathStyleAccess "warehouse" (printf "s3a://%s/" $v.s3.bucket) "credentials" (dict "secret" (include "datalab.s3SecretName" .) "accessKeyKey" $v.s3.auth.accessKeyKey "secretKeyKey" $v.s3.auth.secretKeyKey)) -}}
+{{- end -}}
+{{- if $v.hms.enabled -}}
+{{- $_ := set $e "hms" (dict "thriftUri" (include "datalab.hmsThriftUri" .) "icebergRestUri" (include "datalab.icebergRestUri" .) "auth" "none") -}}
+{{- end -}}
+{{- if $v.trino.enabled -}}
+{{- $_ := set $e "trino" (dict "url" (printf "http://%s:8080" (include "datalab.host" (list . "trino"))) "catalogs" (concat (list "hive" "iceberg" "lakehouse") (keys $v.trino.additionalCatalogs | sortAlpha)) "auth" "none") -}}
+{{- end -}}
+{{- if $v.spark.enabled -}}
+{{- $spark := dict "connectUrl" (printf "sc://%s:15002" (include "datalab.host" (list . "spark-connect"))) "uiUrl" (printf "http://%s:4040" (include "datalab.host" (list . "spark-connect"))) "icebergCatalog" $v.spark.icebergCatalogName "auth" "none" -}}
+{{- if $v.spark.auth.enabled -}}
+{{- $_ := set $spark "auth" "bearer" -}}
+{{- $_ := set $spark "connectUrlTemplate" (printf "sc://%s:15002/;authorization=Bearer {token}" (include "datalab.host" (list . "spark-connect"))) -}}
+{{- $_ := set $spark "credentials" (dict "secret" (include "datalab.sparkSecretName" .) "tokenKey" $v.spark.auth.tokenKey) -}}
+{{- end -}}
+{{- $_ := set $e "sparkConnect" $spark -}}
+{{- end -}}
+{{- if and $v.spark.enabled $v.sparkHistory.enabled -}}
+{{- $_ := set $e "sparkHistory" (dict "url" (printf "http://%s:18080" (include "datalab.host" (list . "spark-history"))) "eventLogDir" (include "datalab.eventLogDir" .) "auth" "none") -}}
+{{- if $v.sparkHistoryMcp.enabled -}}
+{{- $_ := set $e "sparkHistoryMcp" (dict "url" (printf "http://%s:18888/mcp" (include "datalab.host" (list . "spark-history-mcp"))) "transport" "streamable-http" "servers" (ternary (list "history" "live") (list "history") $v.sparkHistoryMcp.liveServer) "auth" "none") -}}
+{{- end -}}
+{{- end -}}
+{{- if and $v.airflow.enabled $v.airflowMcp.enabled -}}
+{{- $_ := set $e "airflowMcp" (dict "url" (printf "http://%s:8000/mcp" (include "datalab.host" (list . "airflow-mcp"))) "transport" "streamable-http" "readOnly" $v.airflowMcp.readOnly "airflowUser" $v.airflowMcp.username "airflowRole" (include "datalab.airflowMcpRole" .) "auth" "none") -}}
+{{- end -}}
+{{- if $v.airflow.enabled -}}
+{{- $url := printf "http://%s:8080" (include "datalab.host" (list . "airflow")) -}}
+{{- $dags := dict "source" $v.airflow.dags.source "subPath" $v.airflow.dags.subPath -}}
+{{- if eq $v.airflow.dags.source "pvc" -}}{{- $_ := set $dags "pvc" ($v.airflow.dags.pvc.existingClaim | default (include "datalab.componentName" (list . "airflow-dags"))) -}}{{- end -}}
+{{- if eq $v.airflow.dags.source "gitSync" -}}{{- $_ := set $dags "repo" $v.airflow.dags.gitSync.repo -}}{{- $_ := set $dags "ref" $v.airflow.dags.gitSync.ref -}}{{- end -}}
+{{- $_ := set $e "airflow" (dict "url" $url "apiUrl" (printf "%s/api/v2" $url) "tokenUrl" (printf "%s/auth/token" $url) "username" $v.airflow.auth.username "credentials" (dict "secret" (include "datalab.airflowAuthSecretName" .) "passwordKey" $v.airflow.auth.passwordKey) "dags" $dags) -}}
+{{- end -}}
+{{- if $v.jupyter.enabled -}}
+{{- $_ := set $e "jupyter" (dict "url" (printf "http://%s:8888" (include "datalab.host" (list . "jupyter"))) "credentials" (dict "secret" (include "datalab.jupyterSecretName" .) "tokenKey" $v.jupyter.auth.tokenKey)) -}}
+{{- end -}}
+{{- if $v.ollama.enabled -}}
+{{- $_ := set $e "ollama" (dict "url" (printf "http://%s:11434" (include "datalab.host" (list . "ollama"))) "auth" "none") -}}
+{{- end -}}
+{{- if $v.qdrant.enabled -}}
+{{- $_ := set $e "qdrant" (dict "url" (printf "http://%s:6333" (include "datalab.host" (list . "qdrant"))) "grpcUrl" (printf "http://%s:6334" (include "datalab.host" (list . "qdrant"))) "credentials" (dict "secret" (include "datalab.qdrantSecretName" .) "apiKeyKey" $v.qdrant.auth.apiKeyKey)) -}}
+{{- end -}}
+{{- if $v.phoenix.enabled -}}
+{{- $ph := dict "url" (printf "http://%s:6006" (include "datalab.host" (list . "phoenix"))) "otlpGrpcEndpoint" (printf "http://%s:4317" (include "datalab.host" (list . "phoenix"))) "otlpHttpEndpoint" (printf "http://%s:6006/v1/traces" (include "datalab.host" (list . "phoenix"))) "auth" "none" -}}
+{{- if $v.phoenix.auth.enabled -}}
+{{- $_ := set $ph "auth" "password" -}}
+{{- $_ := set $ph "credentials" (dict "secret" (include "datalab.phoenixSecretName" .) "adminPasswordKey" "admin-password" "username" "admin") -}}
+{{- end -}}
+{{- $_ := set $e "phoenix" $ph -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datalab.componentName" (list . "endpoints") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "endpoints") | nindent 4 }}
+data:
+  DATALAB_RELEASE: {{ .Release.Name | quote }}
+  DATALAB_NAMESPACE: {{ .Release.Namespace | quote }}
+  DATALAB_VERSION: {{ .Chart.AppVersion | quote }}
+  {{- with $e.s3 }}
+  S3_ENDPOINT: {{ .endpoint | quote }}
+  S3_BUCKET: {{ .bucket | quote }}
+  S3_REGION: {{ .region | quote }}
+  S3_WAREHOUSE: {{ .warehouse | quote }}
+  S3_CREDENTIALS_SECRET: {{ .credentials.secret | quote }}
+  S3_CREDENTIALS_ACCESS_KEY_KEY: {{ .credentials.accessKeyKey | quote }}
+  S3_CREDENTIALS_SECRET_KEY_KEY: {{ .credentials.secretKeyKey | quote }}
+  {{- end }}
+  {{- with $e.hms }}
+  HMS_THRIFT_URI: {{ .thriftUri | quote }}
+  ICEBERG_REST_URI: {{ .icebergRestUri | quote }}
+  {{- end }}
+  {{- with $e.trino }}
+  TRINO_URL: {{ .url | quote }}
+  TRINO_CATALOGS: {{ join "," .catalogs | quote }}
+  {{- end }}
+  {{- with $e.sparkConnect }}
+  SPARK_CONNECT_URL: {{ .connectUrl | quote }}
+  SPARK_CONNECT_AUTH: {{ .auth | quote }}
+  SPARK_UI_URL: {{ .uiUrl | quote }}
+  SPARK_ICEBERG_CATALOG: {{ .icebergCatalog | quote }}
+  {{- with .credentials }}
+  SPARK_CONNECT_CREDENTIALS_SECRET: {{ .secret | quote }}
+  SPARK_CONNECT_CREDENTIALS_TOKEN_KEY: {{ .tokenKey | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with $e.sparkHistory }}
+  SPARK_HISTORY_URL: {{ .url | quote }}
+  SPARK_EVENT_LOG_DIR: {{ .eventLogDir | quote }}
+  {{- end }}
+  {{- with $e.sparkHistoryMcp }}
+  SPARK_HISTORY_MCP_URL: {{ .url | quote }}
+  {{- end }}
+  {{- with $e.airflowMcp }}
+  AIRFLOW_MCP_URL: {{ .url | quote }}
+  {{- end }}
+  {{- with $e.airflow }}
+  AIRFLOW_URL: {{ .url | quote }}
+  AIRFLOW_API_URL: {{ .apiUrl | quote }}
+  AIRFLOW_USERNAME: {{ .username | quote }}
+  AIRFLOW_CREDENTIALS_SECRET: {{ .credentials.secret | quote }}
+  AIRFLOW_CREDENTIALS_PASSWORD_KEY: {{ .credentials.passwordKey | quote }}
+  AIRFLOW_DAGS_SOURCE: {{ .dags.source | quote }}
+  {{- with .dags.pvc }}
+  AIRFLOW_DAGS_PVC: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with $e.jupyter }}
+  JUPYTER_URL: {{ .url | quote }}
+  JUPYTER_CREDENTIALS_SECRET: {{ .credentials.secret | quote }}
+  JUPYTER_CREDENTIALS_TOKEN_KEY: {{ .credentials.tokenKey | quote }}
+  {{- end }}
+  {{- with $e.ollama }}
+  OLLAMA_URL: {{ .url | quote }}
+  {{- end }}
+  {{- with $e.qdrant }}
+  QDRANT_URL: {{ .url | quote }}
+  QDRANT_GRPC_URL: {{ .grpcUrl | quote }}
+  QDRANT_CREDENTIALS_SECRET: {{ .credentials.secret | quote }}
+  QDRANT_CREDENTIALS_API_KEY_KEY: {{ .credentials.apiKeyKey | quote }}
+  {{- end }}
+  {{- with $e.phoenix }}
+  PHOENIX_URL: {{ .url | quote }}
+  PHOENIX_OTLP_GRPC_ENDPOINT: {{ .otlpGrpcEndpoint | quote }}
+  PHOENIX_OTLP_HTTP_ENDPOINT: {{ .otlpHttpEndpoint | quote }}
+  {{- with .credentials }}
+  PHOENIX_CREDENTIALS_SECRET: {{ .secret | quote }}
+  PHOENIX_CREDENTIALS_ADMIN_PASSWORD_KEY: {{ .adminPasswordKey | quote }}
+  {{- end }}
+  {{- end }}
+  ENDPOINTS_JSON: |
+    {{- toPrettyJson $e | nindent 4 }}

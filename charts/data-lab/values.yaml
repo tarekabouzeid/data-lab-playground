@@ -1,0 +1,850 @@
+# Default values for data-lab.
+# This file is a public API: Sandpiper and other consumers set these keys programmatically.
+# Every key is described in values.schema.json; unknown keys are rejected.
+# Image tags are pinned to docs/VERSIONS.md (section 8, "Helm chart images").
+
+global:
+  # -- Registry that replaces every image's `registry` (for mirrors / air-gapped clusters). Empty keeps each image's own registry.
+  imageRegistry: ""
+  # -- Pull secrets (names of existing `kubernetes.io/dockerconfigjson` Secrets) added to every pod.
+  imagePullSecrets: []
+  # -- Default StorageClass for every PVC. Empty uses the cluster default; `-` sets `storageClassName: ""`.
+  storageClass: ""
+  # -- Default RuntimeClass for every pod (for example `gvisor`). A component's own `runtimeClassName` wins.
+  runtimeClassName: ""
+  # -- Labels added to every pod.
+  podLabels: {}
+  # -- Annotations added to every pod.
+  podAnnotations: {}
+  # -- Default nodeSelector for every pod. A component's own `nodeSelector` replaces it when non-empty.
+  nodeSelector: {}
+  # -- Default tolerations for every pod. A component's own `tolerations` replace them when non-empty.
+  tolerations: []
+  # -- Container securityContext applied to every container (merged under each component's `securityContext`).
+  # Meets Pod Security Standard "restricted".
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    runAsNonRoot: true
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+
+# -- Override the chart name part of resource names.
+nameOverride: ""
+# -- Override the full release name prefix used by every resource (max 40 characters recommended).
+fullnameOverride: ""
+# -- Labels added to every resource.
+commonLabels: {}
+
+networkPolicy:
+  # -- Create a NetworkPolicy that only admits ingress from pods of this release (same namespace) plus `extraIngressFrom`.
+  # HMS, Trino and Ollama have no authentication in this setup (see the chart README), so keep this on in shared clusters.
+  enabled: true
+  # -- Extra NetworkPolicyPeer entries allowed to reach every component (for example the consumer's namespace).
+  extraIngressFrom: []
+
+# Object storage used by HMS, Spark and Trino. SeaweedFS (below) serves it unless `s3.endpoint` points elsewhere.
+s3:
+  # -- External S3 endpoint URL. Leave empty to use the bundled SeaweedFS (requires `seaweedfs.enabled`).
+  endpoint: ""
+  # -- Bucket holding the warehouse. The bundled SeaweedFS creates it; an external bucket must already exist.
+  bucket: warehouse
+  # -- S3 region.
+  region: us-east-1
+  # -- Use path-style addressing (required for SeaweedFS).
+  pathStyleAccess: true
+  auth:
+    # -- Existing Secret holding the S3 access key pair. Empty: the chart generates `<fullname>-s3`.
+    existingSecret: ""
+    # -- Key in the Secret holding the access key ID.
+    accessKeyKey: access-key
+    # -- Key in the Secret holding the secret access key.
+    secretKeyKey: secret-key
+
+seaweedfs:
+  # -- Deploy SeaweedFS (single-node master + volume + filer + S3 gateway).
+  enabled: true
+  image:
+    # -- Image registry.
+    registry: docker.io
+    # -- Image repository.
+    repository: chrislusf/seaweedfs
+    # -- Image tag.
+    tag: "4.48"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Maximum number of volumes. Must stay explicit: auto-sizing from free disk can leave no writable volume (S3 PUT 500).
+  volumeMax: 64
+  # -- Size limit of one volume, in MB.
+  volumeSizeLimitMB: 1024
+  persistence:
+    # -- Use a PVC for `/data`. `false` uses an emptyDir (data is lost with the pod).
+    enabled: true
+    # -- PVC size.
+    size: 10Gi
+    # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+    storageClass: ""
+    # -- PVC access modes.
+    accessModes: ["ReadWriteOnce"]
+  # -- Container resources.
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
+hms:
+  # -- Deploy the Hive Metastore (Thrift on 9083, built-in Iceberg REST catalog on 9084) and its Postgres.
+  enabled: true
+  image:
+    # -- Image registry.
+    registry: ghcr.io
+    # -- Image repository (built from `hive-metastore/Dockerfile`, published by the release workflow).
+    repository: tarekabouzeid/data-lab-playground/hive-metastore
+    # -- Image tag (lab release; HMS 4.2.1 inside).
+    tag: "3.0.0"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- JVM max heap passed as `-Xmx`.
+  heapSize: 1G
+  # -- Container resources.
+  resources:
+    requests: {cpu: 200m, memory: 1Gi}
+    limits: {memory: 1536Mi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+  # -- Extra `<property>` entries appended to metastore-site.xml (name -> value).
+  extraProperties: {}
+  database:
+    image:
+      # -- Image registry.
+      registry: docker.io
+      # -- Image repository.
+      repository: postgres
+      # -- Image tag.
+      tag: "17.11"
+      # -- Image pull policy.
+      pullPolicy: IfNotPresent
+    # -- Database name.
+    name: metastore
+    # -- Database user.
+    username: hive
+    auth:
+      # -- Existing Secret holding the database password. Empty: the chart generates `<fullname>-hms-db`.
+      existingSecret: ""
+      # -- Key in the Secret holding the password.
+      passwordKey: password
+    persistence:
+      # -- Use a PVC for the database. `false` uses an emptyDir.
+      enabled: true
+      # -- PVC size.
+      size: 2Gi
+      # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+      storageClass: ""
+      # -- PVC access modes.
+      accessModes: ["ReadWriteOnce"]
+    # -- Container resources.
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 512Mi}
+    # -- Pod securityContext.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile: {type: RuntimeDefault}
+    # -- Container securityContext (merged over `global.containerSecurityContext`).
+    securityContext: {}
+    # -- RuntimeClass for the pod.
+    runtimeClassName: ""
+    # -- nodeSelector for the pod.
+    nodeSelector: {}
+    # -- Tolerations for the pod.
+    tolerations: []
+    # -- Affinity for the pod.
+    affinity: {}
+    # -- Extra pod labels.
+    podLabels: {}
+    # -- Extra pod annotations.
+    podAnnotations: {}
+
+spark:
+  # -- Deploy a Spark Connect server (gRPC 15002). Requires `hms.enabled`.
+  enabled: true
+  image:
+    # -- Image registry.
+    registry: ghcr.io
+    # -- Image repository (built from `spark/Dockerfile`; also used for executors and `helm test`).
+    repository: tarekabouzeid/data-lab-playground/spark
+    # -- Image tag (lab release; Spark 4.1.3 + Iceberg 1.12.0 inside).
+    tag: "3.0.0"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Where executors run: `kubernetes` (executor pods in the release namespace, namespaced RBAC) or `local` (threads inside the server pod, no RBAC).
+  master: kubernetes
+  auth:
+    # -- Require a bearer token from Spark Connect clients (`sc://host:15002/;token=...`).
+    enabled: true
+    # -- Existing Secret holding the token. Empty: the chart generates `<fullname>-spark-connect`.
+    existingSecret: ""
+    # -- Key in the Secret holding the token.
+    tokenKey: token
+  driver:
+    # -- Driver (Connect server) JVM memory.
+    memory: 1g
+    # -- Driver (Connect server) container resources.
+    resources:
+      requests: {cpu: 250m, memory: 1536Mi}
+      limits: {memory: 2Gi}
+  executor:
+    # -- Number of executor pods (`master: kubernetes`) or threads (`master: local`).
+    instances: 1
+    # -- Cores per executor.
+    cores: 1
+    # -- Executor JVM memory (`spark.executor.memory`). Pod memory adds `spark.executor.memoryOverhead` (default 384m).
+    memory: 1g
+    # -- CPU request per executor pod (`spark.kubernetes.executor.request.cores`).
+    requestCores: 250m
+    # -- CPU limit per executor pod. Empty sets none.
+    limitCores: ""
+  # -- Name of the Iceberg catalog registered in Spark (points at the HMS Iceberg REST catalog).
+  icebergCatalogName: iceberg_catalog
+  # -- Extra Spark properties written to spark-defaults.conf.
+  extraConf: {}
+  serviceAccount:
+    # -- Create a ServiceAccount for the Connect server (it creates executor pods when `master: kubernetes`).
+    create: true
+    # -- ServiceAccount name. Empty: `<fullname>-spark`.
+    name: ""
+  rbac:
+    # -- Create a namespaced Role/RoleBinding letting the Connect server manage executor pods, ConfigMaps and PVCs.
+    create: true
+  # -- Pod securityContext (Connect server and executors).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 185
+    runAsGroup: 185
+    fsGroup: 185
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the server and executor pods.
+  runtimeClassName: ""
+  # -- nodeSelector for the server and executor pods.
+  nodeSelector: {}
+  # -- Tolerations for the server and executor pods.
+  tolerations: []
+  # -- Affinity for the Connect server pod.
+  affinity: {}
+  # -- Extra labels for the server and executor pods.
+  podLabels: {}
+  # -- Extra annotations for the server and executor pods.
+  podAnnotations: {}
+
+sparkHistory:
+  # -- Deploy the Spark History Server (UI + REST on 18080). Turns on Spark event logging to `eventLogDir`. Requires `spark.enabled`.
+  # Uses `spark.image`. A running Spark Connect server appears here only after it stops or rolls a log file (S3 shows a
+  # file only once it is closed); use the live Spark UI (port 4040) for the running server.
+  enabled: true
+  # -- Event log location written by Spark and read by the History Server. Empty: `s3a://<s3.bucket>/spark-events`.
+  eventLogDir: ""
+  # -- Roll the Spark Connect server's event log at this size so a long-running server shows up in history (Spark minimum: 10m).
+  rollingMaxFileSize: 10m
+  # -- Delete event logs older than this.
+  cleanerMaxAge: 7d
+  # -- JVM heap of the History Server (`SPARK_DAEMON_MEMORY`).
+  heapSize: 512m
+  # -- Container resources.
+  resources:
+    requests: {cpu: 100m, memory: 768Mi}
+    limits: {memory: 1Gi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 185
+    runAsGroup: 185
+    fsGroup: 185
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+sparkHistoryMcp:
+  # -- Deploy the Kubeflow Spark History Server MCP server (streamable HTTP on 18888, path `/mcp`). No caller authentication:
+  # reachable only through the NetworkPolicy. Requires `sparkHistory.enabled`. Queries the History Server (`history`, default)
+  # and, when Spark is enabled, the live Spark Connect UI (`live`).
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: ghcr.io
+    # -- Image repository (official Kubeflow image).
+    repository: kubeflow/mcp-apache-spark-history-server
+    # -- Image tag.
+    tag: "1.0.1"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Also query the live Spark UI of the running Spark Connect server (MCP server name `live`); `history` is always the default.
+  liveServer: true
+  # -- HTTP timeout in seconds for calls to the History Server / Spark UI.
+  timeout: 30
+  # -- Include SQL plan descriptions in SQL tool results (larger responses, more detail for query tuning).
+  includePlanDescription: false
+  # -- Verbose MCP server logging.
+  debug: false
+  # -- Extra environment variables for the MCP container (list of EnvVar).
+  extraEnv: []
+  # -- Container resources.
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+airflowMcp:
+  # -- Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as its own
+  # least-privilege user (`username`). No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`.
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: ghcr.io
+    # -- Image repository (built from `airflow-mcp/Dockerfile`: astro-airflow-mcp 0.9.1, published by the release workflow).
+    repository: tarekabouzeid/data-lab-playground/airflow-mcp
+    # -- Image tag (lab release).
+    tag: "3.0.0"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Read-only mode. `true`: the MCP's Airflow user gets the `viewer` role and the MCP blocks write tools, so Airflow
+  # itself rejects writes too. `false`: the user gets the `op` role (trigger, pause, clear; no admin settings).
+  readOnly: true
+  # -- Dedicated Airflow user the MCP logs in as (added to Airflow's SimpleAuthManager users).
+  username: mcp
+  auth:
+    # -- Existing Secret holding the MCP user's Airflow password. Empty: the chart generates `<fullname>-airflow-mcp`.
+    existingSecret: ""
+    # -- Key in the Secret holding the password.
+    passwordKey: password
+  # -- Extra environment variables for the MCP container (list of EnvVar).
+  extraEnv: []
+  # -- Container resources.
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
+trino:
+  # -- Deploy a single-node Trino (coordinator also schedules work). Requires `hms.enabled`.
+  enabled: true
+  image:
+    # -- Image registry.
+    registry: docker.io
+    # -- Image repository.
+    repository: trinodb/trino
+    # -- Image tag.
+    tag: "483"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- JVM max heap (`-Xmx`). Keep it about 75% of the memory limit.
+  heapSize: 1536M
+  # -- Extra lines for config.properties (name -> value).
+  extraConfig: {}
+  # -- Extra catalogs: catalog name -> properties file content. `hive`, `iceberg` and `lakehouse` are always created.
+  additionalCatalogs: {}
+  # -- Container resources.
+  resources:
+    requests: {cpu: 250m, memory: 2Gi}
+    limits: {memory: 2Gi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
+airflow:
+  # -- Deploy Airflow 3 (LocalExecutor) in one pod: api-server, scheduler, dag-processor (+ optional triggerer), with its own Postgres.
+  enabled: true
+  image:
+    # -- Image registry.
+    registry: docker.io
+    # -- Image repository.
+    repository: apache/airflow
+    # -- Image tag.
+    tag: "3.3.2-python3.12"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  auth:
+    # -- Admin username for the API / UI (SimpleAuthManager).
+    username: admin
+    # -- Existing Secret holding the admin password. Empty: the chart generates `<fullname>-airflow`.
+    existingSecret: ""
+    # -- Key in the Secret holding the admin password.
+    passwordKey: password
+  secrets:
+    # -- Existing Secret holding `fernet-key`, `jwt-secret` and `api-secret-key`. Empty: the chart generates them in `<fullname>-airflow`.
+    existingSecret: ""
+  triggerer:
+    # -- Run the triggerer (needed for deferrable operators).
+    enabled: false
+  dags:
+    # -- Where DAG files come from: `pvc`, `gitSync` or `none` (empty dir).
+    source: pvc
+    # -- Path inside the DAG source that holds the DAG files (git-sync: inside the repo).
+    subPath: ""
+    pvc:
+      # -- Existing PVC with the DAGs (an external agent writes to it). Empty: the chart creates `<fullname>-airflow-dags`.
+      existingClaim: ""
+      # -- Size of the chart-created PVC.
+      size: 1Gi
+      # -- StorageClass of the chart-created PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+      storageClass: ""
+      # -- Access modes of the chart-created PVC. Use `ReadWriteMany` if another pod writes DAGs while Airflow runs.
+      accessModes: ["ReadWriteOnce"]
+    gitSync:
+      image:
+        # -- Image registry.
+        registry: registry.k8s.io
+        # -- Image repository.
+        repository: git-sync/git-sync
+        # -- Image tag.
+        tag: v4.7.1
+        # -- Image pull policy.
+        pullPolicy: IfNotPresent
+      # -- Git repository URL (required when `dags.source: gitSync`).
+      repo: ""
+      # -- Branch, tag or commit to sync.
+      ref: main
+      # -- Sync period.
+      period: 60s
+      # -- Clone depth.
+      depth: 1
+      # -- Existing Secret with git credentials: keys `username`/`password` (HTTPS) or `ssh-privatekey` (+ optional `known_hosts`).
+      existingSecret: ""
+      # -- Container resources.
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 128Mi}
+  logs:
+    persistence:
+      # -- Keep task logs on a PVC so they stay viewable in the UI after pod restarts (LocalExecutor: tasks and
+      # api-server share this volume). `false` uses an emptyDir: logs survive task completion but not a pod restart.
+      enabled: true
+      # -- PVC size.
+      size: 2Gi
+      # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+      storageClass: ""
+      # -- PVC access modes.
+      accessModes: ["ReadWriteOnce"]
+  # -- Extra environment variables for every Airflow container (list of EnvVar).
+  extraEnv: []
+  # -- Resources of each Airflow container (api-server, scheduler, dag-processor, triggerer).
+  resources:
+    apiServer:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {memory: 1Gi}
+    scheduler:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {memory: 1536Mi}
+    dagProcessor:
+      requests: {cpu: 50m, memory: 384Mi}
+      limits: {memory: 1Gi}
+    triggerer:
+      requests: {cpu: 50m, memory: 256Mi}
+      limits: {memory: 768Mi}
+  # -- Pod securityContext (official image: uid 50000, gid 0).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 50000
+    runAsGroup: 0
+    fsGroup: 0
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+  database:
+    image:
+      # -- Image registry.
+      registry: docker.io
+      # -- Image repository.
+      repository: postgres
+      # -- Image tag.
+      tag: "17.11"
+      # -- Image pull policy.
+      pullPolicy: IfNotPresent
+    # -- Database name.
+    name: airflow
+    # -- Database user.
+    username: airflow
+    auth:
+      # -- Existing Secret holding the database password (must be URL-safe). Empty: the chart generates `<fullname>-airflow-db`.
+      existingSecret: ""
+      # -- Key in the Secret holding the password.
+      passwordKey: password
+    persistence:
+      # -- Use a PVC for the database. `false` uses an emptyDir.
+      enabled: true
+      # -- PVC size.
+      size: 2Gi
+      # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+      storageClass: ""
+      # -- PVC access modes.
+      accessModes: ["ReadWriteOnce"]
+    # -- Container resources.
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 512Mi}
+    # -- Pod securityContext.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile: {type: RuntimeDefault}
+    # -- Container securityContext (merged over `global.containerSecurityContext`).
+    securityContext: {}
+    # -- RuntimeClass for the pod.
+    runtimeClassName: ""
+    # -- nodeSelector for the pod.
+    nodeSelector: {}
+    # -- Tolerations for the pod.
+    tolerations: []
+    # -- Affinity for the pod.
+    affinity: {}
+    # -- Extra pod labels.
+    podLabels: {}
+    # -- Extra pod annotations.
+    podAnnotations: {}
+
+jupyter:
+  # -- Deploy JupyterLab (connects to Spark Connect, Trino and the GenAI services that are enabled).
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: ghcr.io
+    # -- Image repository (built from `jupyter/Dockerfile`, published by the release workflow).
+    repository: tarekabouzeid/data-lab-playground/jupyter
+    # -- Image tag (lab release).
+    tag: "3.0.0"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  auth:
+    # -- Existing Secret holding the Jupyter token. Empty: the chart generates `<fullname>-jupyter`.
+    existingSecret: ""
+    # -- Key in the Secret holding the token.
+    tokenKey: token
+  persistence:
+    # -- Use a PVC for `/home/jovyan/work`. `false` uses an emptyDir.
+    enabled: true
+    # -- PVC size.
+    size: 5Gi
+    # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+    storageClass: ""
+    # -- PVC access modes.
+    accessModes: ["ReadWriteOnce"]
+  # -- Container resources.
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 4Gi}
+  # -- Pod securityContext (jovyan: uid 1000, gid 100).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 100
+    fsGroup: 100
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
+ollama:
+  # -- Deploy Ollama (local LLM server, no authentication). Needs a GPU to be useful; CPU works but is slow.
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: docker.io
+    # -- Image repository.
+    repository: ollama/ollama
+    # -- Image tag.
+    tag: "0.40.3"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Models pulled at startup (for example `llama3.2:3b`). Pod readiness waits for the pulls.
+  models: []
+  gpu:
+    # -- Request GPUs.
+    enabled: false
+    # -- Extended resource name of the GPU.
+    resourceName: nvidia.com/gpu
+    # -- Number of GPUs.
+    count: 1
+  persistence:
+    # -- Use a PVC for models. `false` uses an emptyDir.
+    enabled: true
+    # -- PVC size.
+    size: 20Gi
+    # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+    storageClass: ""
+    # -- PVC access modes.
+    accessModes: ["ReadWriteOnce"]
+  # -- Container resources.
+  resources:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 8Gi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod (for example `nvidia`).
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
+qdrant:
+  # -- Deploy Qdrant (vector database, API-key protected).
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: docker.io
+    # -- Image repository.
+    repository: qdrant/qdrant
+    # -- Image tag (the `-unprivileged` variant runs as uid 1000).
+    tag: v1.19.2-unprivileged
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  auth:
+    # -- Existing Secret holding the API key. Empty: the chart generates `<fullname>-qdrant`.
+    existingSecret: ""
+    # -- Key in the Secret holding the API key.
+    apiKeyKey: api-key
+  persistence:
+    # -- Use a PVC for `/qdrant/storage`. `false` uses an emptyDir.
+    enabled: true
+    # -- PVC size.
+    size: 5Gi
+    # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+    storageClass: ""
+    # -- PVC access modes.
+    accessModes: ["ReadWriteOnce"]
+  # -- Container resources.
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 2Gi}
+  # -- Pod securityContext.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
+phoenix:
+  # -- Deploy Arize Phoenix (LLM tracing; OTLP gRPC 4317, UI + OTLP HTTP 6006). SQLite storage.
+  enabled: false
+  image:
+    # -- Image registry.
+    registry: docker.io
+    # -- Image repository.
+    repository: arizephoenix/phoenix
+    # -- Image tag.
+    tag: version-20.21.0-nonroot
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  auth:
+    # -- Enable Phoenix authentication (admin user + API keys).
+    enabled: true
+    # -- Existing Secret holding `secret` (token signing, >= 32 chars) and `admin-password`. Empty: the chart generates `<fullname>-phoenix`.
+    existingSecret: ""
+  persistence:
+    # -- Use a PVC for the SQLite working dir. `false` uses an emptyDir.
+    enabled: true
+    # -- PVC size.
+    size: 2Gi
+    # -- StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`.
+    storageClass: ""
+    # -- PVC access modes.
+    accessModes: ["ReadWriteOnce"]
+  # -- Container resources.
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  # -- Pod securityContext (distroless nonroot: uid 65532).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile: {type: RuntimeDefault}
+  # -- Container securityContext (merged over `global.containerSecurityContext`).
+  securityContext: {}
+  # -- RuntimeClass for the pod.
+  runtimeClassName: ""
+  # -- nodeSelector for the pod.
+  nodeSelector: {}
+  # -- Tolerations for the pod.
+  tolerations: []
+  # -- Affinity for the pod.
+  affinity: {}
+  # -- Extra pod labels.
+  podLabels: {}
+  # -- Extra pod annotations.
+  podAnnotations: {}
+
+tests:
+  # -- Render the `helm test` pod (Spark writes an Iceberg table through Spark Connect, Trino reads it, then it is dropped). Needs `spark` and `trino`.
+  enabled: true
+  # -- Test pod resources.
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}

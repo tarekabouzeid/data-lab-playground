@@ -1,0 +1,38 @@
+# Every component on, with bring-your-own Secrets and scheduling knobs set.
+global:
+  imageRegistry: registry.example.com
+  imagePullSecrets: [regcred]
+  storageClass: fast
+  runtimeClassName: gvisor
+  podLabels: {team: data}
+  nodeSelector: {pool: labs}
+  tolerations: [{key: labs, operator: Exists, effect: NoSchedule}]
+commonLabels: {cost-center: lab}
+networkPolicy:
+  extraIngressFrom:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: sandpiper}}
+s3: {auth: {existingSecret: my-s3}}
+hms: {database: {auth: {existingSecret: my-hms-db}}, extraProperties: {hive.metastore.event.listeners: ""}}
+spark:
+  auth: {existingSecret: my-spark}
+  executor: {instances: 2, limitCores: "1"}
+  extraConf: {spark.sql.shuffle.partitions: "8"}
+trino:
+  additionalCatalogs:
+    tpch: |
+      connector.name=tpch
+  extraConfig: {query.max-memory: 1GB}
+airflow:
+  auth: {existingSecret: my-airflow}
+  secrets: {existingSecret: my-airflow-secrets}
+  database: {auth: {existingSecret: my-airflow-db}}
+  triggerer: {enabled: true}
+  logs: {persistence: {enabled: true}}
+  dags: {pvc: {existingClaim: shared-dags}}
+jupyter: {enabled: true, auth: {existingSecret: my-jupyter}}
+ollama: {enabled: true, models: ["llama3.2:1b"], gpu: {enabled: true}, runtimeClassName: nvidia}
+qdrant: {enabled: true, auth: {existingSecret: my-qdrant}}
+phoenix: {enabled: true, auth: {existingSecret: my-phoenix}}
+sparkHistory: {cleanerMaxAge: 3d}
+sparkHistoryMcp: {enabled: true, liveServer: false, timeout: 60, includePlanDescription: true, debug: true, extraEnv: [{name: TZ, value: UTC}]}
+airflowMcp: {enabled: true, readOnly: false, username: agent, auth: {existingSecret: my-airflow-mcp}, extraEnv: [{name: TZ, value: UTC}]}

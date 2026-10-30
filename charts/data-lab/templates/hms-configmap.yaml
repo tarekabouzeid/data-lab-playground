@@ -1,0 +1,49 @@
+{{- if .Values.hms.enabled }}
+{{- $c := .Values.hms -}}
+{{- $name := include "datalab.componentName" (list . "hms") -}}
+{{- $bucket := .Values.s3.bucket -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "hms") | nindent 4 }}
+data:
+  # The image entrypoint runs envsubst on these templates at every start, so
+  # credentials stay in Secrets (${HMS_DB_PASSWORD}, ${S3_ACCESS_KEY}, ${S3_SECRET_KEY}).
+  metastore-site.xml.template: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property><name>javax.jdo.option.ConnectionURL</name><value>jdbc:postgresql://{{ include "datalab.componentName" (list . "hms-db") }}:5432/{{ $c.database.name }}</value></property>
+      <property><name>javax.jdo.option.ConnectionDriverName</name><value>org.postgresql.Driver</value></property>
+      <property><name>javax.jdo.option.ConnectionUserName</name><value>{{ $c.database.username }}</value></property>
+      <property><name>javax.jdo.option.ConnectionPassword</name><value>${HMS_DB_PASSWORD}</value></property>
+      <property><name>metastore.thrift.uris</name><value>thrift://0.0.0.0:9083</value></property>
+      <!-- Hive 4 rejects external (Iceberg) tables under the managed root: keep the roots separate, both key spellings. -->
+      <property><name>metastore.warehouse.dir</name><value>s3a://{{ $bucket }}/managed/</value></property>
+      <property><name>hive.metastore.warehouse.dir</name><value>s3a://{{ $bucket }}/managed/</value></property>
+      <property><name>metastore.warehouse.external.dir</name><value>s3a://{{ $bucket }}/</value></property>
+      <property><name>hive.metastore.warehouse.external.dir</name><value>s3a://{{ $bucket }}/</value></property>
+      <!-- Built-in Iceberg REST catalog (the only Iceberg path that works with HMS 4.2.1). -->
+      <property><name>metastore.catalog.servlet.port</name><value>9084</value></property>
+      <property><name>metastore.catalog.servlet.auth</name><value>none</value></property>
+      <property><name>metastore.event.db.notification.api.auth</name><value>false</value></property>
+      <property><name>hive.metastore.path.validation</name><value>false</value></property>
+      {{- range $k, $val := $c.extraProperties }}
+      <property><name>{{ $k }}</name><value>{{ $val }}</value></property>
+      {{- end }}
+    </configuration>
+  core-site.xml.template: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property><name>fs.s3a.endpoint</name><value>{{ include "datalab.s3Endpoint" . }}</value></property>
+      <property><name>fs.s3a.endpoint.region</name><value>{{ .Values.s3.region }}</value></property>
+      <property><name>fs.s3a.access.key</name><value>${S3_ACCESS_KEY}</value></property>
+      <property><name>fs.s3a.secret.key</name><value>${S3_SECRET_KEY}</value></property>
+      <property><name>fs.s3a.path.style.access</name><value>{{ .Values.s3.pathStyleAccess }}</value></property>
+      <property><name>fs.s3a.connection.ssl.enabled</name><value>{{ hasPrefix "https://" (include "datalab.s3Endpoint" .) }}</value></property>
+      <property><name>fs.s3a.impl</name><value>org.apache.hadoop.fs.s3a.S3AFileSystem</value></property>
+      <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>
+    </configuration>
+{{- end }}

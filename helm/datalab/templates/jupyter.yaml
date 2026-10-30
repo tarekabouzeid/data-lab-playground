@@ -1,0 +1,112 @@
+{{- if .Values.jupyter.enabled }}
+{{- $n := "jupyter" }}
+{{- $remote := .Values.jupyter.sparkRemote | default (printf "sc://%s-server:15002" .Values.spark.name) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jupyter
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+---
+# Read-only access for the Kubeflow SDK in connect(base_url=...) mode: list/get SparkConnect sessions and read
+# the Spark Connect server log. create/delete stay out until SDK create mode can use our Spark version/image.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jupyter
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+rules:
+  - apiGroups: [sparkoperator.k8s.io]
+    resources: [sparkconnects]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jupyter
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: jupyter}
+subjects:
+  - {kind: ServiceAccount, name: jupyter, namespace: {{ .Release.Namespace }}}
+---
+{{- if eq .Values.jupyter.notebooks.mode "pvc" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jupyter-notebooks
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.jupyter.notebooks.storage }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: jupyter
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  selector: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 4 }}
+  ports:
+    - {name: http, port: 8888}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter
+  labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "datalab.selector" (dict "ctx" . "name" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "datalab.labels" (dict "ctx" . "name" $n) | nindent 8 }}
+    spec:
+      {{- include "datalab.podDefaults" . | nindent 6 }}
+      serviceAccountName: jupyter
+      containers:
+        - name: jupyter
+          image: {{ include "datalab.image" .Values.images.jupyter }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - {name: SPARK_REMOTE, value: {{ $remote | quote }}}
+            - {name: SPARK_CONNECT_NAME, value: {{ .Values.spark.name | quote }}}
+            - {name: JUPYTER_ENABLE_LAB, value: "yes"}
+            - {name: AWS_REGION, value: us-east-1}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+          ports:
+            - {name: http, containerPort: 8888}
+          startupProbe:
+            tcpSocket: {port: 8888}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: {port: 8888}
+            periodSeconds: 10
+          resources: {{- toYaml .Values.jupyter.resources | nindent 12 }}
+          volumeMounts:
+            - {name: notebooks, mountPath: /home/jovyan/work}
+      volumes:
+        - name: notebooks
+          {{- if eq .Values.jupyter.notebooks.mode "hostPath" }}
+          hostPath: {path: {{ .Values.jupyter.notebooks.hostPath }}, type: DirectoryOrCreate}
+          {{- else if eq .Values.jupyter.notebooks.mode "pvc" }}
+          persistentVolumeClaim: {claimName: jupyter-notebooks}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}
