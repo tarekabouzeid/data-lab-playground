@@ -50,9 +50,7 @@ jobs:
           imgs="ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore:$APP ghcr.io/tarekabouzeid/data-lab-playground/spark:$APP"
           imgs="$imgs ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp:$APP"
           for i in chrislusf/seaweedfs:4.48 trinodb/trino:483 postgres:17.11 apache/airflow:3.3.2-python3.12 busybox:1.36 \
-                   ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1 \
-                   public.ecr.aws/data-on-eks/semantic-operator/manager:v0.1.1 \
-                   public.ecr.aws/data-on-eks/semantic-operator/server:v0.1.1; do
+                   ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1; do
             docker pull -q "$i"; imgs="$imgs $i"
           done
           # `kind load docker-image` fails on multi-arch images ("content digest ... not found") with the
@@ -63,6 +61,25 @@ jobs:
             rm -f /tmp/img.tar; docker rmi "$i" >/dev/null || true
           done
           df -h /
+
+      - name: Semantic Operator images (semantic scenario only)
+        if: matrix.scenario == 'semantic'
+        run: |
+          # ECR Public meters anonymous pulls per IP (shared by GitHub runners: "Data limit exceeded"). Pull the
+          # published v0.1.1 images; if that is refused, build them from upstream source at the commit hack/crds
+          # was vendored from, under the same tags.
+          base=public.ecr.aws/data-on-eks/semantic-operator
+          if ! { docker pull -q "$base/manager:v0.1.1" && docker pull -q "$base/server:v0.1.1"; }; then
+            echo "::warning::ECR Public refused the pull; building the Semantic Operator from source (4fd7057)"
+            git clone -q https://github.com/kubeflow/semantic-operator /tmp/so && git -C /tmp/so checkout -q 4fd7057
+            docker build -q --target manager -t "$base/manager:v0.1.1" /tmp/so
+            docker build -q --target server -t "$base/server:v0.1.1" /tmp/so
+          fi
+          for i in "$base/manager:v0.1.1" "$base/server:v0.1.1"; do
+            docker save --platform linux/amd64 -o /tmp/img.tar "$i"
+            kind load image-archive --name datalab /tmp/img.tar
+            rm -f /tmp/img.tar
+          done
 
       - name: e2e (${{ matrix.scenario }})
         id: e2e
