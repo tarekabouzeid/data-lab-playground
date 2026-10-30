@@ -175,7 +175,10 @@ spec:
 
 {{/* Volume source: PVC or emptyDir. Usage: include "datalab.volumeSource" (list $ "hms-db" .Values.hms.database.persistence) */}}
 {{- define "datalab.volumeSource" -}}
-{{- if (index . 2).enabled }}
+{{- if (index . 2).existingClaim }}
+persistentVolumeClaim:
+  claimName: {{ (index . 2).existingClaim }}
+{{- else if (index . 2).enabled }}
 persistentVolumeClaim:
   claimName: {{ include "datalab.componentName" (list (index . 0) (index . 1)) }}
 {{- else }}

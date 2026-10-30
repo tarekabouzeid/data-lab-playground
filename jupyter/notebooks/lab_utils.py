@@ -3,9 +3,12 @@
 Works unchanged on both deployments of the lab:
   * Docker Compose: classic Spark. The session is created here with the Iceberg REST catalog; the master and the S3A
     settings come from $SPARK_HOME/conf/spark-defaults.conf in the Jupyter image.
-  * Kubernetes: Spark Connect (SPARK_REMOTE is set). The Spark Connect server already has the catalog, the Iceberg SQL
-    extensions and the S3A settings (see helm/datalab/values.yaml, spark.sparkConf). Do not call .master() here:
+  * Kubernetes (charts/data-lab): Spark Connect (SPARK_REMOTE is set). The Spark Connect server already has the catalog,
+    the Iceberg SQL extensions and the S3A settings (charts/data-lab/templates/spark-configmap.yaml). Do not call .master() here:
     pyspark 4.1 rejects it together with SPARK_REMOTE, and static confs cannot be set by a Connect client.
+
+Every service endpoint lives here: an environment variable set by the Helm chart, with the Docker Compose host as the
+default. Notebooks import these constants instead of hardcoding hosts (tests/unit/test_notebook_endpoints.py).
 
 Imports of optional packages (boto3, trino, pyarrow) are lazy so the module imports anywhere.
 """
@@ -20,6 +23,11 @@ S3_KEY = os.environ.get("S3_ACCESS_KEY", "seaweedadmin")
 S3_SECRET = os.environ.get("S3_SECRET_KEY", "seaweedadmin123")
 TRINO_HOST = os.environ.get("TRINO_HOST", "trino")
 TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
+OLLAMA_URL = os.environ.get("OLLAMA_URL", os.environ.get("OLLAMA_HOST", "http://ollama:11434"))
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://qdrant:6333")
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY") or None   # the chart enables Qdrant API keys; Compose does not
+PHOENIX_URL = os.environ.get("PHOENIX_URL", "http://phoenix:6006")
+PHOENIX_OTLP_ENDPOINT = os.environ.get("PHOENIX_OTLP_GRPC_ENDPOINT", "http://phoenix:4317")
 
 
 def on_spark_connect() -> bool:

@@ -1,6 +1,6 @@
 # data-lab Helm chart
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
+![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
 
 Ephemeral lakehouse lab: Hive Metastore (Thrift + Iceberg REST), SeaweedFS S3, Spark Connect, Trino and Airflow, with optional Jupyter and GenAI services (Ollama, Qdrant, Phoenix). Built for many parallel releases on one cluster.
 
@@ -14,11 +14,11 @@ Component versions are pinned in [docs/VERSIONS.md](../../docs/VERSIONS.md) (sec
 
 ```bash
 # from the OCI registry (published on every v* tag)
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.1.0 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.2.0 \
   --namespace lab1 --create-namespace --wait --timeout 10m
 
 # minimal lakehouse profile: hms + seaweedfs + spark + trino
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.1.0 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.2.0 \
   -n lab1 --create-namespace -f https://raw.githubusercontent.com/tarekabouzeid/data-lab-playground/main/charts/data-lab/ci/minimal-values.yaml
 
 helm test lab1 -n lab1      # Spark writes an Iceberg table, Trino reads it, then it is dropped
@@ -486,6 +486,7 @@ Kubernetes: `>=1.29.0-0`
 | jupyter.persistence.size | string | `"5Gi"` | PVC size. |
 | jupyter.persistence.storageClass | string | `""` | StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`. |
 | jupyter.persistence.accessModes | list | `["ReadWriteOnce"]` | PVC access modes. |
+| jupyter.persistence.existingClaim | string | `""` | Use this existing PVC for `/home/jovyan/work` instead of creating one (e.g. the workstation's host-folder PV). |
 | jupyter.resources | object | `{"limits":{"memory":"4Gi"},"requests":{"cpu":"100m","memory":"512Mi"}}` | Container resources. |
 | jupyter.podSecurityContext | object | `{"fsGroup":100,"runAsGroup":100,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (jovyan: uid 1000, gid 100). |
 | jupyter.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |

@@ -655,6 +655,8 @@ jupyter:
     storageClass: ""
     # -- PVC access modes.
     accessModes: ["ReadWriteOnce"]
+    # -- Use this existing PVC for `/home/jovyan/work` instead of creating one (e.g. the workstation's host-folder PV).
+    existingClaim: ""
   # -- Container resources.
   resources:
     requests: {cpu: 100m, memory: 512Mi}

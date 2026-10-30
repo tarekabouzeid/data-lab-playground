@@ -8,7 +8,7 @@ Usage: include "datalab.simpleComponent" (dict "root" $ "component" "qdrant" "va
 {{- $root := .root -}}
 {{- $c := .values -}}
 {{- $name := include "datalab.componentName" (list $root .component) -}}
-{{- if $c.persistence.enabled }}
+{{- if and $c.persistence.enabled (not $c.persistence.existingClaim) }}
 {{ include "datalab.pvc" (list $root .component $c.persistence) }}
 ---
 {{- end }}

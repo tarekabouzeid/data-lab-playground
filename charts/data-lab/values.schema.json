@@ -1605,6 +1605,10 @@
                 ]
               },
               "description": "PVC access modes."
+            },
+            "existingClaim": {
+              "type": "string",
+              "description": "Use this existing PVC for `/home/jovyan/work` instead of creating one (e.g. the workstation's host-folder PV)."
             }
           }
         },
