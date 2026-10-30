@@ -3,21 +3,22 @@
 # the GenAI notebooks.
 #   1. helm test: Iceberg round trip + the 19-check lakehouse e2e (tests/e2e/e2e_lakehouse.py) over Spark Connect
 #   2. the same 19 checks as a SparkApplication (Kubeflow Spark Operator spark-submits it with our Spark image)
-#   3. every notebook, headless, inside the Jupyter pod (dbt before semantic/01)
-#   4. every gateway hostname answers (through the Envoy proxy)
+#   3. every notebook, headless, inside the Jupyter pod (dbt before semantic/01 and rag_demo)
+#   4. the Airflow DAG northwind_daily (triggered, must succeed), then ops/01_pipeline_agent.ipynb
+#   5. every gateway hostname answers (through the Envoy proxy)
 #
-# Usage: hack/workstation/e2e.sh [--skip helm-test,spark-app,notebooks,gateway] [--timeout 1800]
+# Usage: hack/workstation/e2e.sh [--skip helm-test,spark-app,notebooks,dag,gateway] [--timeout 1800]
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 SKIP=""; TIMEOUT=1800
 while [[ $# -gt 0 ]]; do
   case $1 in
     --skip) SKIP=$2; shift 2;; --timeout) TIMEOUT=$2; shift 2;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0;;
     *) die "unknown option: $1";;
   esac
 done
-require helm; require kubectl; require curl
+require helm; require kubectl; require curl; require jq
 K="kubectl -n $NAMESPACE"
 skip() { [[ ",$SKIP," == *",$1,"* ]]; }
 endpoint() { $K get configmap "$FULLNAME-endpoints" -o jsonpath="{.data.$1}"; }
@@ -25,13 +26,13 @@ helm -n "$NAMESPACE" status "$RELEASE" >/dev/null 2>&1 || die "release $RELEASE 
 rc=0
 
 if ! skip helm-test; then
-  log "1/4 helm test (Iceberg round trip + 19-check lakehouse e2e over Spark Connect)"
+  log "1/5 helm test (Iceberg round trip + 19-check lakehouse e2e over Spark Connect)"
   if helm test "$RELEASE" -n "$NAMESPACE" --timeout "${TIMEOUT}s"; then ok "helm test passed"
   else rc=1; warn "helm test failed: the failed test pod is kept, see $K logs pod/$FULLNAME-test-lakehouse"; fi
 fi
 
 if ! skip spark-app; then
-  log "2/4 the lakehouse e2e as a SparkApplication (Spark Operator)"
+  log "2/5 the lakehouse e2e as a SparkApplication (Spark Operator)"
   sa=$(endpoint SPARK_APPLICATION_SERVICE_ACCOUNT)
   [[ -n $sa ]] || die "spark.applications.enabled is off in this release"
   s3_key=$($K get secret "$FULLNAME-s3" -o jsonpath='{.data.access-key}' | base64 -d)
@@ -99,26 +100,53 @@ YAML
   else rc=1; warn "SparkApplication ended in state '${state:-none}': $K describe sparkapplication $FULLNAME-e2e"; fi
 fi
 
+run_notebook() {   # $1 = path under jupyter/notebooks
+  local nb=$1 dir; dir=$(dirname "$nb")
+  if $K exec "deploy/$FULLNAME-jupyter" -- bash -c "cd /home/jovyan/work/$dir && jupyter nbconvert --to notebook --execute \
+       --ExecutePreprocessor.timeout=900 --output /tmp/$(basename "$nb") $(basename "$nb")" >/tmp/nb.log 2>&1; then
+    ok "$nb"
+  else
+    rc=1; warn "$nb failed:"; tail -15 /tmp/nb.log >&2
+  fi
+}
+
 if ! skip notebooks; then
-  log "3/4 notebooks, headless in the Jupyter pod"
-  NOTEBOOKS=(data_lab_playground.ipynb rag_demo.ipynb iceberg/00_whats_new_and_whats_supported.ipynb
-             iceberg/01_hilbert_clustering.ipynb iceberg/02_variant_semi_structured.ipynb
-             iceberg/03_deletion_vectors_and_row_lineage.ipynb iceberg/04_streaming_and_parquet_tuning.ipynb
+  log "3/5 notebooks, headless in the Jupyter pod (stages 0-7 of the Northwind story; dbt before semantic/01 and rag_demo)"
+  NOTEBOOKS=(data_lab_playground.ipynb iceberg/00_whats_new_and_whats_supported.ipynb
+             iceberg/04_streaming_and_parquet_tuning.ipynb iceberg/02_variant_semi_structured.ipynb
+             iceberg/03_deletion_vectors_and_row_lineage.ipynb iceberg/01_hilbert_clustering.ipynb
              dbt/01_getting_started.ipynb dbt/02_incremental_and_snapshots.ipynb dbt/03_tests_contracts_and_unit_tests.ipynb
-             semantic/01_chat_with_your_data.ipynb)
-  for nb in "${NOTEBOOKS[@]}"; do
-    dir=$(dirname "$nb")
-    if $K exec "deploy/$FULLNAME-jupyter" -- bash -c "cd /home/jovyan/work/$dir && jupyter nbconvert --to notebook --execute \
-         --ExecutePreprocessor.timeout=900 --output /tmp/$(basename "$nb") $(basename "$nb")" >/tmp/nb.log 2>&1; then
-      ok "$nb"
+             semantic/01_chat_with_your_data.ipynb rag_demo.ipynb)
+  for nb in "${NOTEBOOKS[@]}"; do run_notebook "$nb"; done
+fi
+
+if ! skip dag; then
+  log "4/5 Airflow DAG northwind_daily (ops/dags, mounted as the DAG folder), then the ops agent notebook"
+  if [[ -z $(endpoint AIRFLOW_URL) ]]; then
+    warn "airflow.enabled is off in this release; skipping"
+  else
+    AF="$K exec deploy/$FULLNAME-airflow -c scheduler --"
+    run_id="e2e-$(date +%s)"
+    if $AF airflow dags trigger northwind_daily --run-id "$run_id" >/tmp/dag.log 2>&1; then
+      state=""
+      for _ in $(seq 1 60); do
+        state=$($AF airflow dags list-runs northwind_daily -o json 2>/dev/null \
+                | jq -r --arg id "$run_id" '.[] | select(.run_id == $id) | .state' || true)
+        [[ $state == success || $state == failed ]] && break
+        sleep 5
+      done
+      if [[ $state == success ]]; then ok "northwind_daily run $run_id: success"
+      else rc=1; warn "northwind_daily run $run_id ended in state '${state:-unknown}': see the Airflow UI"; fi
     else
-      rc=1; warn "$nb failed:"; tail -15 /tmp/nb.log >&2
+      rc=1; warn "could not trigger northwind_daily (is ops/dags mounted?):"; tail -5 /tmp/dag.log >&2
     fi
-  done
+    if [[ -n $(endpoint AIRFLOW_MCP_URL) ]]; then run_notebook ops/01_pipeline_agent.ipynb
+    else warn "airflowMcp.enabled is off; skipping ops/01_pipeline_agent.ipynb"; fi
+  fi
 fi
 
 if ! skip gateway; then
-  log "4/4 gateway hostnames"
+  log "5/5 gateway hostnames"
   svc=$(kubectl get svc -A -l "gateway.envoyproxy.io/owning-gateway-name=$FULLNAME-gateway,gateway.envoyproxy.io/owning-gateway-namespace=$NAMESPACE" \
     -o jsonpath='{.items[0].metadata.namespace}/{.items[0].metadata.name}' 2>/dev/null || true)
   if [[ $svc == */* ]]; then

@@ -82,9 +82,10 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 ## Notebooks Location
 
-- `jupyter/notebooks/data_lab_playground.ipynb` — Platform integration demo
-- `jupyter/notebooks/rag_demo.ipynb` — RAG pipeline (Qdrant + Ollama + LangChain)
-- `jupyter/notebooks/iceberg/` (00–04) — Iceberg 1.12 features; `jupyter/notebooks/dbt/` (01–03) + `dbt/lakehouse_demo` project; `jupyter/notebooks/semantic/01_chat_with_your_data.ipynb` (Semantic Operator vs raw text-to-SQL, chart only); shared `lab_utils.py` (all endpoints) and `lab_data.py` (Northwind Gear: the one shop all notebooks use, derived deterministically from the dbt seeds; layers `dbt_demo_raw` → `shop_bronze` (v2) / `shop_v3` (v3, Spark only) → `dbt_demo`). Rules: no module named `dbt_*`, never `DROP SCHEMA` in notebooks, no `.master()` (works on Compose and Spark Connect). The Jupyter image needs `git` for `dbt debug`. See AGENTS.md pitfall 18.
+- `jupyter/notebooks/data_lab_playground.ipynb` — the tour: pipeline map, bronze snapshot, cross-catalog join, rows per layer
+- `jupyter/notebooks/rag_demo.ipynb` — RAG + metrics: refund rate per product + support tickets in Qdrant
+- `jupyter/notebooks/ops/` — Airflow DAG `dags/northwind_daily.py` (SQL on Trino over HTTP; workstation profile mounts `ops/dags` as the DAG folder) + `01_pipeline_agent.ipynb` (Airflow + Spark History MCP agent, chart only)
+- `jupyter/notebooks/iceberg/` (00–04) — Iceberg 1.12 features; `jupyter/notebooks/dbt/` (01–03) + `dbt/lakehouse_demo` project; `jupyter/notebooks/semantic/01_chat_with_your_data.ipynb` (Semantic Operator vs raw text-to-SQL, chart only); shared `lab_utils.py` (all endpoints) and `lab_data.py` (Northwind Gear: the one shop all notebooks use, derived deterministically from the dbt seeds; layers `dbt_demo_raw` → `shop_bronze` (v2) / `shop_v3` (v3; Spark writes, Trino reads) → `dbt_demo` → `shop_gold` (DAG)). Rules: no module named `dbt_*`, never `DROP SCHEMA` in notebooks, no `.master()` (works on Compose and Spark Connect). The Jupyter image needs `git` for `dbt debug`. See AGENTS.md pitfall 18.
 
 ## Versions Reference
 

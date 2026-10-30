@@ -28,8 +28,10 @@ Pass: `E2E SUMMARY: 19/19 checks passed`.
 
 Then run `./start-platform.sh`, open `semantic/01_chat_with_your_data.ipynb` in Jupyter (http://localhost:8888) and run the
 first code cell. Pass: it stops with *"The semantic layer runs only on the Helm chart with semantic.enabled=true (Docker
-Compose is frozen and does not include it)."* Run `data_lab_playground.ipynb` and `rag_demo.ipynb` too. Their service
-URLs now come from `lab_utils.py`, with the same Compose hosts as defaults, so they behave exactly as before.
+Compose is frozen and does not include it)."* Run `data_lab_playground.ipynb` and `rag_demo.ipynb` too. Both now work on the Northwind shop (`lab_data.py`); on
+Compose `rag_demo` takes its numbers from Trino over the dbt marts (after `dbt/01`) or from the seeds. Their service
+URLs come from `lab_utils.py`, with the Compose hosts as defaults. `ops/01_pipeline_agent.ipynb` stops with *"The Airflow and
+Spark History MCP servers run only on the Helm chart ..."*.
 If it fails, paste back the e2e summary or the failing cell's traceback.
 
 ## 3. kind (the Sandpiper-style installs)
@@ -75,6 +77,7 @@ Pass:
   - `helm test passed`
   - `SparkApplication: 19/19`
   - one `ok` line per notebook, 11 in total
+  - `northwind_daily run e2e-<n>: success` (the DAG from `ops/dags`, triggered after the dbt notebooks), then `ok ops/01_pipeline_agent.ipynb`
   - one `ok` line per gateway hostname
 
 Then check by hand with `hack/workstation/gateway-forward.sh` running in another terminal:
@@ -86,7 +89,10 @@ Then check by hand with `hack/workstation/gateway-forward.sh` running in another
 | `http://headlamp.datalab.localhost:8080` | Headlamp logs in with the token from `hack/workstation/headlamp-token.sh`; the sidebar shows *Kubeflow → Spark*, listing the e2e SparkApplication. |
 | GPU | `kubectl -n datalab exec deploy/datalab-data-lab-ollama -- nvidia-smi` lists the GPU. |
 | `semantic/01_chat_with_your_data.ipynb` (run all) | the refund-rate cell shows the naive join and the semantic layer disagreeing (installments); the step-by-step cell ends with an answer whose numbers match the rows above it; the score table shows the semantic path at 6/6 (the raw text-to-SQL column is informational); `marketing` is refused the e-mail filter and `dach_sales` sees only DACH. |
-| `rag_demo.ipynb` | answers questions using the GPU (fast replies). |
+| `rag_demo.ipynb` | `numbers from: semantic layer (certified metrics)`; the router answer names the Wi-Fi drop after firmware 2.4.1 and the SSD answer the dead-on-arrival drives, citing order ids (GPU: fast replies). |
+| `data_lab_playground.ipynb` (after the other notebooks) | the *Rows per layer* table shows a count for every table except `shop_gold.product_kpis` until the DAG has run. |
+| `http://airflow.datalab.localhost:8080` | DAG `northwind_daily` is listed, unpaused, and its e2e run is green; `shop_gold.product_kpis` exists in Trino. |
+| `ops/01_pipeline_agent.ipynb` | the first answer names the latest `northwind_daily` run and its tasks; the steps table shows Airflow tool calls. |
 
 If it fails, paste back the script's last lines, or for a UI the HTTP status from `curl -sI -H 'Host: <host>' http://127.0.0.1:8080/`.
 

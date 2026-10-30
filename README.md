@@ -132,7 +132,7 @@ helm uninstall lab1 -n lab1   # leaves nothing behind
 hack/workstation/setup-minikube.sh      # minikube + Spark Operator + Envoy Gateway + SemanticModel CRD + Headlamp (--gpu-mode none for CPU only)
 hack/workstation/build-images.sh        # build the lab images inside minikube
 hack/workstation/deploy.sh              # charts/data-lab with ci/workstation-values.yaml (release/namespace datalab)
-hack/workstation/e2e.sh                 # helm test, the 19 checks as a SparkApplication, every notebook, every URL
+hack/workstation/e2e.sh                 # helm test, the 19 checks as a SparkApplication, every notebook, the northwind_daily DAG, every URL
 hack/workstation/gateway-forward.sh     # http://jupyter.datalab.localhost:8080, trino.…, airflow.…, headlamp.…
 ```
 
@@ -149,7 +149,7 @@ Simple steps to explore the tools:
 
 1. **Start**: Run `./start-platform.sh` 
 2. **Open Jupyter**: Go to http://localhost:8888 (password: 123456)
-3. **Try the demos**: Open `data_lab_playground.ipynb` for basic examples
+3. **Try the demos**: Open `data_lab_playground.ipynb`, the tour of Northwind Gear (the one shop every notebook uses) and its pipeline
 4. **Experiment with RAG**: Try `rag_vector_demo.ipynb` for vector database examples
 5. **Explore UIs**: Check out Qdrant dashboard, Phoenix monitoring, etc.
 
@@ -197,10 +197,12 @@ Simple steps to explore the tools:
 - **Development Tools**: ipywidgets, tqdm, rich, typer
 - **dbt**: dbt-core 1.12.5 + dbt-trino 1.10.6 (project in `jupyter/notebooks/dbt/lakehouse_demo/`; the Jupyter image ships `git`, which `dbt debug`/`dbt deps` need)
 - **Example notebooks**:
-  - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
+  - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques on the Northwind shop: `00` what's new + live support matrix, `01` Hilbert vs Z-order on delivery points ("orders near Berlin"), `02` the clickstream as VARIANT (format v3) + funnel per product, `03` a customer's right to be forgotten (deletion vectors, row lineage, snapshot expiry), `04` the order stream into `shop_bronze.order_events` (streaming merge-append, Parquet tuning)
   - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
   - [`jupyter/notebooks/semantic/`](jupyter/notebooks/semantic/) — `01` chat with your data, step by step: the dbt shop's seven tables (split payments, refunds in installments, costs and regions joins away), its Apache Ossie model, the Kubeflow Semantic Operator's MCP tools by hand, then a local LLM (`qwen3:4b`) answering through them vs writing raw SQL, scored against ground truth, plus row-level governance (Helm chart with `semantic.enabled` only)
   - `jupyter/notebooks/lab_data.py` — Northwind Gear, the one shop the notebooks share: clickstream, deliveries, order stream and product documents derived deterministically from the dbt seeds
+  - `jupyter/notebooks/data_lab_playground.ipynb` (the tour: pipeline map, bronze snapshot, cross-catalog Trino join, rows per layer) and `rag_demo.ipynb` (why customers send products back: refund rate per product from the semantic layer, Trino or the seeds, plus support tickets retrieved from Qdrant)
+  - [`jupyter/notebooks/ops/`](jupyter/notebooks/ops/) — the Airflow DAG `dags/northwind_daily.py` (bronze MERGE, quality checks, `shop_gold.product_kpis`; SQL on Trino over HTTP) and `01_pipeline_agent.ipynb`, an LLM agent over the Airflow and Spark History MCP servers (Helm chart only; the workstation profile mounts `ops/dags` as the DAG folder and enables both MCP servers)
   - `jupyter/notebooks/lab_utils.py` — shared helper: every service endpoint (env set by the chart, Compose host as default), `get_spark()` (Compose and Spark Connect), `trino()`, `dbt()`, `reset_dbt_demo()`, the semantic-layer chat helpers
 - **Default Kernel**: GenAI Analytics (Python 3.12)
 - **Access**: `http://localhost:8888` (password: 123456)

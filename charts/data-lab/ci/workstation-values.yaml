@@ -29,6 +29,17 @@ spark:
     enabled: true                        # SparkApplications (Kubeflow Spark Operator) run as <release>-data-lab-spark-apps
 semantic:
   enabled: true
+airflow:
+  dags:
+    subPath: ops/dags                    # jupyter/notebooks/ops/dags: northwind_daily (the repo folder, editable on the host)
+    pvc:
+      existingClaim: datalab-notebooks   # the notebooks claim (single-node minikube: Jupyter and Airflow share it)
+  extraEnv:
+    - {name: TRINO_HOST, value: datalab-data-lab-trino}   # northwind_daily runs its SQL on Trino over HTTP
+airflowMcp:
+  enabled: true                          # ops/01_pipeline_agent.ipynb
+sparkHistoryMcp:
+  enabled: true
 tests:
   lakehouseE2e:
     enabled: true

@@ -83,7 +83,7 @@ charts/data-lab with `ci/workstation-values.yaml`, release and namespace `datala
 ```bash
 hack/workstation/setup-minikube.sh [--gpu-mode device-plugin|dra|none]   # cluster + every cluster-wide prerequisite
 hack/workstation/build-images.sh && hack/workstation/deploy.sh          # images into minikube, then the chart
-hack/workstation/e2e.sh [--skip helm-test,spark-app,notebooks,gateway]  # helm test, SparkApplication 19/19, notebooks, URLs
+hack/workstation/e2e.sh [--skip helm-test,spark-app,notebooks,dag,gateway]  # helm test, SparkApplication 19/19, notebooks, DAG northwind_daily + ops notebook, URLs
 hack/workstation/gateway-forward.sh                                      # Envoy Gateway → localhost:8080 (*.datalab.localhost)
 hack/workstation/install-headlamp.sh && hack/workstation/headlamp-token.sh   # Headlamp + Kubeflow plugin, login token
 ```
@@ -240,7 +240,7 @@ spark/
 jupyter/
   Dockerfile                  # JupyterLab + PySpark + full GenAI stack
   spark-defaults.conf         # Same as spark/conf/spark-defaults.conf
-  notebooks/                  # Example notebooks (iceberg/, dbt/, semantic/ + lab_utils.py: endpoints + helpers)
+  notebooks/                  # Example notebooks (iceberg/, dbt/, semantic/, ops/ incl. the Airflow DAG + lab_utils.py: endpoints + helpers, lab_data.py: the Northwind shop)
 trino/
   Dockerfile                  # Trino 483
   etc/catalog/hive.properties       # Hive connector → HMS thrift
@@ -281,10 +281,11 @@ docs/
 
 ## Notebooks
 
-- [`jupyter/notebooks/data_lab_playground.ipynb`](jupyter/notebooks/data_lab_playground.ipynb) — Full platform demo: Phoenix tracing, Ollama LLM, Spark, SeaweedFS, Trino
-- [`jupyter/notebooks/rag_demo.ipynb`](jupyter/notebooks/rag_demo.ipynb) — RAG pipeline: Qdrant + `mxbai-embed-large` embeddings + `gemma3:4b` LLM + LangChain
-- [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
+- [`jupyter/notebooks/data_lab_playground.ipynb`](jupyter/notebooks/data_lab_playground.ipynb) — The tour (stage 0): service checks, Ollama + Phoenix, the Northwind pipeline map, `shop_bronze.orders` (Iceberg) + `hive.default.shop_customers` (plain Parquet) joined in Trino, time travel, rows per layer
+- [`jupyter/notebooks/rag_demo.ipynb`](jupyter/notebooks/rag_demo.ipynb) — RAG + metrics (stage 7): refund rate per product (semantic layer → Trino over the marts → seeds, first that works) + `lab_data.product_docs()` in Qdrant (`northwind_docs`, rebuilt each run) + `gemma3:4b`; asks why the two most-ticketed products come back
+- [`jupyter/notebooks/ops/`](jupyter/notebooks/ops/) — `dags/northwind_daily.py` (stage 8, Airflow 3: check inputs → MERGE raw orders into `shop_bronze.orders_current` → quality checks → `shop_gold.product_kpis`; plain SQL on Trino over HTTP, so the stock Airflow image runs it; `TRINO_HOST` via `airflow.extraEnv`; unit-tested in `tests/unit/test_northwind_dag.py`) and `01_pipeline_agent.ipynb` (stage 9: `lab_utils.ask_ops` gives `qwen3:4b` the tools of the Airflow and Spark History MCP servers; chart only)
+- [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques on the shop: `00` what's new + live support matrix (scratch namespace `iceberg12`), `01` Hilbert vs Z-order on `shop_bronze.deliveries_*`, `02` VARIANT clickstream `shop_v3.web_events` + funnel, `03` right to be forgotten on `shop_v3.orders` (DVs, row lineage, compaction + `expire_snapshots`), `04` order stream into `shop_bronze.order_events` (merge-append, Parquet dictionary per column)
 - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/` (seeds: customers, orders, products, payments, refunds, product costs, regions; the payments/refunds/costs/regions models depend only on their own seeds, so the `stg_orders+` lineage the notebooks show is unchanged)
-- [`jupyter/notebooks/lab_data.py`](jupyter/notebooks/lab_data.py) — **Northwind Gear, the one shop every notebook uses** (being rolled out: `docs/superpowers/plans/2026-10-30-northwind-data-story.md`). The dbt seeds are the system of record; `lab_data` derives clickstream events, delivery coordinates, the order-event stream and product documents (manuals, reviews, support tickets that follow the refunds seed) deterministically from them. Layers: raw `dbt_demo_raw`, bronze `shop_bronze` (Spark, format v2, Trino-readable), `shop_v3` (format-v3 demos, Spark only), models `dbt_demo`. New notebooks use this data, not ad-hoc random data.
+- [`jupyter/notebooks/lab_data.py`](jupyter/notebooks/lab_data.py) — **Northwind Gear, the one shop every notebook uses** (design: `docs/superpowers/plans/2026-10-30-northwind-data-story.md`). The dbt seeds are the system of record; `lab_data` derives clickstream events, delivery coordinates, the order-event stream and product documents (manuals, reviews, support tickets that follow the refunds seed) deterministically from them. Layers: raw `dbt_demo_raw`, bronze `shop_bronze` (Spark, format v2, Trino-readable), `shop_v3` (format-v3 feature tables: Spark writes, Spark and Trino 483 read), models `dbt_demo`, gold `shop_gold` (the DAG). New notebooks use this data, not ad-hoc random data.
 - [`jupyter/notebooks/semantic/01_chat_with_your_data.ipynb`](jupyter/notebooks/semantic/01_chat_with_your_data.ipynb) — walkthrough of the Semantic Operator: the 7-table dbt shop and its traps, the Ossie model, the MCP tools by hand (compiled SQL, fan-out-safe refund rate vs a naive join), the LLM (`qwen3:4b`) step by step, 6 questions semantic vs raw text-to-SQL scored against ground truth, governance (`marketing` denied e-mail, `dach_sales` row filter). Chart with `semantic.enabled` only (stops on Compose).
-- `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`)
+- `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`, semantic-layer helpers, `ops_servers()` / `ops_call()` / `ask_ops()` for the operations MCP servers)

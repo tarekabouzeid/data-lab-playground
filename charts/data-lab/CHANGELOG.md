@@ -28,6 +28,9 @@ with default values the chart renders the same resources as 0.1.0 (`tests/chart/
 - `jupyter.persistence.existingClaim`; Jupyter now also gets `TRINO_HOST`/`TRINO_PORT` and the S3 keys (from the
   S3 Secret), so every notebook runs unchanged on the chart.
 - `global.apiChecks` (default true): turn the Gateway/DRA/SemanticModel API checks off for offline `helm lint` only.
+- `ci/workstation-values.yaml`: Airflow's DAG folder is the notebooks claim at `ops/dags` (the `northwind_daily` DAG
+  from the repo), `TRINO_HOST` for it via `airflow.extraEnv`, and `airflowMcp` + `sparkHistoryMcp` on for
+  `ops/01_pipeline_agent.ipynb`. Profile only: no template or default changed.
 - Profiles `ci/semantic-values.yaml` and `ci/workstation-values.yaml` (minikube + GPU lab, `hack/workstation/`).
 - CI: render tests (`tests/chart`), unit tests, compose parity check, kind e2e scenario `semantic`.
 

@@ -190,10 +190,15 @@ def _mcp_post(url: str, headers: dict, body: dict):
 
 
 def _mcp(method: str, params: dict, role: str):
+    """One semantic-layer MCP session (identity headers for `role`). Returns the JSON-RPC result."""
+    return _mcp_session(os.environ["SEMANTIC_MCP_URL"], method, params,
+                        {"X-Semantic-User": SEMANTIC_USER, "X-Semantic-Role": role})
+
+
+def _mcp_session(url: str, method: str, params: dict, extra_headers: dict | None = None):
     """One MCP session: initialize, then `method`. Returns the JSON-RPC result."""
-    url = os.environ["SEMANTIC_MCP_URL"]
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
-               "X-Semantic-User": SEMANTIC_USER, "X-Semantic-Role": role}
+               **(extra_headers or {})}
     _mcp_post(url, headers, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "data-lab-notebook", "version": "1"}}})
     _mcp_post(url, headers, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
@@ -284,6 +289,76 @@ def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", 
             messages.append({"role": "tool", "tool_name": name, "content": json.dumps(out)[:8000]})
     return {"answer": f"(stopped after {max_turns} turns without a final answer)", "tool_calls": calls,
             "steps": steps, "sql": sql, "rows": rows}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Operations agent: the Airflow and Spark History MCP servers (Helm chart only: airflowMcp / sparkHistoryMcp)
+# ---------------------------------------------------------------------------------------------------------------
+OPS_MCP = {"airflow": "AIRFLOW_MCP_URL", "spark_history": "SPARK_HISTORY_MCP_URL"}   # server -> env var (endpoints)
+
+
+def ops_servers() -> dict:
+    """The operations MCP servers this deployment runs: {name: url}."""
+    return {name: os.environ[env] for name, env in OPS_MCP.items() if os.environ.get(env)}
+
+
+def require_ops() -> None:
+    if not ops_servers():
+        raise RuntimeError("The Airflow and Spark History MCP servers run only on the Helm chart (airflowMcp.enabled, "
+                           "sparkHistoryMcp.enabled; the workstation profile turns both on). Docker Compose is "
+                           "frozen and does not include them.")
+
+
+def ops_tools(server: str) -> list:
+    return _mcp_session(ops_servers()[server], "tools/list", {})["tools"]
+
+
+def ops_call(server: str, name: str, args: dict):
+    """Call one tool on an operations MCP server. Returns parsed JSON when the tool returns JSON, else the text."""
+    res = _mcp_session(ops_servers()[server], "tools/call", {"name": name, "arguments": args})
+    text = "".join(c.get("text", "") for c in res.get("content", []) if c.get("type") == "text")
+    if res.get("isError"):
+        return {"error": text}
+    if res.get("structuredContent") is not None:
+        return res["structuredContent"]
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+OPS_PROMPT = ("You are the on-call data engineer for Northwind Gear's lakehouse. Answer with the tools: the Airflow "
+              "tools for DAGs, runs and task logs; the Spark History tools for Spark applications, jobs and stages. "
+              "Never guess ids: list first, then drill down. Reply in at most five sentences with the facts you found.")
+
+
+def ask_ops(question: str, model: str = TOOL_MODEL, max_turns: int = 8) -> dict:
+    """Let the LLM investigate with the tools of every operations MCP server. Tool names are prefixed with the server
+    (`airflow__list_dags`). Returns the answer and `steps` (every tool call, its arguments and a result excerpt)."""
+    servers = ops_servers()
+    tools, owner = [], {}
+    for server in servers:
+        for t in ops_tools(server):
+            name = f"{server}__{t['name']}"
+            owner[name] = (server, t["name"])
+            tools.append(mcp_tool_to_ollama({**t, "name": name}))
+    messages = [{"role": "system", "content": OPS_PROMPT}, {"role": "user", "content": question}]
+    steps = []
+    for _ in range(max_turns):
+        msg = _chat(model, messages, tools)["message"]
+        messages.append(msg)
+        if not msg.get("tool_calls"):
+            return {"answer": msg.get("content", ""), "steps": steps}
+        for tc in msg["tool_calls"]:
+            name, args = tc["function"]["name"], tc["function"].get("arguments") or {}
+            if name in owner:
+                out = ops_call(*owner[name], args)
+            else:
+                out = {"error": f"unknown tool {name}"}
+            text = out if isinstance(out, str) else json.dumps(out, default=str)
+            steps.append({"tool": name, "args": args, "result": text[:300]})
+            messages.append({"role": "tool", "tool_name": name, "content": text[:8000]})
+    return {"answer": f"(stopped after {max_turns} turns without a final answer)", "steps": steps}
 
 
 RAW_PROMPT = ("You write one Trino SQL query that answers the question over the tables below (catalog {catalog}, "

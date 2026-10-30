@@ -217,3 +217,36 @@ def test_require_semantic_explains_jwt(monkeypatch):
         lab_utils.require_semantic()
     monkeypatch.setenv("SEMANTIC_AUTH_MODE", "header")
     lab_utils.require_semantic()
+
+
+def test_ops_agent_routes_prefixed_tools_to_their_server(monkeypatch):
+    monkeypatch.setenv("AIRFLOW_MCP_URL", "http://airflow-mcp:8000/mcp")
+    monkeypatch.setenv("SPARK_HISTORY_MCP_URL", "http://spark-history-mcp:18888/mcp")
+    tools = {"http://airflow-mcp:8000/mcp": [{"name": "list_dag_runs", "inputSchema": {"type": "object"}}],
+             "http://spark-history-mcp:18888/mcp": [{"name": "list_applications", "inputSchema": {"type": "object"}}]}
+    called = []
+
+    def fake_session(url, method, params, extra_headers=None):
+        if method == "tools/list":
+            return {"tools": tools[url]}
+        called.append((url, params["name"], params["arguments"]))
+        return {"content": [{"type": "text", "text": '{"dag_runs": [{"state": "success"}]}'}]}
+
+    monkeypatch.setattr(lab_utils, "_mcp_session", fake_session)
+    answers = iter([{"message": {"tool_calls": [{"function": {"name": "airflow__list_dag_runs",
+                                                              "arguments": {"dag_id": "northwind_daily"}}}]}},
+                    {"message": {"content": "The last northwind_daily run succeeded."}}])
+    seen_tools = []
+    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None: (seen_tools.append(tools), next(answers))[1])
+    out = lab_utils.ask_ops("How did the last run go?")
+    assert out["answer"] == "The last northwind_daily run succeeded."
+    assert called == [("http://airflow-mcp:8000/mcp", "list_dag_runs", {"dag_id": "northwind_daily"})]
+    assert {t["function"]["name"] for t in seen_tools[0]} == {"airflow__list_dag_runs", "spark_history__list_applications"}
+    assert out["steps"][0]["tool"] == "airflow__list_dag_runs"
+
+
+def test_require_ops_explains_where_it_runs(monkeypatch):
+    monkeypatch.delenv("AIRFLOW_MCP_URL", raising=False)
+    monkeypatch.delenv("SPARK_HISTORY_MCP_URL", raising=False)
+    with pytest.raises(RuntimeError, match="only on the Helm chart"):
+        lab_utils.require_ops()
