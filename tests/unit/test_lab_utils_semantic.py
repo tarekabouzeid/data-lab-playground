@@ -149,3 +149,16 @@ def test_mcp_call_tool_error(monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_URL", "http://semantic:8090/mcp")
     monkeypatch.setattr(lab_utils, "_mcp_post", lambda url, headers, body: replies.pop(0))
     assert lab_utils.mcp_call("query_metric", {}) == {"error": "unauthorized: role"}
+
+
+def test_rows_match_ignores_order_types_and_rounding():
+    truth = [["DE", 35.0], ["FR", 0.0]]
+    assert lab_utils.rows_match([["FR", 0], ["de", "35.004"]], truth)
+    assert lab_utils.rows_match([[35.0, "DE"], [0.0, "FR"]], truth)  # column order differs
+
+
+def test_rows_match_detects_wrong_answers():
+    truth = [["DE", 35.0], ["FR", 0.0]]
+    assert not lab_utils.rows_match([["DE", 45.0], ["FR", 10.0]], truth)  # returns not excluded
+    assert not lab_utils.rows_match([["DE", 35.0]], truth)
+    assert not lab_utils.rows_match([], truth)

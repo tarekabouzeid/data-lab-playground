@@ -296,3 +296,17 @@ def ask_raw_sql(question: str, tables: list, model: str = TOOL_MODEL, schema: st
         return {"answer": text, "sql": sql, "rows": df.values.tolist(), "error": None}
     except Exception as e:  # the model's SQL failed: that is part of the comparison
         return {"answer": text, "sql": sql, "rows": [], "error": str(e)}
+
+
+def _norm(v, tol):
+    try:
+        return round(float(v) / tol) * tol
+    except (TypeError, ValueError):
+        return str(v).strip().lower()
+
+
+def rows_match(rows, truth, tol: float = 0.01) -> bool:
+    """Same result set as the ground truth: row and column order, number types and rounding to `tol` do not matter."""
+    def canon(rs):
+        return sorted(tuple(sorted((_norm(v, tol) for v in r), key=repr)) for r in rs)
+    return bool(truth) and len(rows) == len(truth) and canon(rows) == canon(truth)
