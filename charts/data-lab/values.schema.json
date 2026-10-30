@@ -8,6 +8,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "apiChecks": {
+          "type": "boolean",
+          "description": "Fail rendering when a required API is missing (Gateway API for `gateway`, DRA for `ollama.gpu.dra`, the SemanticModel CRD for `semantic`). Set `false` only for offline linting: `helm lint` cannot pass `--api-versions`."
+        },
         "imageRegistry": {
           "type": "string",
           "description": "Registry that replaces every image's `registry` (for mirrors / air-gapped clusters). Empty keeps each image's own registry."

@@ -15,9 +15,10 @@ import sys
 import yaml
 
 NAMESPACED = {"ConfigMap", "Secret", "Service", "Deployment", "PersistentVolumeClaim", "ServiceAccount",
-              "Role", "RoleBinding", "NetworkPolicy", "Pod",
+              "Role", "RoleBinding", "NetworkPolicy", "Pod", "Job",
               "Gateway", "HTTPRoute",  # namespaced Gateway API kinds (gateway.enabled)
-              "ResourceClaimTemplate"}  # DRA GPU claim (ollama.gpu.dra.enabled)
+              "ResourceClaimTemplate",  # DRA GPU claim (ollama.gpu.dra.enabled)
+              "SemanticModel"}  # semantic.ossie.io (semantic.enabled)
 LABELS = ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/version",
           "app.kubernetes.io/managed-by", "helm.sh/chart"]
 
@@ -79,7 +80,7 @@ def main():
                 errs.append(f"{where}: label {key} missing")
         if kind == "Service" and doc["spec"].get("type", "ClusterIP") != "ClusterIP":
             errs.append(f"{where}: Service type {doc['spec']['type']}")
-        if kind == "Deployment":
+        if kind in ("Deployment", "Job"):
             tpl = doc["spec"]["template"]
             errs += pod_errors(where, tpl["spec"], tpl["metadata"].get("labels"))
         if kind == "Pod":

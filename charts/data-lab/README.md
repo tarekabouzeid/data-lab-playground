@@ -238,6 +238,7 @@ Kubernetes: `>=1.29.0-0`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| global.apiChecks | bool | `true` | Fail rendering when a required API is missing (Gateway API for `gateway`, DRA for `ollama.gpu.dra`, the SemanticModel CRD for `semantic`). Set `false` only for offline linting: `helm lint` cannot pass `--api-versions`. |
 | global.imageRegistry | string | `""` | Registry that replaces every image's `registry` (for mirrors / air-gapped clusters). Empty keeps each image's own registry. |
 | global.imagePullSecrets | list | `[]` | Pull secrets (names of existing `kubernetes.io/dockerconfigjson` Secrets) added to every pod. |
 | global.storageClass | string | `""` | Default StorageClass for every PVC. Empty uses the cluster default; `-` sets `storageClassName: ""`. |

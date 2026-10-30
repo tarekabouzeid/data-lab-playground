@@ -1,6 +1,6 @@
 {{- if .Values.gateway.enabled }}
 {{- $g := .Values.gateway -}}
-{{- if not (.Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1/Gateway") -}}
+{{- if and .Values.global.apiChecks (not (.Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1/Gateway")) -}}
 {{- fail "data-lab: gateway.enabled=true needs the Gateway API (gateway.networking.k8s.io/v1) and an implementation such as Envoy Gateway (hack/workstation/setup-minikube.sh)" -}}
 {{- end -}}
 {{- $parent := dict "name" (include "datalab.componentName" (list . "gateway")) -}}

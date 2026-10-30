@@ -145,6 +145,9 @@ data:
   SEMANTIC_MCP_URL: {{ printf "http://%s:8090/mcp" (include "datalab.host" (list . "semantic")) | quote }}
   SEMANTIC_REST_URL: {{ printf "http://%s:8090/v1" (include "datalab.host" (list . "semantic")) | quote }}
   SEMANTIC_DEFAULT_ROLE: "analyst"
+  {{- if $v.semantic.models.dbtDemo.enabled }}
+  SEMANTIC_DEMO_MODEL: "dbt_demo"
+  {{- end }}
   {{- end }}
   {{- if $v.gateway.enabled }}
   {{- range (include "datalab.gatewayRoutes" . | fromYamlArray) }}

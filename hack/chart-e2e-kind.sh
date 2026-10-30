@@ -84,6 +84,11 @@ uninstall_and_assert_clean() {  # namespace releases...
   for _ in $(seq 1 60); do
     left=$(kubectl -n "$ns" get pods,pvc,secrets,configmaps,services,deployments,jobs,roles,rolebindings,serviceaccounts,networkpolicies \
       --no-headers -o name 2>/dev/null | grep -vE '^(configmap/kube-root-ca.crt|serviceaccount/default)$' || true)
+    # SemanticModels (custom resources, only where the CRD exists) are listed separately: an unknown type would
+    # make the combined get above fail and look clean.
+    if kubectl get crd semanticmodels.semantic.ossie.io >/dev/null 2>&1; then
+      left="$left$(kubectl -n "$ns" get semanticmodels.semantic.ossie.io --no-headers -o name 2>/dev/null || true)"
+    fi
     [ -z "$left" ] && { echo "namespace $ns is clean"; kubectl delete namespace "$ns" --wait=false >/dev/null; return 0; }
     sleep 5
   done
@@ -172,6 +177,71 @@ assert_mcps() {  # release namespace: both MCP servers answer real questions; Ai
   echo "Airflow MCP lists DAGs and its trigger_dag is refused (read-only, viewer role)"
 }
 
+semantic_published() {  # namespace model: status of the Published condition ("" until reconciled)
+  kubectl -n "$1" get semanticmodel "$2" -o jsonpath='{.status.conditions[?(@.type=="Published")].status}' 2>/dev/null
+}
+
+semantic_call() {  # release namespace role tool args: MCP call from the release's Spark Connect pod (NetworkPolicy)
+  kubectl -n "$2" exec -i "deploy/$1-data-lab-spark-connect" -c spark-connect -- \
+    env MCP_HEADERS="{\"X-Semantic-User\": \"e2e\", \"X-Semantic-Role\": \"$3\"}" \
+    /opt/conda/bin/python - "http://$1-data-lab-semantic.$2.svc:8090/mcp" "$4" "$5" < "$(dirname "$0")/mcp-call.py"
+}
+
+trino_exec() {  # release namespace sql
+  kubectl -n "$2" exec "deploy/$1-data-lab-trino" -- trino --execute "$3"
+}
+
+scenario_semantic() {
+  log "semantic layer: Kubeflow Semantic Operator on the release's Trino"
+  local rel=lab ns=dl-semantic model=lab-data-lab-dbt-demo st out
+  kubectl apply -f "$(dirname "$0")/crds/semantic.ossie.io_semanticmodels.yaml"
+  install "$rel" "$ns" -f "$CHART/ci/semantic-values.yaml"
+  # Applied before its tables exist: the model must not be published yet.
+  sleep 20
+  st=$(semantic_published "$ns" "$model")
+  [ "$st" != "True" ] || { echo "FAIL: $model published before its tables exist"; return 1; }
+  echo "model before data: Published='${st}'"
+  # The dbt demo's tables, with 4 orders (one returned): total_revenue = 20 + 15 + 5 = 40
+  trino_exec "$rel" "$ns" "CREATE SCHEMA IF NOT EXISTS iceberg.dbt_demo"
+  trino_exec "$rel" "$ns" "CREATE TABLE iceberg.dbt_demo.stg_customers AS SELECT * FROM (VALUES
+    (1, 'Ann', 'ann@example.com', 'DE', 'pro', DATE '2026-01-02'),
+    (2, 'Bob', 'bob@example.com', 'FR', 'free', DATE '2026-02-03'),
+    (3, 'Cy', 'cy@example.com', 'DE', 'free', DATE '2026-03-04'))
+    AS t(customer_id, name, email, country, plan, signup_date)"
+  trino_exec "$rel" "$ns" "CREATE TABLE iceberg.dbt_demo.dim_products AS SELECT * FROM (VALUES
+    (1, 'Lamp', 'home', 10.0), (2, 'Pen', 'office', 5.0)) AS t(product_id, product_name, category, unit_price)"
+  trino_exec "$rel" "$ns" "CREATE TABLE iceberg.dbt_demo.fct_orders AS SELECT * FROM (VALUES
+    (1, 1, 1, 2, 10.0, 20.0, TIMESTAMP '2026-10-01 10:00:00', 'completed'),
+    (2, 2, 1, 1, 10.0, 10.0, TIMESTAMP '2026-10-02 10:00:00', 'returned'),
+    (3, 1, 2, 3, 5.0, 15.0, TIMESTAMP '2026-10-03 10:00:00', 'shipped'),
+    (4, 3, 2, 1, 5.0, 5.0, TIMESTAMP '2026-10-04 10:00:00', 'completed'))
+    AS t(order_id, customer_id, product_id, quantity, unit_price, amount, order_ts, status)"
+  local deadline=$((SECONDS + 120))
+  until [ "$(semantic_published "$ns" "$model")" = "True" ]; do
+    [ $SECONDS -lt $deadline ] || { kubectl -n "$ns" get semanticmodel "$model" -o yaml; dump "$ns"; echo "FAIL: $model not published 120 s after its tables appeared"; return 1; }
+    sleep 5
+  done
+  echo "model published after the tables appeared"
+  out=$(semantic_call "$rel" "$ns" analyst query_metric '{"model": "dbt_demo", "metrics": ["total_revenue"]}') || { echo "$out"; return 1; }
+  echo "$out" | python3 -c 'import json,sys; r=json.load(sys.stdin); v=float(r["rows"][0][0]); print("total_revenue =", v, "| sql:", " ".join(r["sql"].split())); sys.exit(0 if abs(v-40) < 1e-6 else 1)' \
+    || { echo "FAIL: total_revenue is not 40 (returned orders must be excluded): $out" | head -c 2000; return 1; }
+  out=$(semantic_call "$rel" "$ns" marketing query_metric \
+    '{"model": "dbt_demo", "metrics": ["order_count"], "filters": [{"field": "stg_customers.email", "op": "=", "value": "ann@example.com"}]}') || true
+  echo "$out" | grep -qiE 'den(y|ied)|not (permitted|allowed|visible)|forbidden|unauthori|governance' \
+    || { echo "FAIL: role marketing could filter on stg_customers.email: $out" | head -c 2000; return 1; }
+  echo "role marketing is refused stg_customers.email"
+  # C14: a second semantic-enabled release in the same namespace is refused at install time
+  if out=$(helm install lab2 "$CHART" -n "$ns" -f "$CHART/ci/semantic-values.yaml" 2>&1); then
+    helm uninstall lab2 -n "$ns" >/dev/null 2>&1 || true
+    echo "FAIL: a second semantic-enabled release installed in $ns"; return 1
+  fi
+  echo "$out" | grep -q "C14" || { echo "FAIL: second release failed for another reason: $out"; return 1; }
+  echo "second semantic-enabled release refused (C14)"
+  run_test "$rel" "$ns"
+  # The pre-delete hook removes the models while the manager still runs, so nothing is left behind.
+  uninstall_and_assert_clean "$ns" "$rel"
+}
+
 scenario_default() {
   log "default profile"
   install lab dl-default --set sparkHistoryMcp.enabled=true,airflowMcp.enabled=true
@@ -230,7 +300,8 @@ case "$SCENARIO" in
   default) scenario_default ;;
   minimal) scenario_minimal ;;
   parallel) scenario_parallel ;;
-  all) scenario_minimal; scenario_default; scenario_parallel ;;
+  semantic) scenario_semantic ;;
+  all) scenario_minimal; scenario_default; scenario_parallel; scenario_semantic ;;
   *) echo "unknown scenario $SCENARIO"; exit 2 ;;
 esac
 log "PASS: $SCENARIO"

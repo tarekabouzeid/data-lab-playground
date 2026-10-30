@@ -1,0 +1,7 @@
+# Semantic layer profile: the minimal lakehouse + the Kubeflow Semantic Operator and its dbt-demo model.
+# Needs the SemanticModel CRD (hack/crds/) in the cluster; the kind e2e `semantic` scenario applies it.
+airflow:
+  enabled: false
+sparkHistory: {enabled: false}
+semantic:
+  enabled: true

@@ -1,5 +1,5 @@
 {{- if .Values.semantic.enabled }}
-{{- if not (.Capabilities.APIVersions.Has "semantic.ossie.io/v1alpha1/SemanticModel") -}}
+{{- if and .Values.global.apiChecks (not (.Capabilities.APIVersions.Has "semantic.ossie.io/v1alpha1/SemanticModel")) -}}
 {{- fail "data-lab: semantic.enabled=true needs the SemanticModel CRD; apply hack/crds/semantic.ossie.io_semanticmodels.yaml first (cluster-scoped, once per cluster)" -}}
 {{- end }}
 {{- range list "manager" "server" }}

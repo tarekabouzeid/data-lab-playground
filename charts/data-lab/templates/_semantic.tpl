@@ -99,3 +99,20 @@ spec:
           configMap:
             name: {{ include "datalab.componentName" (list $root $comp) }}
 {{- end -}}
+
+
+{{- /* One Ossie field. dim: "" (none) | "plain" | "time" */ -}}
+{{- define "datalab.ossieField" -}}
+- name: {{ index . 0 }}
+  expression:
+    dialects:
+      - dialect: ANSI_SQL
+        expression: {{ index . 1 }}
+  description: {{ index . 2 | quote }}
+  {{- if eq (index . 3) "time" }}
+  dimension:
+    is_time: true
+  {{- else if eq (index . 3) "plain" }}
+  dimension: {}
+  {{- end -}}
+{{- end -}}

@@ -1,0 +1,137 @@
+{{- if .Values.semantic.enabled }}
+{{- $d := .Values.semantic.models.dbtDemo }}
+{{- if $d.enabled }}
+# Certified metrics over the dbt demo tables (jupyter/notebooks/dbt/lakehouse_demo, Trino catalog
+# {{ $d.catalog }}, schema {{ $d.schema }}). Expressions are ANSI_SQL: TRINO is not an Ossie dialect yet
+# (apache/ossie#607). No spec.views: Iceberg views through the HMS REST catalog are unverified.
+apiVersion: semantic.ossie.io/v1alpha1
+kind: SemanticModel
+metadata:
+  name: {{ include "datalab.componentName" (list . "dbt-demo") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic") | nindent 4 }}
+spec:
+  connection:
+    catalog: {{ $d.catalog }}
+    database: {{ $d.schema }}
+    viewDatabase: {{ printf "%s.semantic_views" $d.catalog }}
+  ossie:
+    name: dbt_demo
+    description: Orders, customers and products of the lab's dbt demo shop
+    ai_context:
+      instructions: >-
+        Use this model for questions about orders, revenue, units, customers and products.
+        Metrics are certified definitions; never re-derive them from raw columns.
+        Revenue excludes returned orders.
+    datasets:
+      - name: fct_orders
+        source: fct_orders
+        primary_key: [order_id]
+        description: One row per order line
+        ai_context:
+          synonyms: ["orders", "sales", "purchases"]
+        fields:
+          {{- include "datalab.ossieField" (list "order_id" "order_id" "Order id" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "customer_id" "customer_id" "Customer who ordered" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "product_id" "product_id" "Product ordered" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "quantity" "quantity" "Units ordered" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "amount" "amount" "Order amount (quantity x unit price)" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "order_date" "order_ts" "When the order was placed" "time") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "status" "status" "Order status (e.g. completed, shipped, returned)" "plain") | nindent 10 }}
+      - name: stg_customers
+        source: stg_customers
+        primary_key: [customer_id]
+        description: Customers of the shop
+        ai_context:
+          synonyms: ["customers", "buyers", "accounts"]
+        fields:
+          {{- include "datalab.ossieField" (list "customer_id" "customer_id" "Customer id" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "name" "name" "Customer name" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "email" "email" "Customer e-mail (personal data)" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "country" "country" "Customer country" "plain") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "plan" "plan" "Subscription plan of the customer" "plain") | nindent 10 }}
+      - name: dim_products
+        source: dim_products
+        primary_key: [product_id]
+        description: Product catalogue
+        ai_context:
+          synonyms: ["products", "items", "catalogue"]
+        fields:
+          {{- include "datalab.ossieField" (list "product_id" "product_id" "Product id" "") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "product_name" "product_name" "Product name" "plain") | nindent 10 }}
+          {{- include "datalab.ossieField" (list "category" "category" "Product category" "plain") | nindent 10 }}
+    relationships:
+      - name: orders_to_customers
+        from: fct_orders
+        to: stg_customers
+        from_columns: [customer_id]
+        to_columns: [customer_id]
+      - name: orders_to_products
+        from: fct_orders
+        to: dim_products
+        from_columns: [product_id]
+        to_columns: [product_id]
+    metrics:
+      - name: total_revenue
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: SUM(CASE WHEN fct_orders.status <> 'returned' THEN fct_orders.amount ELSE 0 END)
+        description: Revenue of all orders except returned ones
+        ai_context:
+          synonyms: ["revenue", "sales", "turnover", "income"]
+      - name: order_count
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: COUNT(DISTINCT fct_orders.order_id)
+        description: Number of orders (all statuses)
+        ai_context:
+          synonyms: ["orders", "number of orders"]
+      - name: units_sold
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: SUM(fct_orders.quantity)
+        description: Units ordered (all statuses)
+        ai_context:
+          synonyms: ["units", "quantity", "items sold"]
+      - name: average_order_value
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: SUM(CASE WHEN fct_orders.status <> 'returned' THEN fct_orders.amount ELSE 0 END) / NULLIF(COUNT(DISTINCT fct_orders.order_id), 0)
+        description: Revenue (excluding returns) per order
+        ai_context:
+          synonyms: ["AOV", "average order value", "basket size"]
+      - name: customer_count
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: COUNT(DISTINCT fct_orders.customer_id)
+        description: Customers with at least one order
+        ai_context:
+          synonyms: ["customers", "buyers", "number of customers"]
+  governance:
+    defaultRole: analyst
+    roles:
+      - name: analyst
+        allowMetrics: ["*"]
+      - name: marketing
+        allowMetrics: ["*"]
+        denyFields: ["stg_customers.email"]
+{{- end }}
+{{- range .Values.semantic.models.extra }}
+---
+apiVersion: semantic.ossie.io/v1alpha1
+kind: SemanticModel
+metadata:
+  name: {{ include "datalab.componentName" (list $ .name) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list $ "semantic") | nindent 4 }}
+spec:
+  {{- toYaml .spec | nindent 2 }}
+{{- end }}
+{{- end }}

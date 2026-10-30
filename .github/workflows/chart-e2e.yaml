@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [minimal, default, parallel]
+        scenario: [minimal, default, parallel, semantic]
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -50,7 +50,9 @@ jobs:
           imgs="ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore:$APP ghcr.io/tarekabouzeid/data-lab-playground/spark:$APP"
           imgs="$imgs ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp:$APP"
           for i in chrislusf/seaweedfs:4.48 trinodb/trino:483 postgres:17.11 apache/airflow:3.3.2-python3.12 busybox:1.36 \
-                   ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1; do
+                   ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1 \
+                   public.ecr.aws/data-on-eks/semantic-operator/manager:v0.1.1 \
+                   public.ecr.aws/data-on-eks/semantic-operator/server:v0.1.1; do
             docker pull -q "$i"; imgs="$imgs $i"
           done
           # `kind load docker-image` fails on multi-arch images ("content digest ... not found") with the

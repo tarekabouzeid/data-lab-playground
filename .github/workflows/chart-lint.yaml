@@ -2,9 +2,9 @@ name: chart-lint
 
 on:
   pull_request:
-    paths: ["charts/**", "hack/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
+    paths: ["charts/**", "hack/**", "tests/**", "spark/conf/**", "jupyter/notebooks/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
   push:
-    paths: ["charts/**", "hack/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
+    paths: ["charts/**", "hack/**", "tests/**", "spark/conf/**", "jupyter/notebooks/**", "ct.yaml", ".github/workflows/chart-*.yaml"]
 
 permissions:
   contents: read
@@ -31,7 +31,13 @@ jobs:
           python-version: "3.12"
 
       - name: Python deps
-        run: pip install pyyaml==6.0.3
+        run: pip install pyyaml==6.0.3 pytest==9.1.1 jsonschema==4.26.0
+
+      - name: Render tests (tests/chart) and unit tests (tests/unit)
+        run: python -m pytest tests/chart tests/unit -q
+
+      - name: Compose parity (Spark conf, e2e script copy)
+        run: hack/check-compose-parity.py
 
       - name: values.schema.json is generated from values.yaml
         run: hack/gen-chart-schema.py --check
@@ -44,7 +50,7 @@ jobs:
       - name: helm lint (every ci profile)
         run: |
           for f in charts/data-lab/ci/*-values.yaml; do
-            echo "::group::$f"; helm lint --strict charts/data-lab --kube-version "$KUBE_VERSION" -f "$f"; echo "::endgroup::"
+            echo "::group::$f"; helm lint --strict charts/data-lab --kube-version "$KUBE_VERSION" -f "$f" --set global.apiChecks=false; echo "::endgroup::"
           done
 
       - name: Invalid combinations fail at render
@@ -66,8 +72,14 @@ jobs:
           curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar xz kubeconform
           for f in charts/data-lab/ci/*-values.yaml; do
             echo "::group::$f"
-            helm template rel charts/data-lab -n ns1 --kube-version "$KUBE_VERSION" -f "$f" > out.yaml
-            ./kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" out.yaml
+            helm template rel charts/data-lab -n ns1 --kube-version "$KUBE_VERSION" -f "$f" \
+              --api-versions gateway.networking.k8s.io/v1/Gateway --api-versions semantic.ossie.io/v1alpha1/SemanticModel \
+              --api-versions resource.k8s.io/v1/ResourceClaimTemplate > out.yaml
+            # Gateway API kinds from the CRDs catalog; SemanticModel is validated against hack/crds by tests/chart.
+            ./kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" -skip SemanticModel \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+              out.yaml
             hack/check-chart-render.py rel-data-lab ns1 < out.yaml
             echo "::endgroup::"
           done
