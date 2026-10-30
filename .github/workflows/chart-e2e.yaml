@@ -53,7 +53,13 @@ jobs:
                    ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1; do
             docker pull -q "$i"; imgs="$imgs $i"
           done
-          for i in $imgs; do kind load docker-image --name datalab "$i"; docker rmi "$i" >/dev/null || true; done
+          # `kind load docker-image` fails on multi-arch images ("content digest ... not found") with the
+          # containerd image store; save one platform and load the archive instead (as hack/kind-up.sh does).
+          for i in $imgs; do
+            docker save --platform linux/amd64 -o /tmp/img.tar "$i"
+            kind load image-archive --name datalab /tmp/img.tar
+            rm -f /tmp/img.tar; docker rmi "$i" >/dev/null || true
+          done
           df -h /
 
       - name: e2e (${{ matrix.scenario }})
