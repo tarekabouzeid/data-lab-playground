@@ -15,9 +15,9 @@ data:
   e2e_lakehouse.py: |
     {{- .Files.Get "files/e2e_lakehouse.py" | trimSuffix "\n" | nindent 4 }}
 {{- end }}
----
 {{- if and .Values.tests.lakehouseE2e.enabled .Values.spark.enabled .Values.trino.enabled }}
-{{- $s := .Values.spark -}}
+{{- $s := .Values.spark }}
+---
 apiVersion: v1
 kind: Pod
 metadata:
@@ -72,6 +72,10 @@ spec:
         {{- end }}
         - name: TRINO_URL
           value: http://{{ include "datalab.host" (list . "trino") }}:8080
+        - name: ICEBERG_REST_URI
+          value: {{ include "datalab.icebergRestUri" . }}
+        - name: HMS_THRIFT_URI
+          value: {{ include "datalab.hmsThriftUri" . }}
         - name: E2E_WAREHOUSE_BUCKET
           value: {{ .Values.s3.bucket | quote }}
       command:

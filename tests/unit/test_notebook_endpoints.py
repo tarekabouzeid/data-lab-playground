@@ -17,3 +17,10 @@ def code_cells():
 def test_no_hardcoded_service_hosts_in_notebooks():
     hits = [f"{f} cell {i}: {m.group(0)}" for f, i, src in code_cells() for m in [HOST.search(src)] if m]
     assert not hits, "use the lab_utils endpoint constants instead:\n" + "\n".join(hits)
+
+
+def test_e2e_script_takes_endpoints_from_env():
+    src = (NB.parents[1] / "tests" / "e2e" / "e2e_lakehouse.py").read_text()
+    hard = [ln.strip() for ln in src.splitlines()
+            if re.search(r"(thrift|https?)://(hive-metastore|trino|seaweedfs)[:/]", ln) and "os.environ.get(" not in ln]
+    assert not hard, "e2e_lakehouse.py must read service URLs from env (Compose host only as the default):\n" + "\n".join(hard)

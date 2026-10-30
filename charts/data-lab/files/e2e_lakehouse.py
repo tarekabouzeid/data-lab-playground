@@ -30,6 +30,8 @@ import urllib.request
 from pyspark.sql import SparkSession
 
 TRINO_URL = os.environ.get("TRINO_URL", "http://trino:8080")
+ICEBERG_REST_URI = os.environ.get("ICEBERG_REST_URI", "http://hive-metastore:9084/iceberg")
+HMS_THRIFT_URI = os.environ.get("HMS_THRIFT_URI", "thrift://hive-metastore:9083")
 SPARK_ICEBERG = os.environ.get("E2E_SPARK_ICEBERG", "rest")
 TRINO_ICEBERG = os.environ.get("E2E_TRINO_ICEBERG", "iceberg")
 SCHEMA = "e2e"
@@ -79,13 +81,13 @@ def main():
     if SPARK_ICEBERG == "rest":
         builder = (
             builder.config("spark.sql.catalog.iceberg_catalog.type", "rest")
-            .config("spark.sql.catalog.iceberg_catalog.uri", "http://hive-metastore:9084/iceberg")
+            .config("spark.sql.catalog.iceberg_catalog.uri", ICEBERG_REST_URI)
             .config("spark.sql.catalog.iceberg_catalog.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO")
         )
     else:
         builder = (
             builder.config("spark.sql.catalog.iceberg_catalog.type", "hive")
-            .config("spark.sql.catalog.iceberg_catalog.uri", "thrift://hive-metastore:9083")
+            .config("spark.sql.catalog.iceberg_catalog.uri", HMS_THRIFT_URI)
             .config("spark.sql.catalog.iceberg_catalog.warehouse", f"s3a://{BUCKET}/")
         )
     spark = builder.getOrCreate()

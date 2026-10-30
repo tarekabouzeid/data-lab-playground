@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Create a local minikube cluster (optionally with an NVIDIA GPU) and install the platform prerequisites:
-# Kubeflow Spark Operator, Envoy Gateway (Gateway API) and, optionally, the NVIDIA DRA driver.
+# Create a local minikube cluster (optionally with an NVIDIA GPU) and install everything cluster-wide the workstation
+# lab needs, so charts/data-lab itself stays namespaced: Kubeflow Spark Operator, Envoy Gateway + GatewayClass
+# `datalab`, the SemanticModel CRD, the notebooks PersistentVolume and, optionally, the NVIDIA DRA driver.
 # GPU steps follow https://minikube.sigs.k8s.io/docs/tutorials/nvidia/ (docker driver, Linux only).
 #
-# Usage: helm/scripts/setup-minikube.sh [--cpus 8] [--memory 24g (default: 24g or 75% of Docker's memory, whichever is less)] [--disk-size 80g]
+# Usage: hack/workstation/setup-minikube.sh [--cpus 8] [--memory 24g (default: 24g or 75% of Docker's memory, whichever is less)] [--disk-size 80g]
 #                                       [--gpu-mode device-plugin|dra|none] [--profile minikube] [--no-headlamp]
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -51,21 +52,24 @@ elif [[ $MEMORY =~ ^([0-9]+)([gGmM])b?$ ]]; then
 fi
 log "Starting minikube $MINIKUBE_VERSION / Kubernetes $KUBERNETES_VERSION (profile $MINIKUBE_PROFILE)"
 # --container-runtime docker: required by the GPU docs, and what makes `eval $(minikube docker-env)` builds work.
-# The mount makes jupyter/notebooks editable from the host (chart: jupyter.notebooks.mode=hostPath).
+# The mount makes jupyter/notebooks editable from the host (notebooks-pv.yaml, chart: jupyter.persistence.existingClaim).
 minikube start -p "$MINIKUBE_PROFILE" --driver docker --container-runtime docker \
   --kubernetes-version "$KUBERNETES_VERSION" --cpus "$CPUS" --memory "$MEMORY" --disk-size "$DISK" \
   ${GPU_ARGS[@]+"${GPU_ARGS[@]}"} \
   --mount --mount-string "$ROOT/jupyter/notebooks:/datalab/notebooks"
 kubectl config use-context "$MINIKUBE_PROFILE" >/dev/null
 
-# datalab = the platform; datalab-e2e = where e2e-k8s.sh runs the lakehouse e2e without touching the platform
-E2E_NAMESPACE="${E2E_NAMESPACE:-datalab-e2e}"
-for ns in "$NAMESPACE" "$E2E_NAMESPACE"; do
-  log "Creating namespace $ns (Pod Security: warn/audit at baseline)"
-  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl label namespace "$ns" --overwrite \
-    pod-security.kubernetes.io/warn=baseline pod-security.kubernetes.io/audit=baseline >/dev/null
-done
+# charts/data-lab is "restricted"-clean; Headlamp and the operator's driver pods share the namespace, so warn/audit only.
+log "Creating namespace $NAMESPACE (Pod Security: warn/audit at restricted)"
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl label namespace "$NAMESPACE" --overwrite \
+  pod-security.kubernetes.io/warn=restricted pod-security.kubernetes.io/audit=restricted >/dev/null
+
+log "Notebooks volume: $ROOT/jupyter/notebooks -> PV/PVC datalab-notebooks"
+sed "s/NAMESPACE/$NAMESPACE/g" "$WS_DIR/notebooks-pv.yaml" | kubectl apply -f - >/dev/null
+
+log "SemanticModel CRD (Kubeflow Semantic Operator, cluster-scoped)"
+kubectl apply -f "$ROOT/hack/crds/semantic.ossie.io_semanticmodels.yaml" >/dev/null
 
 if [[ $GPU_MODE == device-plugin ]]; then
   log "Checking that the node advertises nvidia.com/gpu"
@@ -86,24 +90,33 @@ elif [[ $GPU_MODE == dra ]]; then
     --set gpuResourcesEnabledOverride=true --wait
 fi
 
-log "Installing the Kubeflow Spark Operator $SPARK_OPERATOR_VERSION (watching $NAMESPACE and $E2E_NAMESPACE)"
+log "Installing the Kubeflow Spark Operator $SPARK_OPERATOR_VERSION (watching $NAMESPACE)"
 helm repo add spark-operator "$SPARK_OPERATOR_REPO" >/dev/null 2>&1 || true
 helm repo update spark-operator >/dev/null
-# The datalab chart owns the Spark ServiceAccount/Role, so the operator's per-namespace copies are switched off.
+# charts/data-lab owns the SparkApplication ServiceAccount/Role (spark.applications), so the operator's copies are off.
 helm upgrade --install spark-operator spark-operator/spark-operator --version "$SPARK_OPERATOR_VERSION" \
   -n spark-operator --create-namespace \
-  --set "spark.jobNamespaces={$NAMESPACE,$E2E_NAMESPACE}" \
+  --set "spark.jobNamespaces={$NAMESPACE}" \
   --set spark.serviceAccount.create=false --set spark.rbac.create=false \
   --wait
 
 log "Installing Envoy Gateway $ENVOY_GATEWAY_VERSION (also installs the Gateway API CRDs)"
 helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version "$ENVOY_GATEWAY_VERSION" \
   -n envoy-gateway-system --create-namespace --wait
+log "GatewayClass datalab (cluster-scoped, so here and not in the chart)"
+kubectl apply -f - >/dev/null <<YAML
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: datalab
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+YAML
 
 if [[ $HEADLAMP == true ]]; then
-  "$HELM_DIR/scripts/install-headlamp.sh"
+  "$WS_DIR/install-headlamp.sh"
 fi
 
-ok "Cluster ready. Next: helm/scripts/build-images.sh && helm/scripts/deploy.sh"
-echo "Reach the Gateway from the host: helm/scripts/gateway-forward.sh   (or \`minikube tunnel\` + helm/scripts/hosts.sh)"
-[[ $HEADLAMP == true ]] && echo "Headlamp login token: helm/scripts/headlamp-token.sh"
+ok "Cluster ready. Next: hack/workstation/build-images.sh && hack/workstation/deploy.sh"
+echo "Reach the Gateway from the host: hack/workstation/gateway-forward.sh"
+[[ $HEADLAMP == true ]] && echo "Headlamp login token: hack/workstation/headlamp-token.sh"

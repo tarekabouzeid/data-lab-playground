@@ -46,3 +46,12 @@ def test_lakehouse_test_pod():
     assert env["TRINO_URL"]["value"] == "http://r-data-lab-trino.ns.svc:8080"
     assert ";authorization=Bearer $(SPARK_CONNECT_TOKEN)" in env["SPARK_REMOTE"]["value"]
     assert env["E2E_WAREHOUSE_BUCKET"]["value"] == "warehouse"
+    assert env["ICEBERG_REST_URI"]["value"] == "http://r-data-lab-hms.ns.svc:9084/iceberg"
+
+
+def test_lakehouse_test_passes_helm_lint():
+    import subprocess
+
+    p = subprocess.run(["helm", "lint", "--strict", str(REPO / "charts" / "data-lab"), "--kube-version", "1.34.0",
+                        "--set", "tests.lakehouseE2e.enabled=true,spark.applications.enabled=true"], capture_output=True, text=True)
+    assert p.returncode == 0, p.stdout + p.stderr
