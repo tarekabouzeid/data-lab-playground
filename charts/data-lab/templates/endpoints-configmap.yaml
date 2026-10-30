@@ -93,6 +93,10 @@ data:
   SPARK_CONNECT_CREDENTIALS_TOKEN_KEY: {{ .tokenKey | quote }}
   {{- end }}
   {{- end }}
+  {{- if and $v.spark.enabled $v.spark.applications.enabled }}
+  SPARK_APPLICATION_SERVICE_ACCOUNT: {{ include "datalab.componentName" (list . "spark-apps") | quote }}
+  SPARK_DEFAULTS_CONFIGMAP: {{ include "datalab.componentName" (list . "spark-connect") | quote }}
+  {{- end }}
   {{- with $e.sparkHistory }}
   SPARK_HISTORY_URL: {{ .url | quote }}
   SPARK_EVENT_LOG_DIR: {{ .eventLogDir | quote }}

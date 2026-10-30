@@ -699,6 +699,16 @@
             }
           }
         },
+        "applications": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create the ServiceAccount `<fullname>-spark-apps` (+ Role/RoleBinding) for SparkApplication drivers."
+            }
+          }
+        },
         "podSecurityContext": {
           "type": "object",
           "description": "Pod securityContext (Connect server and executors)."
@@ -2145,6 +2155,16 @@
         "resources": {
           "type": "object",
           "description": "Test pod resources."
+        },
+        "lakehouseE2e": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Render the lakehouse e2e test pod. Needs `spark` and `trino`; takes a few minutes."
+            }
+          }
         }
       }
     }

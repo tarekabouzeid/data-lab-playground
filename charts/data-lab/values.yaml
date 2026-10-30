@@ -285,6 +285,11 @@ spark:
   rbac:
     # -- Create a namespaced Role/RoleBinding letting the Connect server manage executor pods, ConfigMaps and PVCs.
     create: true
+  # Batch jobs as SparkApplications (Kubeflow Spark Operator, installed separately with this namespace in its
+  # `spark.jobNamespaces`). The chart only provides the driver's ServiceAccount and a namespaced Role.
+  applications:
+    # -- Create the ServiceAccount `<fullname>-spark-apps` (+ Role/RoleBinding) for SparkApplication drivers.
+    enabled: false
   # -- Pod securityContext (Connect server and executors).
   podSecurityContext:
     runAsNonRoot: true
@@ -882,3 +887,7 @@ tests:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
+  # The 19-check lakehouse e2e (tests/e2e/e2e_lakehouse.py) as a second `helm test` pod, through Spark Connect.
+  lakehouseE2e:
+    # -- Render the lakehouse e2e test pod. Needs `spark` and `trino`; takes a few minutes.
+    enabled: false

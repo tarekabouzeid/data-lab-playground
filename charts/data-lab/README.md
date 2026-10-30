@@ -347,6 +347,7 @@ Kubernetes: `>=1.29.0-0`
 | spark.serviceAccount.create | bool | `true` | Create a ServiceAccount for the Connect server (it creates executor pods when `master: kubernetes`). |
 | spark.serviceAccount.name | string | `""` | ServiceAccount name. Empty: `<fullname>-spark`. |
 | spark.rbac.create | bool | `true` | Create a namespaced Role/RoleBinding letting the Connect server manage executor pods, ConfigMaps and PVCs. |
+| spark.applications.enabled | bool | `false` | Create the ServiceAccount `<fullname>-spark-apps` (+ Role/RoleBinding) for SparkApplication drivers. |
 | spark.podSecurityContext | object | `{"fsGroup":185,"runAsGroup":185,"runAsNonRoot":true,"runAsUser":185,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (Connect server and executors). |
 | spark.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |
 | spark.runtimeClassName | string | `""` | RuntimeClass for the server and executor pods. |
@@ -572,4 +573,5 @@ Kubernetes: `>=1.29.0-0`
 | phoenix.podAnnotations | object | `{}` | Extra pod annotations. |
 | tests.enabled | bool | `true` | Render the `helm test` pod (Spark writes an Iceberg table through Spark Connect, Trino reads it, then it is dropped). Needs `spark` and `trino`. |
 | tests.resources | object | `{"limits":{"memory":"1Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}` | Test pod resources. |
+| tests.lakehouseE2e.enabled | bool | `false` | Render the lakehouse e2e test pod. Needs `spark` and `trino`; takes a few minutes. |
 

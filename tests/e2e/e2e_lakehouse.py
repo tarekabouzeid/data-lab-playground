@@ -29,12 +29,13 @@ import urllib.request
 
 from pyspark.sql import SparkSession
 
-TRINO_URL = "http://trino:8080"
+TRINO_URL = os.environ.get("TRINO_URL", "http://trino:8080")
 SPARK_ICEBERG = os.environ.get("E2E_SPARK_ICEBERG", "rest")
 TRINO_ICEBERG = os.environ.get("E2E_TRINO_ICEBERG", "iceberg")
 SCHEMA = "e2e"
 ICEBERG_TABLE = f"iceberg_catalog.{SCHEMA}.sales"
-PARQUET_PATH = f"s3a://warehouse/{SCHEMA}/transactions_parquet/"
+BUCKET = os.environ.get("E2E_WAREHOUSE_BUCKET", "warehouse")
+PARQUET_PATH = f"s3a://{BUCKET}/{SCHEMA}/transactions_parquet/"
 
 results = []
 
@@ -85,7 +86,7 @@ def main():
         builder = (
             builder.config("spark.sql.catalog.iceberg_catalog.type", "hive")
             .config("spark.sql.catalog.iceberg_catalog.uri", "thrift://hive-metastore:9083")
-            .config("spark.sql.catalog.iceberg_catalog.warehouse", "s3a://warehouse/")
+            .config("spark.sql.catalog.iceberg_catalog.warehouse", f"s3a://{BUCKET}/")
         )
     spark = builder.getOrCreate()
     print(f"Spark {spark.version}; spark iceberg catalog={SPARK_ICEBERG}; "
@@ -103,7 +104,7 @@ def main():
             print(f"cleanup (ignored): {e}")
     spark.sql(f"DROP TABLE IF EXISTS {ICEBERG_TABLE} PURGE")
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS iceberg_catalog.{SCHEMA} "
-              f"LOCATION 's3a://warehouse/{SCHEMA}.db'")
+              f"LOCATION 's3a://{BUCKET}/{SCHEMA}.db'")
 
     # ---- 1. Spark -> Iceberg via HMS --------------------------------------
     rows = [
