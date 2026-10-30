@@ -12,7 +12,10 @@ default. Notebooks import these constants instead of hardcoding hosts (tests/uni
 
 Imports of optional packages (boto3, trino, pyarrow) are lazy so the module imports anywhere.
 """
+import json
 import os
+import re
+import time
 from pathlib import Path
 
 CATALOG = "iceberg_catalog"                 # Spark name of the HMS Iceberg REST catalog
@@ -148,3 +151,148 @@ def reset_dbt_demo():
             trino(f'DROP {"VIEW" if kind == "VIEW" else "TABLE"} IF EXISTS iceberg.{schema}."{name}"')
             dropped += 1
     print(f"dbt demo reset: {dropped} tables/views dropped (schemas kept)")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Chat with your data: the Kubeflow Semantic Operator (Helm chart only, semantic.enabled=true)
+# ---------------------------------------------------------------------------------------------------------------
+SEMANTIC_USER = "lab"
+TOOL_MODEL = "qwen3:4b"   # tool calling in Ollama (gemma3 has none)
+
+
+def semantic_available() -> bool:
+    return bool(os.environ.get("SEMANTIC_MCP_URL"))
+
+
+def require_semantic() -> None:
+    if not semantic_available():
+        raise RuntimeError("The semantic layer runs only on the Helm chart with semantic.enabled=true "
+                           "(Docker Compose is frozen and does not include it).")
+
+
+def _mcp_post(url: str, headers: dict, body: dict):
+    """POST one JSON-RPC message (MCP streamable HTTP). Keeps the session id in `headers`; None for notifications."""
+    import urllib.request
+
+    req = urllib.request.Request(url, json.dumps(body).encode(), headers)
+    with urllib.request.urlopen(req, timeout=120) as r:
+        if r.headers.get("mcp-session-id"):
+            headers["mcp-session-id"] = r.headers["mcp-session-id"]
+        raw = r.read().decode()
+    if "id" not in body or not raw.strip():
+        return None
+    if raw.lstrip().startswith("{"):
+        return json.loads(raw)
+    return json.loads([line[5:] for line in raw.splitlines() if line.startswith("data:")][-1])
+
+
+def _mcp(method: str, params: dict, role: str):
+    """One MCP session: initialize, then `method`. Returns the JSON-RPC result."""
+    url = os.environ["SEMANTIC_MCP_URL"]
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+               "X-Semantic-User": SEMANTIC_USER, "X-Semantic-Role": role}
+    _mcp_post(url, headers, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "data-lab-notebook", "version": "1"}}})
+    _mcp_post(url, headers, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+    res = _mcp_post(url, headers, {"jsonrpc": "2.0", "id": 2, "method": method, "params": params})
+    if "error" in res:
+        raise RuntimeError(f"MCP {method}: {res['error']}")
+    return res["result"]
+
+
+def mcp_call(name: str, args: dict, role: str = "analyst") -> dict:
+    """Call one semantic-layer tool. Tool errors (e.g. a governance refusal) come back as {"error": text}."""
+    res = _mcp("tools/call", {"name": name, "arguments": args}, role)
+    text = "".join(c.get("text", "") for c in res.get("content", []) if c.get("type") == "text")
+    if res.get("isError"):
+        return {"error": text}
+    return res.get("structuredContent") or json.loads(text or "{}")
+
+
+def mcp_tool_to_ollama(tool: dict) -> dict:
+    return {"type": "function", "function": {"name": tool["name"], "description": tool.get("description", ""),
+                                             "parameters": tool.get("inputSchema", {"type": "object"})}}
+
+
+def mcp_tools(role: str = "analyst") -> list:
+    """The semantic layer's MCP tools as Ollama tool schemas."""
+    return [mcp_tool_to_ollama(t) for t in _mcp("tools/list", {}, role)["tools"]]
+
+
+def wait_for_model(model_id: str, timeout_s: int = 180) -> None:
+    """Wait until the semantic layer serves `model_id` (the operator publishes it once its tables exist)."""
+    deadline = time.time() + timeout_s
+    while True:
+        names = [m["name"] for m in mcp_call("list_models", {}).get("models", [])]
+        if model_id in names:
+            return
+        if time.time() >= deadline:
+            raise TimeoutError(f"semantic model {model_id!r} not published after {timeout_s}s (served: {names})")
+        time.sleep(5)
+
+
+def _ollama_client():
+    import ollama
+
+    return ollama.Client(host=OLLAMA_URL)
+
+
+def _as_dict(obj):
+    return obj.model_dump(exclude_none=True) if hasattr(obj, "model_dump") else obj
+
+
+def _chat(model: str, messages: list, tools=None) -> dict:
+    return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, options={"temperature": 0}))
+
+
+def _ollama_show(model: str) -> dict:
+    return _as_dict(_ollama_client().show(model))
+
+
+def require_tool_model(model: str = TOOL_MODEL) -> None:
+    if "tools" not in (_ollama_show(model).get("capabilities") or []):
+        raise RuntimeError(f"Ollama model {model} has no tool calling; pull one that has (e.g. ollama pull {TOOL_MODEL})")
+
+
+SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tools only. Find certified metrics with "
+                   "list_metrics and group-by dimensions with list_dimensions, then call query_metric. Never invent "
+                   "numbers and never write SQL. Reply in one or two sentences with the numbers from the result.")
+
+
+def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", max_turns: int = 6) -> dict:
+    """Answer through the semantic layer: the LLM picks certified metrics/dimensions, the server compiles the SQL."""
+    messages = [{"role": "system", "content": SEMANTIC_PROMPT}, {"role": "user", "content": question}]
+    tools, calls, sql, rows = mcp_tools(role), [], None, []
+    for _ in range(max_turns):
+        msg = _chat(model, messages, tools)["message"]
+        messages.append(msg)
+        if not msg.get("tool_calls"):
+            return {"answer": msg.get("content", ""), "tool_calls": calls, "sql": sql, "rows": rows}
+        for tc in msg["tool_calls"]:
+            name, args = tc["function"]["name"], tc["function"].get("arguments") or {}
+            calls.append(name)
+            out = mcp_call(name, args, role)
+            if name == "query_metric" and "sql" in out:
+                sql, rows = out["sql"], out.get("rows", [])
+            messages.append({"role": "tool", "tool_name": name, "content": json.dumps(out)[:8000]})
+    return {"answer": f"(stopped after {max_turns} turns without a final answer)", "tool_calls": calls,
+            "sql": sql, "rows": rows}
+
+
+RAW_PROMPT = ("You write one Trino SQL query that answers the question over the tables below (catalog {catalog}, "
+              "schema {schema}). Reply with the query only, in a ```sql block.\n\n{ddl}")
+
+
+def ask_raw_sql(question: str, tables: list, model: str = TOOL_MODEL, schema: str = "dbt_demo") -> dict:
+    """The baseline: the LLM sees the table DDL and writes Trino SQL itself."""
+    ddl = "\n\n".join(trino(f"SHOW CREATE TABLE {TRINO_CATALOG}.{schema}.{t}").iloc[0, 0] for t in tables)
+    prompt = RAW_PROMPT.format(catalog=TRINO_CATALOG, schema=schema, ddl=ddl)
+    reply = _chat(model, [{"role": "system", "content": prompt}, {"role": "user", "content": question}])["message"]
+    text = reply.get("content", "")
+    m = re.search(r"```(?:sql)?\s*(.*?)```", text, re.S | re.I)
+    sql = (m.group(1) if m else text).strip().rstrip(";")
+    try:
+        df = trino(sql)
+        return {"answer": text, "sql": sql, "rows": df.values.tolist(), "error": None}
+    except Exception as e:  # the model's SQL failed: that is part of the comparison
+        return {"answer": text, "sql": sql, "rows": [], "error": str(e)}

@@ -5,7 +5,8 @@ from conftest import REPO, by_kind, configmap, env_of, render, workload
 
 ON = {"jupyter": {"enabled": True}}
 # Every service the notebooks talk to, so every env var lab_utils reads has a source.
-ALL = {k: {"enabled": True} for k in ("jupyter", "ollama", "qdrant", "phoenix")}
+ALL = {k: {"enabled": True} for k in ("jupyter", "ollama", "qdrant", "phoenix", "semantic")}
+APIS = ["semantic.ossie.io/v1alpha1/SemanticModel"]
 LAB_UTILS = (REPO / "jupyter" / "notebooks" / "lab_utils.py").read_text()
 
 
@@ -19,7 +20,7 @@ def visible_env(docs):
 
 
 def test_jupyter_env_matches_lab_utils():
-    docs = render(ALL)
+    docs = render(ALL, api_versions=APIS)
     missing = names_read_by_lab_utils() - visible_env(docs) - {"SPARK_REMOTE"}
     assert not missing, f"lab_utils.py reads env vars the chart does not set: {sorted(missing)}"
     assert "SPARK_REMOTE" in env_of(docs, "jupyter")
