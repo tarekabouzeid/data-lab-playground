@@ -28,7 +28,9 @@ REPO=ghcr.io/tarekabouzeid/data-lab-playground
 OWN=("$REPO/hive-metastore:$APP" "$REPO/spark:$APP" "$REPO/airflow-mcp:$APP")
 # keep in sync with the "Load images into kind" step of .github/workflows/chart-e2e.yaml
 PULLED=(chrislusf/seaweedfs:4.48 trinodb/trino:483 postgres:17.11 apache/airflow:3.3.2-python3.12 busybox:1.36
-        ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1)
+        ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1
+        public.ecr.aws/data-on-eks/semantic-operator/manager:v0.1.1      # semantic scenario
+        public.ecr.aws/data-on-eks/semantic-operator/server:v0.1.1)
 
 if kind get clusters 2>/dev/null | grep -qx "$NAME"; then
   echo "==> kind cluster $NAME exists, reusing it"
@@ -80,4 +82,4 @@ for i in "${OWN[@]}" "${PULLED[@]}"; do
   kind load image-archive --name "$NAME" "$tmp/img.tar" >/dev/null
 done
 rm -f "$tmp/img.tar"
-echo "==> Ready: hack/chart-e2e-kind.sh [default|minimal|parallel|all]   (kind delete cluster --name $NAME when done)"
+echo "==> Ready: hack/chart-e2e-kind.sh [default|minimal|parallel|semantic|all]   (kind delete cluster --name $NAME when done)"
