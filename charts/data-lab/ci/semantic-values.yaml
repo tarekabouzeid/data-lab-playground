@@ -5,3 +5,6 @@ airflow:
 sparkHistory: {enabled: false}
 semantic:
   enabled: true
+tests:
+  lakehouseE2e:
+    enabled: true                        # the 19-check lakehouse e2e runs as a helm test in the kind semantic scenario

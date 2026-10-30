@@ -104,7 +104,7 @@ def test_ask_raw_sql_runs_the_generated_sql(monkeypatch):
 
     def trino(sql):
         seen.append(sql)
-        return Frame([[50.0]]) if "sum(amount)" in sql else Frame([["fct_orders DDL"]])
+        return Frame([[50.0]]) if "sum(amount)" in sql else Frame([["fct_orders", "amount", "double"]])
     monkeypatch.setattr(lab_utils, "trino", trino)
     out = lab_utils.ask_raw_sql("total revenue?", tables=["fct_orders"])
     assert out["sql"] == "SELECT sum(amount) FROM fct_orders"
@@ -117,7 +117,7 @@ def test_ask_raw_sql_reports_sql_errors(monkeypatch):
     def trino(sql):
         if "nope" in sql:
             raise RuntimeError("Column 'nope' cannot be resolved")
-        return Frame([["ddl"]])
+        return Frame([["fct_orders", "amount", "double"]])
     monkeypatch.setattr(lab_utils, "trino", trino)
     out = lab_utils.ask_raw_sql("?", tables=["fct_orders"])
     assert out["rows"] == [] and "cannot be resolved" in out["error"]
@@ -162,3 +162,58 @@ def test_rows_match_detects_wrong_answers():
     assert not lab_utils.rows_match([["DE", 45.0], ["FR", 10.0]], truth)  # returns not excluded
     assert not lab_utils.rows_match([["DE", 35.0]], truth)
     assert not lab_utils.rows_match([], truth)
+
+
+def test_ask_semantic_records_each_step(monkeypatch):
+    chat = fake_chat([call("list_metrics", {}), call("query_metric", {"metrics": ["total_revenue"]}),
+                      {"role": "assistant", "content": "Total revenue is 40."}])
+    results = {"list_metrics": {"metrics": [{"name": "total_revenue"}]}, "query_metric": QUERY_RESULT}
+    monkeypatch.setattr(lab_utils, "_chat", chat)
+    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
+    monkeypatch.setattr(lab_utils, "mcp_call", lambda name, args, role="analyst": results[name])
+    steps = lab_utils.ask_semantic("What is total revenue?")["steps"]
+    assert [s["tool"] for s in steps] == ["list_metrics", "query_metric"]
+    assert steps[1]["args"] == {"metrics": ["total_revenue"]}
+    assert steps[1]["result"] == QUERY_RESULT
+
+
+def test_rows_match_dates_from_either_side():
+    import datetime as dt
+    truth = [[dt.datetime(2026, 8, 31), 7150.0]]
+    assert lab_utils.rows_match([["2026-08-31T00:00:00Z", 7150]], truth)
+    assert not lab_utils.rows_match([["2026-09-07T00:00:00Z", 7150]], truth)
+
+
+def test_ask_raw_sql_describes_views_too(monkeypatch):
+    """dbt builds stg_* as views; Trino refuses SHOW CREATE TABLE on a view."""
+    monkeypatch.setattr(lab_utils, "_chat", fake_chat([{"role": "assistant", "content": "SELECT 1"}]))
+    seen = []
+
+    def trino(sql):
+        seen.append(sql)
+        if sql.startswith("SHOW CREATE TABLE"):
+            raise RuntimeError("Relation 'iceberg.dbt_demo.stg_customers' is a view, not a table")
+        if "information_schema.columns" in sql:
+            return Frame([["stg_customers", "customer_id", "integer"], ["stg_customers", "country", "varchar"]])
+        return Frame([[1]])
+    monkeypatch.setattr(lab_utils, "trino", trino)
+    out = lab_utils.ask_raw_sql("?", tables=["stg_customers"])
+    assert out["error"] is None and out["rows"] == [[1]]
+    prompt = lab_utils._chat.sent[0][0]["content"]
+    assert "stg_customers" in prompt and "country varchar" in prompt
+
+
+def test_ask_raw_sql_ignores_thinking(monkeypatch):
+    reply = "<think>maybe ```sql\nSELECT draft\n``` no</think>\n```sql\nSELECT final\n```"
+    monkeypatch.setattr(lab_utils, "_chat", fake_chat([{"role": "assistant", "content": reply}]))
+    monkeypatch.setattr(lab_utils, "trino", lambda sql: Frame([["t", "c", "integer"]]) if "information_schema" in sql else Frame([[1]]))
+    assert lab_utils.ask_raw_sql("?", tables=["t"])["sql"] == "SELECT final"
+
+
+def test_require_semantic_explains_jwt(monkeypatch):
+    monkeypatch.setenv("SEMANTIC_MCP_URL", "http://semantic:8090/mcp")
+    monkeypatch.setenv("SEMANTIC_AUTH_MODE", "jwt")
+    with pytest.raises(RuntimeError, match="jwt"):
+        lab_utils.require_semantic()
+    monkeypatch.setenv("SEMANTIC_AUTH_MODE", "header")
+    lab_utils.require_semantic()

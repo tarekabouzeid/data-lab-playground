@@ -27,7 +27,7 @@ engine.type=trino; upstream defaults are kept for every key not set here (query 
 {{- define "datalab.semanticManagerConfig" -}}
 {{- $m := .Values.semantic.manager -}}
 {{- $cfg := dict
-  "leaderElection" (dict "leaderElect" true "resourceName" (include "datalab.componentName" (list . "semantic-manager")))
+  "leaderElection" (dict "leaderElect" false)
   "cache" (dict "watchNamespaces" (list .Release.Namespace))
   "engine" (include "datalab.semanticEngine" (list . $m.engineUser) | fromYaml)
   "controller" (dict "viewDatabase" "semantic_views" "resyncPeriod" $m.resyncPeriod) -}}
@@ -50,6 +50,11 @@ metadata:
     {{- include "datalab.componentLabels" (list $root $comp) | nindent 4 }}
 spec:
   replicas: {{ ternary $c.replicas 1 (eq $role "server") }}
+  {{- if eq $role "manager" }}
+  # one manager, never two at once: no leader election, so no Lease is left behind after uninstall
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "datalab.componentSelectorLabels" (list $root $comp) | nindent 6 }}
@@ -98,21 +103,4 @@ spec:
         - name: config
           configMap:
             name: {{ include "datalab.componentName" (list $root $comp) }}
-{{- end -}}
-
-
-{{- /* One Ossie field. dim: "" (none) | "plain" | "time" */ -}}
-{{- define "datalab.ossieField" -}}
-- name: {{ index . 0 }}
-  expression:
-    dialects:
-      - dialect: ANSI_SQL
-        expression: {{ index . 1 }}
-  description: {{ index . 2 | quote }}
-  {{- if eq (index . 3) "time" }}
-  dimension:
-    is_time: true
-  {{- else if eq (index . 3) "plain" }}
-  dimension: {}
-  {{- end -}}
 {{- end -}}

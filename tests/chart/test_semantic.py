@@ -58,7 +58,7 @@ def test_engine_points_at_release_trino():
 def test_manager_scope_is_the_release_namespace():
     cfg = manager_config(render(ON, api_versions=API))
     assert cfg["cache"]["watchNamespaces"] == ["ns"]
-    assert cfg["leaderElection"]["resourceName"] == "r-data-lab-semantic-manager"
+    assert cfg["leaderElection"] == {"leaderElect": False}   # one replica, Recreate: no Lease left after uninstall
     assert cfg["controller"]["resyncPeriod"] == "30s"
     assert server_config(render(ON, api_versions=API))["store"]["watchNamespace"] == "ns"
 
@@ -74,8 +74,7 @@ def test_header_auth_dev_only():
 
 def test_rbac_rules():
     roles = {r["metadata"]["name"]: r["rules"] for r in by_kind(render(ON, api_versions=API), "Role")}
-    assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"],
-            "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]} in roles["r-data-lab-semantic-manager"]
+    assert not [r for r in roles["r-data-lab-semantic-manager"] if "leases" in r["resources"]]
     assert roles["r-data-lab-semantic-server"] == [{"apiGroups": [""], "resources": ["configmaps"], "verbs": ["get", "list", "watch"]}]
 
 
@@ -100,3 +99,12 @@ def test_pss_and_policy():
     p = subprocess.run([sys.executable, str(REPO / "hack" / "check-chart-render.py"), "r-data-lab", "ns"],
                        input=out, capture_output=True, text=True)
     assert p.returncode == 0, p.stdout
+
+
+def test_manager_is_single_and_recreated():
+    m = workload(render(ON, api_versions=API), "semantic-manager")
+    assert m["spec"]["replicas"] == 1 and m["spec"]["strategy"] == {"type": "Recreate"}
+
+
+def test_auth_mode_in_endpoints():
+    assert configmap(render(ON, api_versions=API), "r-data-lab-endpoints")["SEMANTIC_AUTH_MODE"] == "header"

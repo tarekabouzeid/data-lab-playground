@@ -168,6 +168,9 @@ def require_semantic() -> None:
     if not semantic_available():
         raise RuntimeError("The semantic layer runs only on the Helm chart with semantic.enabled=true "
                            "(Docker Compose is frozen and does not include it).")
+    if os.environ.get("SEMANTIC_AUTH_MODE", "header") != "header":
+        raise RuntimeError("The semantic server runs with semantic.server.auth.mode=jwt; these helpers send identity "
+                           "headers (X-Semantic-User / X-Semantic-Role) and need header mode.")
 
 
 def _mcp_post(url: str, headers: dict, body: dict):
@@ -260,35 +263,50 @@ SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tool
 
 
 def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", max_turns: int = 6) -> dict:
-    """Answer through the semantic layer: the LLM picks certified metrics/dimensions, the server compiles the SQL."""
+    """Answer through the semantic layer: the LLM picks certified metrics/dimensions, the server compiles the SQL.
+
+    Returns the answer, the tool names called, the compiled SQL and rows of the last query_metric, and `steps`:
+    every tool call with its arguments and the server's result, in order (the notebook walks through them)."""
     messages = [{"role": "system", "content": SEMANTIC_PROMPT}, {"role": "user", "content": question}]
-    tools, calls, sql, rows = mcp_tools(role), [], None, []
+    tools, calls, steps, sql, rows = mcp_tools(role), [], [], None, []
     for _ in range(max_turns):
         msg = _chat(model, messages, tools)["message"]
         messages.append(msg)
         if not msg.get("tool_calls"):
-            return {"answer": msg.get("content", ""), "tool_calls": calls, "sql": sql, "rows": rows}
+            return {"answer": msg.get("content", ""), "tool_calls": calls, "steps": steps, "sql": sql, "rows": rows}
         for tc in msg["tool_calls"]:
             name, args = tc["function"]["name"], tc["function"].get("arguments") or {}
             calls.append(name)
             out = mcp_call(name, args, role)
+            steps.append({"tool": name, "args": args, "result": out})
             if name == "query_metric" and "sql" in out:
                 sql, rows = out["sql"], out.get("rows", [])
             messages.append({"role": "tool", "tool_name": name, "content": json.dumps(out)[:8000]})
     return {"answer": f"(stopped after {max_turns} turns without a final answer)", "tool_calls": calls,
-            "sql": sql, "rows": rows}
+            "steps": steps, "sql": sql, "rows": rows}
 
 
 RAW_PROMPT = ("You write one Trino SQL query that answers the question over the tables below (catalog {catalog}, "
               "schema {schema}). Reply with the query only, in a ```sql block.\n\n{ddl}")
 
 
+def _table_ddl(tables: list, schema: str) -> str:
+    """CREATE-style column lists from information_schema (works for dbt's views too; SHOW CREATE TABLE does not)."""
+    names = ", ".join(f"'{t}'" for t in tables)
+    cols = trino(f"SELECT table_name, column_name, data_type FROM {TRINO_CATALOG}.information_schema.columns "
+                 f"WHERE table_schema = '{schema}' AND table_name IN ({names}) ORDER BY table_name, ordinal_position")
+    by_table = {}
+    for table, column, dtype in cols.values.tolist():
+        by_table.setdefault(table, []).append(f"  {column} {dtype}")
+    return "\n\n".join(f"CREATE TABLE {TRINO_CATALOG}.{schema}.{t} (\n" + ",\n".join(by_table.get(t, [])) + "\n)"
+                       for t in tables)
+
+
 def ask_raw_sql(question: str, tables: list, model: str = TOOL_MODEL, schema: str = "dbt_demo") -> dict:
-    """The baseline: the LLM sees the table DDL and writes Trino SQL itself."""
-    ddl = "\n\n".join(trino(f"SHOW CREATE TABLE {TRINO_CATALOG}.{schema}.{t}").iloc[0, 0] for t in tables)
-    prompt = RAW_PROMPT.format(catalog=TRINO_CATALOG, schema=schema, ddl=ddl)
+    """The baseline: the LLM sees the tables' columns and writes Trino SQL itself."""
+    prompt = RAW_PROMPT.format(catalog=TRINO_CATALOG, schema=schema, ddl=_table_ddl(tables, schema))
     reply = _chat(model, [{"role": "system", "content": prompt}, {"role": "user", "content": question}])["message"]
-    text = reply.get("content", "")
+    text = re.sub(r"<think>.*?</think>", "", reply.get("content", ""), flags=re.S)   # qwen3 may think inline
     m = re.search(r"```(?:sql)?\s*(.*?)```", text, re.S | re.I)
     sql = (m.group(1) if m else text).strip().rstrip(";")
     try:
@@ -299,10 +317,15 @@ def ask_raw_sql(question: str, tables: list, model: str = TOOL_MODEL, schema: st
 
 
 def _norm(v, tol):
+    if hasattr(v, "isoformat"):                       # date / datetime / pandas Timestamp: compare by day
+        return v.isoformat()[:10]
+    text = str(v).strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}([T ]|$)", text):   # ISO date or timestamp string (e.g. from the semantic server)
+        return text[:10]
     try:
         return round(float(v) / tol) * tol
     except (TypeError, ValueError):
-        return str(v).strip().lower()
+        return text.lower()
 
 
 def rows_match(rows, truth, tol: float = 0.01) -> bool:

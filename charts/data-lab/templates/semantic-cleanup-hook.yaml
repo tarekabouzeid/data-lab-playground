@@ -91,7 +91,7 @@ spec:
             - /opt/conda/bin/python
             - -c
             - |
-              import json, os, ssl, time, urllib.parse, urllib.request
+              import json, os, ssl, time, urllib.error, urllib.parse, urllib.request
               sa = "/var/run/secrets/kubernetes.io/serviceaccount"
               token = open(f"{sa}/token").read()
               ctx = ssl.create_default_context(cafile=f"{sa}/ca.crt")
@@ -101,8 +101,13 @@ spec:
               def call(method, url, body=None, ctype="application/json"):
                   req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body else None,
                                                headers={"Authorization": f"Bearer {token}", "Content-Type": ctype})
-                  with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
-                      return json.load(r)
+                  try:
+                      with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                          return json.load(r)
+                  except urllib.error.HTTPError as e:
+                      if e.code == 404:   # already gone (or the CRD was removed first): nothing left to clean
+                          return {"items": []}
+                      raise
 
               def models():
                   q = urllib.parse.urlencode({"labelSelector": os.environ["SELECTOR"]})

@@ -48,7 +48,7 @@ Pass:
 - `minimal` prints `minimal profile Ready in <N>s` with N under 180
 - `semantic` prints:
   - `model published after the tables appeared`
-  - `total_revenue = 40.0`
+  - `total_revenue = 40.0`, then `refund_rate = 0.26 gross_margin = 20.0` and `dach_sales order_count = 3`
   - `role marketing is refused stg_customers.email`
   - `second semantic-enabled release refused (C14)`
   - `namespace dl-semantic is clean`
@@ -85,7 +85,7 @@ Then check by hand with `hack/workstation/gateway-forward.sh` running in another
 | `trino`, `airflow`, `spark`, `spark-history`, `phoenix`, `qdrant`, `ollama`, `s3` `.datalab.localhost:8080` | each answers. Trino and Airflow show their UIs; `s3` answers 403 to an anonymous request. |
 | `http://headlamp.datalab.localhost:8080` | Headlamp logs in with the token from `hack/workstation/headlamp-token.sh`; the sidebar shows *Kubeflow → Spark*, listing the e2e SparkApplication. |
 | GPU | `kubectl -n datalab exec deploy/datalab-data-lab-ollama -- nvidia-smi` lists the GPU. |
-| `semantic/01_chat_with_your_data.ipynb` (run all) | the score table shows the semantic path at 5/5. The raw text-to-SQL column is informational. The governance cell prints a refusal for `marketing`. |
+| `semantic/01_chat_with_your_data.ipynb` (run all) | the refund-rate cell shows the naive join and the semantic layer disagreeing (installments); the step-by-step cell ends with an answer whose numbers match the rows above it; the score table shows the semantic path at 6/6 (the raw text-to-SQL column is informational); `marketing` is refused the e-mail filter and `dach_sales` sees only DACH. |
 | `rag_demo.ipynb` | answers questions using the GPU (fast replies). |
 
 If it fails, paste back the script's last lines, or for a UI the HTTP status from `curl -sI -H 'Host: <host>' http://127.0.0.1:8080/`.

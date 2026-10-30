@@ -119,4 +119,4 @@ fi
 
 ok "Cluster ready. Next: hack/workstation/build-images.sh && hack/workstation/deploy.sh"
 echo "Reach the Gateway from the host: hack/workstation/gateway-forward.sh"
-[[ $HEADLAMP == true ]] && echo "Headlamp login token: hack/workstation/headlamp-token.sh"
+if [[ $HEADLAMP == true ]]; then echo "Headlamp login token: hack/workstation/headlamp-token.sh"; fi

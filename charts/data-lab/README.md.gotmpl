@@ -171,8 +171,9 @@ networkPolicy:
 `semantic.enabled` runs the [Kubeflow Semantic Operator](https://github.com/kubeflow/semantic-operator) on the release's
 Trino: an [Apache Ossie](https://github.com/apache/ossie) model of certified metrics and dimensions, served to agents
 over MCP (`SEMANTIC_MCP_URL`) and to apps over REST (`SEMANTIC_REST_URL`). The LLM picks metrics; the server compiles one
-governed SQL statement. `semantic.models.dbtDemo` (on with `semantic`) models the dbt demo tables
-(`iceberg.dbt_demo`, built by the dbt notebooks); it is published once those tables exist (the manager re-checks every
+governed SQL statement. `semantic.models.dbtDemo` (on with `semantic`) models the dbt demo shop
+(`iceberg.dbt_demo`, built by `dbt build`: orders, split payments, refunds in installments, customers, products, unit
+costs, sales regions; the model is `files/semantic/dbt-demo.yaml`); it is published once those tables exist (the manager re-checks every
 `semantic.manager.resyncPeriod`). Add your own models with `semantic.models.extra`.
 
 - **Prerequisite**: the SemanticModel CRD (cluster-scoped), once per cluster:

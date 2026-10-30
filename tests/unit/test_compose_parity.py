@@ -37,3 +37,12 @@ def test_e2e_copy_drift_is_caught(tmp_path):
     p = run("--e2e", str(e2e))
     assert p.returncode == 1
     assert "e2e_lakehouse.py" in p.stdout
+
+
+@needs_helm
+def test_notebook_model_copy_drift_is_caught(tmp_path):
+    copy = tmp_path / "dbt_demo_model.yaml"
+    copy.write_text((REPO / "charts/data-lab/files/semantic/dbt-demo.yaml").read_text() + "# drift\n")
+    p = run("--semantic-model", str(copy))
+    assert p.returncode == 1
+    assert "dbt_demo_model.yaml" in p.stdout

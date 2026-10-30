@@ -12,8 +12,12 @@ with default values the chart renders the same resources as 0.1.0 (`tests/chart/
 - `semantic` (off): Kubeflow Semantic Operator manager + server (v0.1.1) on the release's Trino, serving an Apache Ossie
   semantic layer over MCP (`/mcp`) and REST (`/v1`); `semantic.models.dbtDemo` SemanticModel over the dbt demo tables
   (certified metrics, roles `analyst` / `marketing`); `semantic.models.extra`; a pre-delete hook that removes the
-  release's SemanticModels before the manager goes (its finalizer would block uninstall); endpoints keys
-  `SEMANTIC_MCP_URL`, `SEMANTIC_REST_URL`, `SEMANTIC_DEFAULT_ROLE`, `SEMANTIC_DEMO_MODEL`. Needs the SemanticModel CRD
+  release's SemanticModels before the manager goes (its finalizer would block uninstall); a single manager
+  (`Recreate`, no leader election, so no Lease is left behind); endpoints keys `SEMANTIC_MCP_URL`, `SEMANTIC_REST_URL`,
+  `SEMANTIC_DEFAULT_ROLE`, `SEMANTIC_AUTH_MODE`, `SEMANTIC_DEMO_MODEL`. The dbt-demo model lives in
+  `files/semantic/dbt-demo.yaml`: 7 datasets (orders, payments, refunds, customers, products, unit costs, regions),
+  10 certified metrics (revenue, gross margin, fan-out-safe refund rate, AOV, amount collected, ...) and 3 roles
+  (`analyst`, `marketing` without e-mail, `dach_sales` with a row filter). Needs the SemanticModel CRD
   (`hack/crds/`, installed separately). One semantic-enabled release per namespace (refused at install).
 - `gateway` (off): Gateway API HTTPRoutes for every enabled UI on a namespaced Gateway (`gatewayClassName`) or an existing
   one (`parentRef`), hostnames `{{route}}.{{release}}.{{domain}}`, `extraRoutes`, `allowFromNamespaces` for the
