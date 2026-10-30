@@ -671,11 +671,11 @@ semantic:
   manager:
     image:
       # -- Image registry.
-      registry: public.ecr.aws
-      # -- Image repository.
-      repository: data-on-eks/semantic-operator/manager
-      # -- Image tag.
-      tag: v0.1.1
+      registry: ghcr.io
+      # -- Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh).
+      repository: tarekabouzeid/data-lab-playground/semantic-operator-manager
+      # -- Image tag (= appVersion).
+      tag: "3.0.0"
       # -- Image pull policy.
       pullPolicy: IfNotPresent
     # -- How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns
@@ -710,11 +710,11 @@ semantic:
   server:
     image:
       # -- Image registry.
-      registry: public.ecr.aws
-      # -- Image repository.
-      repository: data-on-eks/semantic-operator/server
-      # -- Image tag.
-      tag: v0.1.1
+      registry: ghcr.io
+      # -- Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh).
+      repository: tarekabouzeid/data-lab-playground/semantic-operator-server
+      # -- Image tag (= appVersion).
+      tag: "3.0.0"
       # -- Image pull policy.
       pullPolicy: IfNotPresent
     # -- Server replicas.

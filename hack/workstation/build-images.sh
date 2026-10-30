@@ -49,6 +49,11 @@ for svc in "${SERVICES[@]}"; do
   fi
   if [[ $LOAD == true ]]; then minikube -p "$MINIKUBE_PROFILE" image load "$img"; fi
 done
+log "Semantic Operator from source (hack/build-semantic-operator.sh)"
+"$ROOT/hack/build-semantic-operator.sh" "$APP_VERSION"
+if [[ $LOAD == true ]]; then
+  for c in manager server; do minikube -p "$MINIKUBE_PROFILE" image load "$REGISTRY/semantic-operator-$c:$APP_VERSION"; done
+fi
 
 if [[ $PULL == true ]]; then
   # every other image the workstation profile renders (third-party, pinned in values.yaml)

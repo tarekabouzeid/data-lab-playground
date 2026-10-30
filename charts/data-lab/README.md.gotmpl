@@ -41,7 +41,7 @@ helm uninstall lab1 -n lab1 # removes everything, PVCs and Secrets included
 | Ollama | `ollama.enabled` | off | `ollama/ollama:0.40.3` | 11434 | GPU recommended |
 | Qdrant | `qdrant.enabled` | off | `qdrant/qdrant:v1.19.2-unprivileged` | 6333 HTTP, 6334 gRPC | — |
 | Phoenix | `phoenix.enabled` | off | `arizephoenix/phoenix:version-20.21.0-nonroot` | 6006 UI/OTLP-HTTP, 4317 OTLP-gRPC | — |
-| Semantic Operator (Kubeflow) | `semantic.enabled` | off | `public.ecr.aws/data-on-eks/semantic-operator/{manager,server}:v0.1.1` | 8090 (`/mcp`, `/v1`) | trino, the SemanticModel CRD |
+| Semantic Operator (Kubeflow) | `semantic.enabled` | off | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-{manager,server}` (built from kubeflow/semantic-operator@4fd7057) | 8090 (`/mcp`, `/v1`) | trino, the SemanticModel CRD |
 | Gateway API routes | `gateway.enabled` | off | — (HTTPRoutes + optional Gateway) | 80 via the gateway | a Gateway API implementation |
 
 Invalid combinations fail at render with a message, for example `trino.enabled=true requires hms.enabled=true`.

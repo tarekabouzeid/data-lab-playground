@@ -25,12 +25,12 @@ done
 
 APP=$(awk '/^appVersion:/ {gsub(/"/, "", $2); print $2}' "$ROOT/charts/data-lab/Chart.yaml")
 REPO=ghcr.io/tarekabouzeid/data-lab-playground
-OWN=("$REPO/hive-metastore:$APP" "$REPO/spark:$APP" "$REPO/airflow-mcp:$APP")
+OWN=("$REPO/hive-metastore:$APP" "$REPO/spark:$APP" "$REPO/airflow-mcp:$APP"
+     "$REPO/semantic-operator-manager:$APP" "$REPO/semantic-operator-server:$APP")
 # keep in sync with the "Load images into kind" step of .github/workflows/chart-e2e.yaml
 PULLED=(chrislusf/seaweedfs:4.48 trinodb/trino:483 postgres:17.11 apache/airflow:3.3.2-python3.12 busybox:1.36
         ghcr.io/kubeflow/mcp-apache-spark-history-server:1.0.1
-        public.ecr.aws/data-on-eks/semantic-operator/manager:v0.1.1      # semantic scenario
-        public.ecr.aws/data-on-eks/semantic-operator/server:v0.1.1)
+)
 
 if kind get clusters 2>/dev/null | grep -qx "$NAME"; then
   echo "==> kind cluster $NAME exists, reusing it"
@@ -72,6 +72,7 @@ if [[ $BUILD == true ]]; then
     echo "==> Building $REPO/$c:$APP"
     docker build -q -t "$REPO/$c:$APP" "$ROOT/$c" >/dev/null
   done
+  "$ROOT/hack/build-semantic-operator.sh" "$APP"   # semantic scenario
 fi
 for i in "${PULLED[@]}"; do docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i" >/dev/null; done
 

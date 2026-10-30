@@ -9,7 +9,7 @@ Merges the former `helm/datalab` minikube chart into this one and adds the Kubef
 with default values the chart renders the same resources as 0.1.0 (`tests/chart/golden/default-resources.txt`).
 
 ### Added
-- `semantic` (off): Kubeflow Semantic Operator manager + server (v0.1.1) on the release's Trino, serving an Apache Ossie
+- `semantic` (off): Kubeflow Semantic Operator manager + server (built from upstream source at 4fd7057; the public v0.1.1 images predate its config layout) on the release's Trino, serving an Apache Ossie
   semantic layer over MCP (`/mcp`) and REST (`/v1`); `semantic.models.dbtDemo` SemanticModel over the dbt demo tables
   (certified metrics, roles `analyst` / `marketing`); `semantic.models.extra`; a pre-delete hook that removes the
   release's SemanticModels before the manager goes (its finalizer would block uninstall); a single manager

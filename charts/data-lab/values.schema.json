@@ -1611,12 +1611,12 @@
                 },
                 "repository": {
                   "type": "string",
-                  "description": "Image repository."
+                  "description": "Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh)."
                 },
                 "tag": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "Image tag."
+                  "description": "Image tag (= appVersion)."
                 },
                 "pullPolicy": {
                   "type": "string",
@@ -1701,12 +1701,12 @@
                 },
                 "repository": {
                   "type": "string",
-                  "description": "Image repository."
+                  "description": "Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh)."
                 },
                 "tag": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "Image tag."
+                  "description": "Image tag (= appVersion)."
                 },
                 "pullPolicy": {
                   "type": "string",

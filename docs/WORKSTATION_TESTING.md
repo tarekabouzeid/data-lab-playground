@@ -54,7 +54,7 @@ Pass:
   - `namespace dl-semantic is clean`
 
 `hack/kind-up.sh` builds the lab images and loads every image the scenarios need, the two Semantic Operator images
-from `public.ecr.aws` included.
+built from upstream source by `hack/build-semantic-operator.sh` included.
 
 If it fails, paste back the last 60 lines of the failing scenario. The script prints pod logs and events on failure.
 

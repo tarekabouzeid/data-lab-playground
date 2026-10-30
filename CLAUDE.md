@@ -90,4 +90,4 @@ Jupyter         → Ollama (11434) · Qdrant (6333) · Phoenix (6006/4317)
 
 Full matrix: [docs/VERSIONS.md](docs/VERSIONS.md).
 
-Spark 4.1.3 (capped: no Iceberg Spark 4.2 runtime) · Iceberg 1.12.0 · Helm chart 0.2.0 (appVersion 3.0.0; adds Airflow 3.3.2, Postgres 17.11, Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1, Kubeflow Semantic Operator v0.1.1 — VERSIONS.md §8; workstation tooling §9) · Hive Metastore 4.2.1 · Trino 483 · SeaweedFS 4.48 · Python 3.12 · Java: Spark 21 / Jupyter driver 17 / HMS 21 / Trino 25 · Hadoop 3.4.2 (Spark) / 3.4.1 (HMS) · AWS SDK bundle 2.41.1 (Spark) / 2.24.6 (HMS)
+Spark 4.1.3 (capped: no Iceberg Spark 4.2 runtime) · Iceberg 1.12.0 · Helm chart 0.2.0 (appVersion 3.0.0; adds Airflow 3.3.2, Postgres 17.11, Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1, Kubeflow Semantic Operator @4fd7057 (built from source) — VERSIONS.md §8; workstation tooling §9) · Hive Metastore 4.2.1 · Trino 483 · SeaweedFS 4.48 · Python 3.12 · Java: Spark 21 / Jupyter driver 17 / HMS 21 / Trino 25 · Hadoop 3.4.2 (Spark) / 3.4.1 (HMS) · AWS SDK bundle 2.41.1 (Spark) / 2.24.6 (HMS)

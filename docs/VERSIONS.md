@@ -105,7 +105,7 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | 2026-10-03 (v3.0.0, unreleased) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 |
 | 2026-10-10 (`helm/datalab` minikube chart) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Spark Operator 2.5.2, Envoy Gateway 1.9.2, Headlamp 0.45.0) |
 | 2026-10-12 (`charts/data-lab` 0.1.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Airflow 3.3.2, Postgres 17.11 in the chart) |
-| 2026-10-30 (`charts/data-lab` 0.2.0, `helm/datalab` merged in and removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Kubeflow Semantic Operator v0.1.1; Compose frozen) |
+| 2026-10-30 (`charts/data-lab` 0.2.0, `helm/datalab` merged in and removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Kubeflow Semantic Operator built from source at 4fd7057; Compose frozen) |
 
 ## 8. Helm chart images (`charts/data-lab`)
 
@@ -128,16 +128,19 @@ Chart `0.2.0`, `appVersion` **3.0.0** (the lab release these versions ship in). 
 | Ollama | `ollama/ollama` | `0.40.3` | Compose: `0.40.2` (chart one patch ahead) |
 | Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` | ✅ same version (non-root variant) |
 | Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` | Compose: `version-20.20.0` (chart one minor ahead) |
-| Semantic Operator manager | `public.ecr.aws/data-on-eks/semantic-operator/manager` (Kubeflow, official) | `v0.1.1` | chart only (`semantic.enabled`) |
-| Semantic Operator server | `public.ecr.aws/data-on-eks/semantic-operator/server` (Kubeflow, official) | `v0.1.1` | chart only |
+| Semantic Operator manager | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-manager` (built from `kubeflow/semantic-operator@4fd7057` by `hack/build-semantic-operator.sh`) | `3.0.0` (= appVersion) | chart only (`semantic.enabled`) |
+| Semantic Operator server | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-server` (same) | `3.0.0` | chart only |
 | SemanticModel CRD | `hack/crds/semantic.ossie.io_semanticmodels.yaml` (vendored from `kubeflow/semantic-operator@4fd7057`, `semantic.ossie.io/v1alpha1`) | commit `4fd7057` (2026-10-23) | installed separately (cluster-scoped) |
 
-Semantic layer notes: no upstream GitHub release exists yet (chart 0.1.0 in the repo, images `v0.1.1`); Ossie expressions use
+Semantic layer notes: no upstream GitHub release exists yet (chart 0.1.0 in the repo). The public
+`public.ecr.aws/data-on-eks/semantic-operator/*:v0.1.1` images predate the config-file layout of `4fd7057` (env-based
+config, no `--config` flag), so the lab builds both images from that commit. Move the pin (`COMMIT` in
+`hack/build-semantic-operator.sh`, the CRD header, `_semantic.tpl`) together. Ossie expressions use
 `ANSI_SQL` because `TRINO` is not an Ossie dialect yet (apache/ossie#607, open). The chat notebook's tool-calling model is
 **`qwen3:4b`** (pulled by Ollama in the workstation profile; `gemma3` has no tool calling). The Jupyter image pins
 `ollama==0.6.3` (Python client); MCP is spoken with the standard library (no `mcp` SDK).
 
-The four `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp) are pushed by `.github/workflows/chart-release.yaml` on the
+The six `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp, semantic-operator-manager, semantic-operator-server) are pushed by `.github/workflows/chart-release.yaml` on the
 `v<appVersion>` tag. The workflow refuses to run if the values tags differ from `appVersion`. The kind e2e builds
 them locally instead. Locally `hack/kind-up.sh` creates the kind cluster and loads the images; with `--calico` it installs
 Calico v3.32.2 in place of kindnet (WSL2 kernels lack NFQUEUE, so kindnet cannot enforce NetworkPolicy there).

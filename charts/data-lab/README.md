@@ -41,7 +41,7 @@ helm uninstall lab1 -n lab1 # removes everything, PVCs and Secrets included
 | Ollama | `ollama.enabled` | off | `ollama/ollama:0.40.3` | 11434 | GPU recommended |
 | Qdrant | `qdrant.enabled` | off | `qdrant/qdrant:v1.19.2-unprivileged` | 6333 HTTP, 6334 gRPC | — |
 | Phoenix | `phoenix.enabled` | off | `arizephoenix/phoenix:version-20.21.0-nonroot` | 6006 UI/OTLP-HTTP, 4317 OTLP-gRPC | — |
-| Semantic Operator (Kubeflow) | `semantic.enabled` | off | `public.ecr.aws/data-on-eks/semantic-operator/{manager,server}:v0.1.1` | 8090 (`/mcp`, `/v1`) | trino, the SemanticModel CRD |
+| Semantic Operator (Kubeflow) | `semantic.enabled` | off | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-{manager,server}` (built from kubeflow/semantic-operator@4fd7057) | 8090 (`/mcp`, `/v1`) | trino, the SemanticModel CRD |
 | Gateway API routes | `gateway.enabled` | off | — (HTTPRoutes + optional Gateway) | 80 via the gateway | a Gateway API implementation |
 
 Invalid combinations fail at render with a message, for example `trino.enabled=true requires hms.enabled=true`.
@@ -531,9 +531,9 @@ Kubernetes: `>=1.29.0-0`
 | airflow.database.podLabels | object | `{}` | Extra pod labels. |
 | airflow.database.podAnnotations | object | `{}` | Extra pod annotations. |
 | semantic.enabled | bool | `false` | Deploy the Semantic Operator manager and server. |
-| semantic.manager.image.registry | string | `"public.ecr.aws"` | Image registry. |
-| semantic.manager.image.repository | string | `"data-on-eks/semantic-operator/manager"` | Image repository. |
-| semantic.manager.image.tag | string | `"v0.1.1"` | Image tag. |
+| semantic.manager.image.registry | string | `"ghcr.io"` | Image registry. |
+| semantic.manager.image.repository | string | `"tarekabouzeid/data-lab-playground/semantic-operator-manager"` | Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh). |
+| semantic.manager.image.tag | string | `"3.0.0"` | Image tag (= appVersion). |
 | semantic.manager.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | semantic.manager.resyncPeriod | string | `"30s"` | How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns Ready within this period once they do). |
 | semantic.manager.engineUser | string | `"semantic-manager"` | Trino user the manager introspects metadata as. |
@@ -546,9 +546,9 @@ Kubernetes: `>=1.29.0-0`
 | semantic.manager.affinity | object | `{}` | Affinity. |
 | semantic.manager.podLabels | object | `{}` | Extra pod labels. |
 | semantic.manager.podAnnotations | object | `{}` | Extra pod annotations. |
-| semantic.server.image.registry | string | `"public.ecr.aws"` | Image registry. |
-| semantic.server.image.repository | string | `"data-on-eks/semantic-operator/server"` | Image repository. |
-| semantic.server.image.tag | string | `"v0.1.1"` | Image tag. |
+| semantic.server.image.registry | string | `"ghcr.io"` | Image registry. |
+| semantic.server.image.repository | string | `"tarekabouzeid/data-lab-playground/semantic-operator-server"` | Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh). |
+| semantic.server.image.tag | string | `"3.0.0"` | Image tag (= appVersion). |
 | semantic.server.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | semantic.server.replicas | int | `1` | Server replicas. |
 | semantic.server.engineUser | string | `"semantic-server"` | Trino user queries run as (static identity). |

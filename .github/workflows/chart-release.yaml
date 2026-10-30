@@ -34,7 +34,7 @@ jobs:
             v*)       [ "$GITHUB_REF_NAME" = "v$APP" ] || { echo "::error::tag $GITHUB_REF_NAME != v$APP (Chart.yaml appVersion)"; exit 1; } ;;
           esac
           # custom image tags in values.yaml must equal appVersion
-          for c in hms spark jupyter airflowMcp; do
+          for c in hms spark jupyter airflowMcp semantic.manager semantic.server; do
             t=$(yq ".$c.image.tag" charts/data-lab/values.yaml)
             [ "$t" = "$APP" ] || { echo "::error::$c.image.tag=$t but appVersion=$APP"; exit 1; }
           done
@@ -54,6 +54,9 @@ jobs:
             docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c"
             docker push "$img"
           done
+          # Semantic Operator, built from upstream source at the pinned commit
+          hack/build-semantic-operator.sh "$APP"
+          for c in manager server; do docker push "$REGISTRY/$OWNER/data-lab-playground/semantic-operator-$c:$APP"; done
 
       - name: Package and push the chart (OCI)
         run: |

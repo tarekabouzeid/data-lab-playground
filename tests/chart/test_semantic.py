@@ -39,8 +39,11 @@ def test_namespaced_only():
 def test_manager_and_server_deployments():
     docs = render(ON, api_versions=API)
     m, s = workload(docs, "semantic-manager"), workload(docs, "semantic-server")
-    assert m["spec"]["template"]["spec"]["containers"][0]["image"] == "public.ecr.aws/data-on-eks/semantic-operator/manager:v0.1.1"
-    assert s["spec"]["template"]["spec"]["containers"][0]["image"] == "public.ecr.aws/data-on-eks/semantic-operator/server:v0.1.1"
+    # built from kubeflow/semantic-operator@4fd7057 (hack/build-semantic-operator.sh): the config-file layout the chart
+    # renders; the public v0.1.1 images predate it (env-based config, no --config flag)
+    app = yaml.safe_load((REPO / "charts" / "data-lab" / "Chart.yaml").read_text())["appVersion"]
+    assert m["spec"]["template"]["spec"]["containers"][0]["image"] == f"ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-manager:{app}"
+    assert s["spec"]["template"]["spec"]["containers"][0]["image"] == f"ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-server:{app}"
     assert s["spec"]["replicas"] == 1
     assert m["spec"]["template"]["spec"]["serviceAccountName"] == "r-data-lab-semantic-manager"
     assert s["spec"]["template"]["spec"]["serviceAccountName"] == "r-data-lab-semantic-server"

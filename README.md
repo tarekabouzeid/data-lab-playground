@@ -59,7 +59,7 @@ Full matrix (runtimes, bundled libraries, access paths, upgrade blockers): **[do
 | AWS SDK v2 bundle | 2.41.1 (Spark) · 2.24.6 (HMS) | | |
 | Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` (no `[spark]` extra) |
 | Phoenix · Ollama · Qdrant | `version-20.20.0` · `0.40.2` · `v1.19.2` | pinned | Compose; the chart pins its own (non-root) tags, see docs/VERSIONS.md §8 |
-| Helm chart `charts/data-lab` | 0.2.0 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator v0.1.1 | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
+| Helm chart `charts/data-lab` | 0.2.0 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator (`4fd7057`, built from source) | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
 | Workstation lab (`hack/workstation/`) | K8s 1.37 · minikube 1.39 · Helm 4.x · Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 | | §9 |
 
 See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
