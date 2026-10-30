@@ -51,6 +51,9 @@ spec:
       {{- include "datalab.podSpecCommon" (list $root $c) | nindent 6 }}
       automountServiceAccountToken: false
       enableServiceLinks: false
+      {{- with .podExtra }}
+      {{- . | nindent 6 }}
+      {{- end }}
       containers:
         - name: {{ .component }}
           image: {{ include "datalab.image" (list $root $c.image) }}

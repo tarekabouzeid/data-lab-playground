@@ -1771,6 +1771,20 @@
               "type": "integer",
               "minimum": 1,
               "description": "Number of GPUs."
+            },
+            "dra": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Claim the GPU through DRA (requires `ollama.gpu.enabled`)."
+                },
+                "deviceClassName": {
+                  "type": "string",
+                  "description": "DeviceClass of the GPU."
+                }
+              }
             }
           }
         },

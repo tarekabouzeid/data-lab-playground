@@ -729,6 +729,13 @@ ollama:
     resourceName: nvidia.com/gpu
     # -- Number of GPUs.
     count: 1
+    # Dynamic Resource Allocation instead of the extended resource (needs Kubernetes >= 1.34 and a DRA driver,
+    # e.g. the NVIDIA DRA driver). Renders a namespaced ResourceClaimTemplate.
+    dra:
+      # -- Claim the GPU through DRA (requires `ollama.gpu.enabled`).
+      enabled: false
+      # -- DeviceClass of the GPU.
+      deviceClassName: gpu.nvidia.com
   persistence:
     # -- Use a PVC for models. `false` uses an emptyDir.
     enabled: true

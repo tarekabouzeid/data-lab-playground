@@ -16,7 +16,8 @@ import yaml
 
 NAMESPACED = {"ConfigMap", "Secret", "Service", "Deployment", "PersistentVolumeClaim", "ServiceAccount",
               "Role", "RoleBinding", "NetworkPolicy", "Pod",
-              "Gateway", "HTTPRoute"}  # namespaced Gateway API kinds (gateway.enabled)
+              "Gateway", "HTTPRoute",  # namespaced Gateway API kinds (gateway.enabled)
+              "ResourceClaimTemplate"}  # DRA GPU claim (ollama.gpu.dra.enabled)
 LABELS = ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/version",
           "app.kubernetes.io/managed-by", "helm.sh/chart"]
 

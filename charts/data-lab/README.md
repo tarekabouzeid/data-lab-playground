@@ -515,6 +515,8 @@ Kubernetes: `>=1.29.0-0`
 | ollama.gpu.enabled | bool | `false` | Request GPUs. |
 | ollama.gpu.resourceName | string | `"nvidia.com/gpu"` | Extended resource name of the GPU. |
 | ollama.gpu.count | int | `1` | Number of GPUs. |
+| ollama.gpu.dra.enabled | bool | `false` | Claim the GPU through DRA (requires `ollama.gpu.enabled`). |
+| ollama.gpu.dra.deviceClassName | string | `"gpu.nvidia.com"` | DeviceClass of the GPU. |
 | ollama.persistence.enabled | bool | `true` | Use a PVC for models. `false` uses an emptyDir. |
 | ollama.persistence.size | string | `"20Gi"` | PVC size. |
 | ollama.persistence.storageClass | string | `""` | StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`. |
