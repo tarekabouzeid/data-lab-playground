@@ -56,13 +56,19 @@ Rules:
 - [x] `iceberg/03`: copy the orders to `shop_v3.orders`; customer N asks to be forgotten → delete, deletion vectors, row lineage, time-travel audit.
 - [x] `iceberg/01`: `lab_data.deliveries()` → Hilbert vs Z-order for "orders near Berlin".
 - [x] `data_lab_playground`: the pipeline map and row counts per layer, replacing the random `ecommerce_sales`.
-- [ ] Each notebook runs headless on Compose and on the workstation (runbook). **Open: the LLM-dependent cells and the workstation `e2e.sh` run need a GPU machine with model access (see below).** Every Spark, Trino and dbt cell was executed headless with nbclient on 2026-10-31, in both modes:
-  - **Compose mode:** the repo's `docker-compose.yaml` services (SeaweedFS, metastore-db, HMS 4.2.1, Trino 483, classic Spark master + worker 4.1.3), the Jupyter image's `spark-defaults.conf`, and the `lab_utils` Compose default endpoints. `data_lab_playground`, `iceberg/00–04`, `dbt/01–03` and `rag_demo` §1 passed with no errors.
-  - **Chart mode:** Spark Connect + HMS REST + Trino + SeaweedFS from the chart's images. `iceberg/01–04`, `data_lab_playground`, `dbt/01` and `rag_demo` §1 passed. That run found and fixed the `iceberg/02` shredded-variant count and the no-Ollama cells.
-  - **LLM-dependent cells, not executable here:** the network policy blocks every model source (registry.ollama.ai and huggingface.co return 403), so no weights can be loaded. That covers the playground's AI cells, `rag_demo` §2–3, `semantic/01` and the `ops/01` agent loop. They run in `hack/workstation/e2e.sh` on a GPU workstation. Their non-LLM parts were checked:
-    - Qdrant indexing and metadata filters, with deterministic fake embeddings against a real Qdrant
-    - the ops MCP helpers, against real Airflow (34 tools) and Spark History (17 tools) MCP servers
-    - the semantic layer's metrics, roles and row filters, in the kind `semantic` CI scenario
+- [x] Each notebook runs headless on Compose and on the workstation (runbook). Every notebook, every cell, was executed headless with nbclient on 2026-10-31, against real services and real models:
+  - **Compose mode** (the repo's `docker-compose.yaml` services: SeaweedFS, metastore-db, HMS 4.2.1, Trino 483, classic Spark master + worker 4.1.3; the Jupyter image's `spark-defaults.conf`; the `lab_utils` Compose default endpoints; Qdrant; Ollama):
+    - `data_lab_playground`, `iceberg/00–04`, `dbt/01–03`: no errors.
+    - `rag_demo`, all sections: no errors. With real `gemma3:4b` + `mxbai-embed-large`, the SSD answer names the dead-on-arrival drives and crushed packaging, and the router answer names firmware 2.4.1; both cite ticket order ids and the refund rates from Trino.
+  - **Chart mode** (Spark Connect + HMS REST + Trino + SeaweedFS from the chart's images): `iceberg/01–04`, `data_lab_playground`, `dbt/01`, `rag_demo` §1 passed.
+  - **`semantic/01`**: against the real Kubeflow Semantic Operator (manager + server built from the pinned commit `4fd7057ef3a6` via the Go module proxy) on a Kubernetes API (k3s 1.34) and the Compose Trino, with the chart's own `dbt-demo` SemanticModel. The operator validated and published it (no drift). No errors. The score table: **semantic layer 6/6, raw text-to-SQL 1/6**. `marketing` was refused the e-mail field; `dach_sales` saw 9 DACH orders ($10,260), and the LLM as `dach_sales` answered $10,260.
+  - **`ops/01`**: against Airflow 3.3.2 with the real `northwind_daily` DAG and its scheduled run, the Airflow MCP server and the Spark History MCP server. No errors. The agent found the failed run and read its task log: `ingest`, `ModuleNotFoundError: pyspark`, which is right for the stock image that stack runs.
+  - **Models:** downloaded as GGUF artifacts from Docker Hub (`ai/gemma3:4b`, `ai/mxbai-embed-large`, `ai/qwen3:4b-instruct-2507`) and registered in Ollama 0.40.2 (CPU) under the names the notebooks use, because registry.ollama.ai and huggingface.co are blocked here. The Qwen3 build is the non-thinking 2507 instruct, standing in for `qwen3:4b` with `think=False`. The GPU workstation `e2e.sh` (minikube, the real `ollama pull` models) is the user's final check.
+  - **Bugs only a live model could find, all fixed with unit tests:**
+    - Ollama 0.40 rejected the semantic server's tool schemas (`properties must be an object`, boolean `items`).
+    - qwen3 guessed `model="sales"` and sent `grain` without a time dimension.
+    - The ops agent's 51 tool schemas (15k tokens) overflowed Ollama's default 4,096-token context.
+    - qwen3's thinking trace (1,500+ tokens per turn) made every call slow.
 
 ### Step 3: AI and operations on the same shop
 - [x] `rag_demo`: index `lab_data.product_docs()`; "Why are router refunds so high?" combines the semantic layer's refund rate per product (chart) or Trino SQL (Compose) with retrieved tickets.

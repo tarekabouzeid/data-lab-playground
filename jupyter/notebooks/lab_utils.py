@@ -12,6 +12,7 @@ default. Notebooks import these constants instead of hardcoding hosts (tests/uni
 
 Imports of optional packages (boto3, trino, pyarrow) are lazy so the module imports anywhere.
 """
+import datetime
 import json
 import os
 import re
@@ -391,7 +392,10 @@ def ask_ops(question: str, model: str = TOOL_MODEL, max_turns: int = 8) -> dict:
             name = f"{server}__{t['name']}"
             owner[name] = (server, t["name"])
             tools.append(mcp_tool_to_ollama({**t, "name": name}))
-    messages = [{"role": "system", "content": OPS_PROMPT}, {"role": "user", "content": question}]
+    # The model does not know today's date: asked what ran "recently", it filtered on a training-era date.
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    messages = [{"role": "system", "content": f"{OPS_PROMPT} Today is {today} (UTC)."},
+                {"role": "user", "content": question}]
     steps = []
     for _ in range(max_turns):
         msg = _chat(model, messages, tools, num_ctx=OPS_NUM_CTX)["message"]

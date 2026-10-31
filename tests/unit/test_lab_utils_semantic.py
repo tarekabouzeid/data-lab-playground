@@ -370,3 +370,18 @@ def test_chat_passes_num_ctx_only_when_asked(monkeypatch):
     lab_utils._chat("m", [])
     lab_utils._chat("m", [], num_ctx=16384)
     assert "num_ctx" not in seen[0]["options"] and seen[1]["options"]["num_ctx"] == 16384
+
+
+def test_ops_agent_knows_today(monkeypatch):
+    """A real run answered "which apps ran most recently?" with max_date=2023-10-..., the model's training-era guess at
+    today, and found nothing. The system prompt carries the current UTC date."""
+    import datetime
+    monkeypatch.setenv("AIRFLOW_MCP_URL", "http://a/mcp")
+    monkeypatch.delenv("SPARK_HISTORY_MCP_URL", raising=False)
+    monkeypatch.setattr(lab_utils, "_mcp_session", lambda url, method, params, extra_headers=None: {"tools": []})
+    sent = []
+    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None, **kw:
+                        (sent.append(messages), {"message": {"content": "ok"}})[1])
+    lab_utils.ask_ops("what ran recently?")
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    assert today in sent[0][0]["content"]
