@@ -62,13 +62,14 @@ Rules:
     - `rag_demo`, all sections: no errors. With real `gemma3:4b` + `mxbai-embed-large`, the SSD answer names the dead-on-arrival drives and crushed packaging, and the router answer names firmware 2.4.1; both cite ticket order ids and the refund rates from Trino.
   - **Chart mode** (Spark Connect + HMS REST + Trino + SeaweedFS from the chart's images): `iceberg/01–04`, `data_lab_playground`, `dbt/01`, `rag_demo` §1 passed.
   - **`semantic/01`**: against the real Kubeflow Semantic Operator (manager + server built from the pinned commit `4fd7057ef3a6` via the Go module proxy) on a Kubernetes API (k3s 1.34) and the Compose Trino, with the chart's own `dbt-demo` SemanticModel. The operator validated and published it (no drift). No errors. The score table: **semantic layer 6/6, raw text-to-SQL 1/6**. `marketing` was refused the e-mail field; `dach_sales` saw 9 DACH orders ($10,260), and the LLM as `dach_sales` answered $10,260.
-  - **`ops/01`**: against Airflow 3.3.2 with the real `northwind_daily` DAG and its scheduled run, the Airflow MCP server and the Spark History MCP server. No errors. The agent found the failed run and read its task log: `ingest`, `ModuleNotFoundError: pyspark`, which is right for the stock image that stack runs.
+  - **`ops/01`**: against Airflow 3.3.2 with the real `northwind_daily` DAG and its scheduled run, the Airflow MCP server and the Spark History MCP server. No errors. The agent found the failed run and read its task log: `ingest`, `ModuleNotFoundError: pyspark` (right for the stock image that stack runs; the downstream tasks failed with it). Asked about Spark, it listed the three real completed applications with their durations and named the longest correctly (`local-1793447597664`, 44.8 s).
   - **Models:** downloaded as GGUF artifacts from Docker Hub (`ai/gemma3:4b`, `ai/mxbai-embed-large`, `ai/qwen3:4b-instruct-2507`) and registered in Ollama 0.40.2 (CPU) under the names the notebooks use, because registry.ollama.ai and huggingface.co are blocked here. The Qwen3 build is the non-thinking 2507 instruct, standing in for `qwen3:4b` with `think=False`. The GPU workstation `e2e.sh` (minikube, the real `ollama pull` models) is the user's final check.
   - **Bugs only a live model could find, all fixed with unit tests:**
     - Ollama 0.40 rejected the semantic server's tool schemas (`properties must be an object`, boolean `items`).
     - qwen3 guessed `model="sales"` and sent `grain` without a time dimension.
     - The ops agent's 51 tool schemas (15k tokens) overflowed Ollama's default 4,096-token context.
     - qwen3's thinking trace (1,500+ tokens per turn) made every call slow.
+    - Asked what ran "recently", the agent filtered on a 2023 date: the ops prompt now carries today's date.
 
 ### Step 3: AI and operations on the same shop
 - [x] `rag_demo`: index `lab_data.product_docs()`; "Why are router refunds so high?" combines the semantic layer's refund rate per product (chart) or Trino SQL (Compose) with retrieved tickets.
