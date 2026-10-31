@@ -190,10 +190,12 @@ semantic_call() {  # release namespace role tool args: MCP call from the release
 dag_wait_published() {  # release namespace timeout: northwind_daily's wait_for_published, run in the Airflow
   # scheduler as the chart's airflow ServiceAccount (airflow.labPipelines + semantic: read-only SemanticModels)
   local dag; dag="$(dirname "$0")/../jupyter/notebooks/ops/dags/northwind_daily.py"
-  kubectl -n "$2" exec -i "deploy/$1-data-lab-airflow" -c scheduler -- sh -c 'cat > /tmp/northwind_daily.py' < "$dag"
+  # same layout as the DAG volume (notebooks/ops/dags/): the module locates the notebooks folder two levels up
+  kubectl -n "$2" exec -i "deploy/$1-data-lab-airflow" -c scheduler -- \
+    sh -c 'mkdir -p /tmp/notebooks/ops/dags && cat > /tmp/notebooks/ops/dags/northwind_daily.py' < "$dag"
   kubectl -n "$2" exec "deploy/$1-data-lab-airflow" -c scheduler -- python -c "
 import importlib.util
-spec = importlib.util.spec_from_file_location('northwind_daily', '/tmp/northwind_daily.py')
+spec = importlib.util.spec_from_file_location('northwind_daily', '/tmp/notebooks/ops/dags/northwind_daily.py')
 dag = importlib.util.module_from_spec(spec); spec.loader.exec_module(dag)
 print(dag.wait_for_published(timeout_s=$3, poll_s=5))"
 }
