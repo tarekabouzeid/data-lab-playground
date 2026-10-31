@@ -266,10 +266,10 @@ def _as_dict(obj):
     return obj.model_dump(exclude_none=True) if hasattr(obj, "model_dump") else obj
 
 
-def _chat(model: str, messages: list, tools=None) -> dict:
+def _chat(model: str, messages: list, tools=None, num_ctx: int | None = None) -> dict:
     # think=False: the helpers want tool calls and short answers; qwen3's reasoning trace only adds latency
-    return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, think=False,
-                                          options={"temperature": 0}))
+    options = {"temperature": 0, **({"num_ctx": num_ctx} if num_ctx else {})}
+    return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, think=False, options=options))
 
 
 def _ollama_show(model: str) -> dict:
@@ -332,6 +332,15 @@ def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", 
 # Operations agent: the Airflow and Spark History MCP servers (Helm chart only: airflowMcp / sparkHistoryMcp)
 # ---------------------------------------------------------------------------------------------------------------
 OPS_MCP = {"airflow": "AIRFLOW_MCP_URL", "spark_history": "SPARK_HISTORY_MCP_URL"}   # server -> env var (endpoints)
+# The read-only tools the agent is offered. All tools of both servers (51) are ~15k tokens of schemas, beyond Ollama's
+# default 4,096-token context; nothing here can trigger, pause, clear or delete.
+OPS_TOOLS = {
+    "airflow": {"list_dags", "get_dag_details", "list_dag_runs", "get_dag_run", "diagnose_dag_run", "list_tasks",
+                "get_task_instance", "get_task_logs", "list_import_errors", "get_system_health"},
+    "spark_history": {"list_applications", "list_jobs", "list_stages", "get_stage", "get_job_bottlenecks",
+                      "list_sql_executions", "get_executor_summary"},
+}
+OPS_NUM_CTX = 16384     # tool schemas + a few tool results (each capped at 8,000 characters)
 
 
 def ops_servers() -> dict:
@@ -376,13 +385,15 @@ def ask_ops(question: str, model: str = TOOL_MODEL, max_turns: int = 8) -> dict:
     tools, owner = [], {}
     for server in servers:
         for t in ops_tools(server):
+            if t["name"] not in OPS_TOOLS.get(server, ()):
+                continue
             name = f"{server}__{t['name']}"
             owner[name] = (server, t["name"])
             tools.append(mcp_tool_to_ollama({**t, "name": name}))
     messages = [{"role": "system", "content": OPS_PROMPT}, {"role": "user", "content": question}]
     steps = []
     for _ in range(max_turns):
-        msg = _chat(model, messages, tools)["message"]
+        msg = _chat(model, messages, tools, num_ctx=OPS_NUM_CTX)["message"]
         messages.append(msg)
         if not msg.get("tool_calls"):
             return {"answer": msg.get("content", ""), "steps": steps}

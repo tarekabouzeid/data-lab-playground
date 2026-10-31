@@ -262,11 +262,12 @@ def test_ops_agent_routes_prefixed_tools_to_their_server(monkeypatch):
                                                               "arguments": {"dag_id": "northwind_daily"}}}]}},
                     {"message": {"content": "The last northwind_daily run succeeded."}}])
     seen_tools = []
-    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None: (seen_tools.append(tools), next(answers))[1])
+    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None, **kw: (seen_tools.append((tools, kw)), next(answers))[1])
     out = lab_utils.ask_ops("How did the last run go?")
     assert out["answer"] == "The last northwind_daily run succeeded."
     assert called == [("http://airflow-mcp:8000/mcp", "list_dag_runs", {"dag_id": "northwind_daily"})]
-    assert {t["function"]["name"] for t in seen_tools[0]} == {"airflow__list_dag_runs", "spark_history__list_applications"}
+    assert {t["function"]["name"] for t in seen_tools[0][0]} == {"airflow__list_dag_runs", "spark_history__list_applications"}
+    assert seen_tools[0][1]["num_ctx"] >= 16384
     assert out["steps"][0]["tool"] == "airflow__list_dag_runs"
 
 
@@ -338,3 +339,34 @@ def test_ask_semantic_drops_a_grain_without_time_dimension(monkeypatch):
     queries = [a for n, a in sent if n == "query_metric"]
     assert "grain" not in queries[0] and queries[1]["grain"] == "week"     # kept with a time dimension
     assert "grain dropped" in out["steps"][0]["note"] and "note" not in out["steps"][1]
+
+
+def test_ops_agent_offers_a_curated_read_only_tool_set(monkeypatch):
+    """A real run handed all 51 tools of both servers to the model: 15,464 tokens against Ollama's default 4,096-token
+    context. The agent offers only the read-only tools its questions need (no trigger/pause/clear/delete)."""
+    monkeypatch.setenv("AIRFLOW_MCP_URL", "http://a/mcp")
+    monkeypatch.delenv("SPARK_HISTORY_MCP_URL", raising=False)
+    names = ["list_dags", "list_dag_runs", "get_task_logs", "trigger_dag", "pause_dag", "clear_dag_run",
+             "delete_dag_run", "list_variables", "get_airflow_config"]
+    monkeypatch.setattr(lab_utils, "_mcp_session", lambda url, method, params, extra_headers=None:
+                        {"tools": [{"name": n, "inputSchema": {"type": "object"}} for n in names]})
+    seen = []
+    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None, **kw:
+                        (seen.append(tools), {"message": {"content": "ok"}})[1])
+    lab_utils.ask_ops("status?")
+    offered = {t["function"]["name"] for t in seen[0]}
+    assert offered == {"airflow__list_dags", "airflow__list_dag_runs", "airflow__get_task_logs"}
+
+
+def test_chat_passes_num_ctx_only_when_asked(monkeypatch):
+    seen = []
+
+    class Client:
+        def chat(self, **kw):
+            seen.append(kw)
+            return {"message": {"content": "ok"}}
+
+    monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
+    lab_utils._chat("m", [])
+    lab_utils._chat("m", [], num_ctx=16384)
+    assert "num_ctx" not in seen[0]["options"] and seen[1]["options"]["num_ctx"] == 16384
