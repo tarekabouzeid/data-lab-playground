@@ -187,6 +187,17 @@ semantic_call() {  # release namespace role tool args: MCP call from the release
     /opt/conda/bin/python - "http://$1-data-lab-semantic.$2.svc:8090/mcp" "$4" "$5" < "$(dirname "$0")/mcp-call.py"
 }
 
+dag_wait_published() {  # release namespace timeout: northwind_daily's wait_for_published, run in the Airflow
+  # scheduler as the chart's airflow ServiceAccount (airflow.labPipelines + semantic: read-only SemanticModels)
+  local dag; dag="$(dirname "$0")/../jupyter/notebooks/ops/dags/northwind_daily.py"
+  kubectl -n "$2" exec -i "deploy/$1-data-lab-airflow" -c scheduler -- sh -c 'cat > /tmp/northwind_daily.py' < "$dag"
+  kubectl -n "$2" exec "deploy/$1-data-lab-airflow" -c scheduler -- python -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('northwind_daily', '/tmp/northwind_daily.py')
+dag = importlib.util.module_from_spec(spec); spec.loader.exec_module(dag)
+print(dag.wait_for_published(timeout_s=$3, poll_s=5))"
+}
+
 trino_exec() {  # release namespace sql
   kubectl -n "$2" exec "deploy/$1-data-lab-trino" -- trino --execute "$3"
 }
@@ -195,7 +206,8 @@ scenario_semantic() {
   log "semantic layer: Kubeflow Semantic Operator on the release's Trino"
   local rel=lab ns=dl-semantic model=lab-data-lab-dbt-demo st out
   kubectl apply -f "$(dirname "$0")/crds/semantic.ossie.io_semanticmodels.yaml"
-  install "$rel" "$ns" -f "$CHART/ci/semantic-values.yaml"
+  # Airflow with labPipelines: the northwind_daily DAG's wait_for_published runs against the real operator below
+  install "$rel" "$ns" -f "$CHART/ci/semantic-values.yaml" --set airflow.enabled=true,airflow.labPipelines.enabled=true
   # Applied before its tables exist: the manager must reach Trino, find the tables missing (DriftDetected=True) and
   # not publish. Waiting for that also proves the manager is reconciling (an empty status would not).
   local drift="" deadline0=$((SECONDS + 180))
@@ -207,6 +219,11 @@ scenario_semantic() {
   st=$(semantic_published "$ns" "$model")
   [ "$st" != "True" ] || { echo "FAIL: $model published before its tables exist"; return 1; }
   echo "model before data: DriftDetected=True, Published='${st}'"
+  if out=$(dag_wait_published "$rel" "$ns" 0 2>&1); then
+    echo "FAIL: northwind_daily's wait_for_published returned before the tables exist: $out"; return 1
+  fi
+  echo "$out" | grep -q "DriftDetected\|Published=" || { echo "FAIL: wait_for_published failed for another reason: $out" | tail -20; return 1; }
+  echo "DAG wait_for_published (airflow ServiceAccount) times out while the model is unpublished"
   # The dbt demo's seven tables, small: 4 orders (one returned) -> total_revenue = 20 + 15 + 5 = 40.
   # Order 2 is refunded in two installments (5 + 5) and order 3 gets a 3.0 goodwill refund: refunded_amount = 13,
   # gross sales = 20 + 10 + 15 + 5 = 50, so refund_rate = 13 / 50 = 0.26 (a join of refunds to orders would count
@@ -242,6 +259,9 @@ scenario_semantic() {
     sleep 5
   done
   echo "model published after the tables appeared"
+  out=$(dag_wait_published "$rel" "$ns" 60 2>&1) || { echo "$out" | tail -20; echo "FAIL: northwind_daily's wait_for_published"; return 1; }
+  echo "$out" | grep -q "'published': True" || { echo "FAIL: wait_for_published: $out" | tail -5; return 1; }
+  echo "DAG wait_for_published sees Published=True: $(echo "$out" | tail -1)"
   out=$(semantic_call "$rel" "$ns" analyst query_metric '{"model": "dbt_demo", "metrics": ["total_revenue"]}') || { echo "$out"; return 1; }
   echo "$out" | python3 -c 'import json,sys; r=json.load(sys.stdin); v=float(r["rows"][0][0]); print("total_revenue =", v, "| sql:", " ".join(r["sql"].split())); sys.exit(0 if abs(v-40) < 1e-6 else 1)' \
     || { echo "FAIL: total_revenue is not 40 (returned orders must be excluded): $out" | head -c 2000; return 1; }

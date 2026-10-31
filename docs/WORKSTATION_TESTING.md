@@ -50,6 +50,7 @@ Pass:
 - `minimal` prints `minimal profile Ready in <N>s` with N under 180
 - `semantic` prints:
   - `model published after the tables appeared`
+  - `DAG wait_for_published (airflow ServiceAccount) times out while the model is unpublished`, then `DAG wait_for_published sees Published=True`
   - `total_revenue = 40.0`, then `refund_rate = 0.26 gross_margin = 20.0` and `dach_sales order_count = 3`
   - `role marketing is refused stg_customers.email`
   - `second semantic-enabled release refused (C14)`

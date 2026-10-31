@@ -2,9 +2,9 @@ name: chart-e2e
 
 on:
   pull_request:
-    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", "airflow/**", "jupyter/notebooks/ops/dags/**", ".github/workflows/chart-e2e.yaml"]
   push:
-    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", "airflow/**", "jupyter/notebooks/ops/dags/**", ".github/workflows/chart-e2e.yaml"]
   workflow_dispatch:
 
 permissions:
