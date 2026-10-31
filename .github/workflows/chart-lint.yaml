@@ -31,7 +31,7 @@ jobs:
           python-version: "3.12"
 
       - name: Python deps
-        run: pip install pyyaml==6.0.3 pytest==9.1.1 jsonschema==4.26.0
+        run: pip install pyyaml==6.0.3 pytest==9.1.1 jsonschema==4.26.0 requests==2.34.2   # requests: the northwind_daily DAG module
 
       - name: Render tests (tests/chart) and unit tests (tests/unit)
         run: python -m pytest tests/chart tests/unit -q
