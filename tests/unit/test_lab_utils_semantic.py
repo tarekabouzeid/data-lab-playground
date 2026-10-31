@@ -21,6 +21,30 @@ def test_mcp_schema_to_ollama():
     }
 
 
+def test_mcp_schemas_are_normalized_for_ollama():
+    """Ollama 0.40 rejects valid JSON Schema it cannot compile into a grammar: an object without `properties`
+    ("properties must be an object", e.g. list_models) and nullable unions such as ["null", "array"]."""
+    no_args = lab_utils.mcp_tool_to_ollama({"name": "list_models", "inputSchema": {"type": "object", "additionalProperties": False}})
+    assert no_args["function"]["parameters"] == {"type": "object", "properties": {}, "additionalProperties": False}
+    assert lab_utils.mcp_tool_to_ollama({"name": "x"})["function"]["parameters"] == {"type": "object", "properties": {}}
+    schema = {"type": "object", "properties": {
+        "metrics": {"type": ["null", "array"], "items": {"type": "string"}},
+        "filters": {"type": ["null", "array"], "items": {"type": "object", "properties": {"op": {"type": "string"}}}},
+        "limit": {"type": ["integer", "null"]},
+        "nested": {"type": "object"}}}
+    props = lab_utils.mcp_tool_to_ollama({"name": "q", "inputSchema": schema})["function"]["parameters"]["properties"]
+    assert props["metrics"] == {"type": "array", "items": {"type": "string"}}
+    assert props["filters"]["type"] == "array" and props["filters"]["items"]["properties"] == {"op": {"type": "string"}}
+    assert props["limit"] == {"type": "integer"}
+    assert props["nested"] == {"type": "object", "properties": {}}
+    assert schema["properties"]["metrics"]["type"] == ["null", "array"]      # the server's schema is not modified
+    # boolean schemas ("items": true) must be objects for Ollama; keyword booleans stay booleans
+    values = lab_utils._ollama_schema({"type": "array", "items": True})
+    assert values == {"type": "array", "items": {}}
+    assert lab_utils._ollama_schema({"type": "object", "additionalProperties": False}) == \
+        {"type": "object", "additionalProperties": False, "properties": {}}
+
+
 def test_require_semantic_message(monkeypatch):
     monkeypatch.delenv("SEMANTIC_MCP_URL", raising=False)
     assert not lab_utils.semantic_available()

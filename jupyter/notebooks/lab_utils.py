@@ -217,9 +217,29 @@ def mcp_call(name: str, args: dict, role: str = "analyst") -> dict:
     return res.get("structuredContent") or json.loads(text or "{}")
 
 
+_SUBSCHEMA_KEYS = ("items", "additionalItems", "contains", "not")   # where `true` means "any value" (a schema)
+
+
+def _ollama_schema(schema):
+    """A copy of a JSON Schema that Ollama can compile into a tool-call grammar: every object gets `properties`
+    (Ollama 0.40: "properties must be an object"), boolean sub-schemas (`"items": true`) become `{}`, and nullable unions
+    like ["null", "array"] become the plain type."""
+    if isinstance(schema, list):
+        return [_ollama_schema(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: ({} if v is True and k in _SUBSCHEMA_KEYS else _ollama_schema(v)) for k, v in schema.items() if k != "properties"}
+    if isinstance(out.get("type"), list):
+        types = [t for t in out["type"] if t != "null"]
+        out["type"] = types[0] if len(types) == 1 else types
+    if out.get("type") == "object":
+        out["properties"] = {k: _ollama_schema(v) for k, v in (schema.get("properties") or {}).items()}
+    return out
+
+
 def mcp_tool_to_ollama(tool: dict) -> dict:
     return {"type": "function", "function": {"name": tool["name"], "description": tool.get("description", ""),
-                                             "parameters": tool.get("inputSchema", {"type": "object"})}}
+                                             "parameters": _ollama_schema(tool.get("inputSchema") or {"type": "object"})}}
 
 
 def mcp_tools(role: str = "analyst") -> list:
