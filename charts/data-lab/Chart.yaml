@@ -6,7 +6,7 @@ description: >-
   Built for many parallel releases on one cluster.
 type: application
 # Chart version (semver). Bump on every chart change; see CHANGELOG.md.
-version: 0.1.0
+version: 0.3.0
 # Lab release this chart deploys (see RELEASE_NOTES.md and docs/VERSIONS.md).
 appVersion: "3.0.0"
 kubeVersion: ">=1.29.0-0"

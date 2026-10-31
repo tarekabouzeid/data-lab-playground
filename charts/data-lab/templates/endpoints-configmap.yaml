@@ -93,6 +93,10 @@ data:
   SPARK_CONNECT_CREDENTIALS_TOKEN_KEY: {{ .tokenKey | quote }}
   {{- end }}
   {{- end }}
+  {{- if and $v.spark.enabled $v.spark.applications.enabled }}
+  SPARK_APPLICATION_SERVICE_ACCOUNT: {{ include "datalab.componentName" (list . "spark-apps") | quote }}
+  SPARK_DEFAULTS_CONFIGMAP: {{ include "datalab.componentName" (list . "spark-connect") | quote }}
+  {{- end }}
   {{- with $e.sparkHistory }}
   SPARK_HISTORY_URL: {{ .url | quote }}
   SPARK_EVENT_LOG_DIR: {{ .eventLogDir | quote }}
@@ -135,6 +139,20 @@ data:
   {{- with .credentials }}
   PHOENIX_CREDENTIALS_SECRET: {{ .secret | quote }}
   PHOENIX_CREDENTIALS_ADMIN_PASSWORD_KEY: {{ .adminPasswordKey | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if $v.semantic.enabled }}
+  SEMANTIC_MCP_URL: {{ printf "http://%s:8090/mcp" (include "datalab.host" (list . "semantic")) | quote }}
+  SEMANTIC_REST_URL: {{ printf "http://%s:8090/v1" (include "datalab.host" (list . "semantic")) | quote }}
+  SEMANTIC_DEFAULT_ROLE: "analyst"
+  SEMANTIC_AUTH_MODE: {{ $v.semantic.server.auth.mode | quote }}
+  {{- if $v.semantic.models.dbtDemo.enabled }}
+  SEMANTIC_DEMO_MODEL: "dbt_demo"
+  {{- end }}
+  {{- end }}
+  {{- if $v.gateway.enabled }}
+  {{- range (include "datalab.gatewayRoutes" . | fromYamlArray) }}
+  GATEWAY_URL_{{ .name | upper | replace "-" "_" }}: {{ printf "http://%s" .host | quote }}
   {{- end }}
   {{- end }}
   ENDPOINTS_JSON: |

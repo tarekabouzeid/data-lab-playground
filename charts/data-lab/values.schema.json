@@ -8,6 +8,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "apiChecks": {
+          "type": "boolean",
+          "description": "Fail rendering when a required API is missing (Gateway API for `gateway`, DRA for `ollama.gpu.dra`, the SemanticModel CRD for `semantic`). Set `false` only for offline linting: `helm lint` cannot pass `--api-versions`."
+        },
         "imageRegistry": {
           "type": "string",
           "description": "Registry that replaces every image's `registry` (for mirrors / air-gapped clusters). Empty keeps each image's own registry."
@@ -92,6 +96,55 @@
             "type": "object"
           },
           "description": "Extra NetworkPolicyPeer entries allowed to reach every component (for example the consumer's namespace)."
+        }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create an HTTPRoute for each enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant, ollama, s3)."
+        },
+        "gatewayClassName": {
+          "type": "string",
+          "description": "Create a namespaced Gateway `<fullname>-gateway` on this existing GatewayClass. Set this or `parentRef`, not both."
+        },
+        "parentRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of the existing Gateway."
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Namespace of the existing Gateway (empty = the release namespace)."
+            },
+            "sectionName": {
+              "type": "string",
+              "description": "Listener (section) name on the existing Gateway (empty = all listeners)."
+            }
+          },
+          "description": "Attach the routes to an existing Gateway instead (for example a shared one in another namespace)."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Domain the route hostnames are built on."
+        },
+        "hostTemplate": {
+          "type": "string",
+          "description": "Hostname template. `{{ .route }}`, `{{ .release }}` and `{{ .domain }}` are replaced; keep the release in it so parallel releases get distinct hostnames."
+        },
+        "allowFromNamespaces": {
+          "type": "array",
+          "description": "Namespaces whose pods may reach the release (the gateway's proxy pods), added to the NetworkPolicy."
+        },
+        "extraRoutes": {
+          "type": "array",
+          "description": "Extra routes to Services the chart does not manage, e.g. `{name: headlamp, service: headlamp, port: 80, longLived: true}`."
         }
       }
     },
@@ -647,6 +700,16 @@
             "create": {
               "type": "boolean",
               "description": "Create a namespaced Role/RoleBinding letting the Connect server manage executor pods, ConfigMaps and PVCs."
+            }
+          }
+        },
+        "applications": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create the ServiceAccount `<fullname>-spark-apps` (+ Role/RoleBinding) for SparkApplication drivers."
             }
           }
         },
@@ -1330,6 +1393,16 @@
             }
           }
         },
+        "labPipelines": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Run lab pipelines such as `northwind_daily` (jupyter/notebooks/ops/dags): DAG tasks get `SPARK_REMOTE` (with the Spark Connect token) and `TRINO_HOST`/`TRINO_PORT`, and, with `semantic.enabled`, a ServiceAccount that may read this release's SemanticModels (`SEMANTIC_MODEL_RESOURCE`). Needs an image with the clients: `airflow/Dockerfile` (pyspark-client + dbt), e.g. `ghcr.io/tarekabouzeid/data-lab-playground/airflow:<appVersion>`."
+            }
+          }
+        },
         "extraEnv": {
           "type": "array",
           "items": {
@@ -1526,6 +1599,280 @@
         }
       }
     },
+    "semantic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the Semantic Operator manager and server."
+        },
+        "manager": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "registry": {
+                  "type": "string",
+                  "description": "Image registry."
+                },
+                "repository": {
+                  "type": "string",
+                  "description": "Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh)."
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Image tag (= appVersion)."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ],
+                  "description": "Image pull policy."
+                }
+              }
+            },
+            "resyncPeriod": {
+              "type": "string",
+              "description": "How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns Ready within this period once they do)."
+            },
+            "engineUser": {
+              "type": "string",
+              "description": "Trino user the manager introspects metadata as."
+            },
+            "resources": {
+              "type": "object",
+              "description": "Container resources."
+            },
+            "podSecurityContext": {
+              "type": "object",
+              "description": "Pod securityContext (the images are distroless, uid 65532)."
+            },
+            "securityContext": {
+              "type": "object",
+              "description": "Extra container securityContext, merged over `global.containerSecurityContext`."
+            },
+            "runtimeClassName": {
+              "type": "string",
+              "description": "RuntimeClass. Empty falls back to `global.runtimeClassName`."
+            },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Node selector. Empty falls back to `global.nodeSelector`."
+            },
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Tolerations. Empty falls back to `global.tolerations`."
+            },
+            "affinity": {
+              "type": "object",
+              "description": "Affinity."
+            },
+            "podLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod labels."
+            },
+            "podAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod annotations."
+            }
+          }
+        },
+        "server": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "registry": {
+                  "type": "string",
+                  "description": "Image registry."
+                },
+                "repository": {
+                  "type": "string",
+                  "description": "Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh)."
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Image tag (= appVersion)."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ],
+                  "description": "Image pull policy."
+                }
+              }
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Server replicas."
+            },
+            "engineUser": {
+              "type": "string",
+              "description": "Trino user queries run as (static identity)."
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "header",
+                    "jwt"
+                  ],
+                  "description": "`header`: X-Semantic-User/X-Semantic-Role are trusted as sent; safe here only because the release NetworkPolicy admits nothing but this release's pods. `jwt`: bearer tokens checked against `jwt.jwksURL`."
+                },
+                "jwt": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "jwksURL": {
+                      "type": "string",
+                      "description": "JWKS URL of the identity provider (required for `jwt`)."
+                    },
+                    "issuer": {
+                      "type": "string",
+                      "description": "Expected issuer (optional)."
+                    },
+                    "audience": {
+                      "type": "string",
+                      "description": "Expected audience (optional)."
+                    },
+                    "principalClaim": {
+                      "type": "string",
+                      "description": "Claim naming the principal."
+                    },
+                    "roleClaim": {
+                      "type": "string",
+                      "description": "Claim holding the governance role."
+                    },
+                    "groupsClaim": {
+                      "type": "string",
+                      "description": "Claim holding groups (optional)."
+                    }
+                  }
+                }
+              }
+            },
+            "extraConfig": {
+              "type": "object",
+              "description": "Extra keys merged into the server's config.yaml (e.g. `query: {maxRowLimit: 5000}`); see the upstream chart."
+            },
+            "resources": {
+              "type": "object",
+              "description": "Container resources."
+            },
+            "podSecurityContext": {
+              "type": "object",
+              "description": "Pod securityContext (the images are distroless, uid 65532)."
+            },
+            "securityContext": {
+              "type": "object",
+              "description": "Extra container securityContext, merged over `global.containerSecurityContext`."
+            },
+            "runtimeClassName": {
+              "type": "string",
+              "description": "RuntimeClass. Empty falls back to `global.runtimeClassName`."
+            },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Node selector. Empty falls back to `global.nodeSelector`."
+            },
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Tolerations. Empty falls back to `global.tolerations`."
+            },
+            "affinity": {
+              "type": "object",
+              "description": "Affinity."
+            },
+            "podLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod labels."
+            },
+            "podAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra pod annotations."
+            }
+          }
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dbtDemo": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Render the `dbt-demo` SemanticModel over the dbt demo tables (jupyter/notebooks/dbt/lakehouse_demo)."
+                },
+                "catalog": {
+                  "type": "string",
+                  "description": "Trino catalog of the dbt demo tables."
+                },
+                "schema": {
+                  "type": "string",
+                  "description": "Schema of the dbt demo tables."
+                }
+              }
+            },
+            "extra": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "spec"
+                ]
+              },
+              "description": "Extra SemanticModel specs, each `{name: <suffix>, spec: <SemanticModel spec>}`."
+            }
+          }
+        }
+      }
+    },
     "jupyter": {
       "type": "object",
       "additionalProperties": false,
@@ -1605,6 +1952,10 @@
                 ]
               },
               "description": "PVC access modes."
+            },
+            "existingClaim": {
+              "type": "string",
+              "description": "Use this existing PVC for `/home/jovyan/work` instead of creating one (e.g. the workstation's host-folder PV)."
             }
           }
         },
@@ -1718,6 +2069,20 @@
               "type": "integer",
               "minimum": 1,
               "description": "Number of GPUs."
+            },
+            "dra": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Claim the GPU through DRA (requires `ollama.gpu.enabled`)."
+                },
+                "deviceClassName": {
+                  "type": "string",
+                  "description": "DeviceClass of the GPU."
+                }
+              }
             }
           }
         },
@@ -2078,6 +2443,16 @@
         "resources": {
           "type": "object",
           "description": "Test pod resources."
+        },
+        "lakehouseE2e": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Render the lakehouse e2e test pod. Needs `spark` and `trino`; takes a few minutes."
+            }
+          }
         }
       }
     }

@@ -3,6 +3,51 @@
 Chart versions follow semver. `appVersion` is the lab release the chart deploys (see
 [RELEASE_NOTES.md](../../RELEASE_NOTES.md) and [docs/VERSIONS.md](../../docs/VERSIONS.md)).
 
+## 0.3.0 — unreleased (appVersion 3.0.0)
+
+Lab pipelines on Airflow. Additive only: with default values the chart renders exactly what 0.2.0 renders.
+
+### Added
+- `airflow.labPipelines.enabled` (off): DAG tasks get `SPARK_REMOTE` (with the Spark Connect token when
+  `spark.auth.enabled`), `TRINO_HOST`/`TRINO_PORT` and, with `semantic.enabled`, `SEMANTIC_MODEL_RESOURCE` plus a
+  ServiceAccount, Role and RoleBinding `<fullname>-airflow` that may only get/list/watch this release's
+  SemanticModels (the token is mounted only then). For the `northwind_daily` DAG
+  (`jupyter/notebooks/ops/dags`): Spark Connect ingest → `dbt build` → quality checks → `shop_gold.product_kpis`, and
+  a wait for the SemanticModel's `Published` condition.
+- Lab Airflow image `ghcr.io/tarekabouzeid/data-lab-playground/airflow:<appVersion>` (`airflow/Dockerfile`: the
+  stock image + pyspark-client 4.1.3 + dbt in `/opt/dbt`), built by `hack/workstation/build-images.sh` and the release
+  workflow. `airflow.image` still defaults to `apache/airflow`.
+- `ci/workstation-values.yaml`: the lab Airflow image with `labPipelines` on; Airflow's DAG folder is the notebooks
+  claim at `ops/dags`; `airflowMcp` and `sparkHistoryMcp` on for `ops/01_pipeline_agent.ipynb`.
+
+## 0.2.0 — unreleased (appVersion 3.0.0)
+
+Merges the former `helm/datalab` minikube chart into this one and adds the Kubeflow Semantic Operator. Additive only:
+with default values the chart renders the same resources as 0.1.0 (`tests/chart/golden/default-resources.txt`).
+
+### Added
+- `semantic` (off): Kubeflow Semantic Operator manager + server (built from upstream source at 4fd7057; the public v0.1.1 images predate its config layout) on the release's Trino, serving an Apache Ossie
+  semantic layer over MCP (`/mcp`) and REST (`/v1`); `semantic.models.dbtDemo` SemanticModel over the dbt demo tables
+  (certified metrics, roles `analyst` / `marketing`); `semantic.models.extra`; a pre-delete hook that removes the
+  release's SemanticModels before the manager goes (its finalizer would block uninstall); a single manager
+  (`Recreate`, no leader election, so no Lease is left behind); endpoints keys `SEMANTIC_MCP_URL`, `SEMANTIC_REST_URL`,
+  `SEMANTIC_DEFAULT_ROLE`, `SEMANTIC_AUTH_MODE`, `SEMANTIC_DEMO_MODEL`. The dbt-demo model lives in
+  `files/semantic/dbt-demo.yaml`: 7 datasets (orders, payments, refunds, customers, products, unit costs, regions),
+  10 certified metrics (revenue, gross margin, fan-out-safe refund rate, AOV, amount collected, ...) and 3 roles
+  (`analyst`, `marketing` without e-mail, `dach_sales` with a row filter). Needs the SemanticModel CRD
+  (`hack/crds/`, installed separately). One semantic-enabled release per namespace (refused at install).
+- `gateway` (off): Gateway API HTTPRoutes for every enabled UI on a namespaced Gateway (`gatewayClassName`) or an existing
+  one (`parentRef`), hostnames `{{route}}.{{release}}.{{domain}}`, `extraRoutes`, `allowFromNamespaces` for the
+  NetworkPolicy, Trino forwarded headers, `GATEWAY_URL_<ROUTE>` endpoints keys. No GatewayClass is rendered.
+- `ollama.gpu.dra`: claim the GPU with a namespaced ResourceClaimTemplate (DRA) instead of `nvidia.com/gpu`.
+- `spark.applications.enabled`: ServiceAccount + Role for SparkApplication drivers (Kubeflow Spark Operator).
+- `tests.lakehouseE2e.enabled`: the 19-check lakehouse e2e as a second `helm test` pod (Spark Connect + Trino).
+- `jupyter.persistence.existingClaim`; Jupyter now also gets `TRINO_HOST`/`TRINO_PORT` and the S3 keys (from the
+  S3 Secret), so every notebook runs unchanged on the chart.
+- `global.apiChecks` (default true): turn the Gateway/DRA/SemanticModel API checks off for offline `helm lint` only.
+- Profiles `ci/semantic-values.yaml` and `ci/workstation-values.yaml` (minikube + GPU lab, `hack/workstation/`).
+- CI: render tests (`tests/chart`), unit tests, compose parity check, kind e2e scenario `semantic`.
+
 ## 0.1.0 — unreleased (appVersion 3.0.0)
 
 First version of the chart.

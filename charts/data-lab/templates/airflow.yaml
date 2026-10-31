@@ -49,7 +49,12 @@ spec:
       {{- include "datalab.podMetadata" (list . "airflow" $c) | nindent 6 }}
     spec:
       {{- include "datalab.podSpecCommon" (list . $c) | nindent 6 }}
+      {{- if and $c.labPipelines.enabled .Values.semantic.enabled }}
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: true   # tasks read this release's SemanticModels (airflow-rbac.yaml)
+      {{- else }}
       automountServiceAccountToken: false
+      {{- end }}
       enableServiceLinks: false
       initContainers:
         {{- include "datalab.waitForPostgres" (list . "airflow-db" $c.database) | nindent 8 }}

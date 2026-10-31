@@ -32,13 +32,19 @@ FREE_FORM = {
     "extraEnv": {"type": "array", "items": {"type": "object", "required": ["name"]}},
     "extraIngressFrom": {"type": "array", "items": {"type": "object"}},
     "imagePullSecrets": {"type": "array", "items": {"type": "string", "minLength": 1}},
-    "models": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "accessModes": {"type": "array", "minItems": 1, "items": {
         "type": "string", "enum": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany", "ReadWriteOncePod"]}},
     "extraConf": STR_MAP,
     "extraConfig": STR_MAP,
     "extraProperties": STR_MAP,
     "additionalCatalogs": {"type": "object", "additionalProperties": {"type": "string"}},
+}
+
+# Free-form fields by dotted path (take precedence over FREE_FORM's key names).
+FREE_FORM_PATHS = {
+    "ollama.models": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "semantic.server.extraConfig": {"type": "object", "description": "Merged into the server config.yaml."},
+    "semantic.models.extra": {"type": "array", "items": {"type": "object", "required": ["name", "spec"]}},
 }
 
 # Extra constraints by dotted path.
@@ -53,6 +59,8 @@ OVERRIDES = {
     "spark.executor.instances": {"minimum": 0},
     "spark.executor.cores": {"minimum": 1},
     "ollama.gpu.count": {"minimum": 1},
+    "semantic.server.auth.mode": {"enum": ["header", "jwt"]},
+    "semantic.server.replicas": {"minimum": 1},
     "airflow.dags.gitSync.depth": {"minimum": 0},
     "seaweedfs.volumeMax": {"minimum": 1},
 }
@@ -87,7 +95,9 @@ def descriptions(text):
 
 def schema_for(value, path, docs):
     key = path.rsplit(".", 1)[-1]
-    if key in FREE_FORM:
+    if path in FREE_FORM_PATHS:
+        s = dict(FREE_FORM_PATHS[path])
+    elif key in FREE_FORM:
         s = dict(FREE_FORM[key])
     elif isinstance(value, dict):
         s = {"type": "object", "additionalProperties": False,

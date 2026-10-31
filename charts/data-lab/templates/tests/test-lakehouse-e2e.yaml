@@ -1,0 +1,101 @@
+{{- if and .Values.tests.lakehouseE2e.enabled .Values.spark.enabled .Values.trino.enabled }}
+# Copy of tests/e2e/e2e_lakehouse.py (hack/check-compose-parity.py keeps them identical).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datalab.componentName" (list . "test-lakehouse") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "test") | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-1"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+data:
+  e2e_lakehouse.py: |
+    {{- .Files.Get "files/e2e_lakehouse.py" | trimSuffix "\n" | nindent 4 }}
+{{- end }}
+{{- if and .Values.tests.lakehouseE2e.enabled .Values.spark.enabled .Values.trino.enabled }}
+{{- $s := .Values.spark }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "datalab.componentName" (list . "test-lakehouse") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "test") | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  {{- with .Values.global.imagePullSecrets }}
+  imagePullSecrets:
+    {{- range . }}
+    - name: {{ . }}
+    {{- end }}
+  {{- end }}
+  {{- with ($s.runtimeClassName | default .Values.global.runtimeClassName) }}
+  runtimeClassName: {{ . }}
+  {{- end }}
+  {{- with ($s.nodeSelector | default .Values.global.nodeSelector) }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with ($s.tolerations | default .Values.global.tolerations) }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  securityContext:
+    {{- toYaml $s.podSecurityContext | nindent 4 }}
+  containers:
+    - name: test
+      image: {{ include "datalab.image" (list . $s.image) }}
+      imagePullPolicy: {{ $s.image.pullPolicy }}
+      securityContext:
+        {{- include "datalab.containerSecurityContext" (list . $s) | nindent 8 }}
+      env:
+        {{- if $s.auth.enabled }}
+        - name: SPARK_CONNECT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "datalab.sparkSecretName" . }}
+              key: {{ $s.auth.tokenKey }}
+        - name: SPARK_REMOTE
+          value: sc://{{ include "datalab.host" (list . "spark-connect") }}:15002/;authorization=Bearer $(SPARK_CONNECT_TOKEN)
+        {{- else }}
+        - name: SPARK_REMOTE
+          value: sc://{{ include "datalab.host" (list . "spark-connect") }}:15002
+        {{- end }}
+        - name: TRINO_URL
+          value: http://{{ include "datalab.host" (list . "trino") }}:8080
+        - name: ICEBERG_REST_URI
+          value: {{ include "datalab.icebergRestUri" . }}
+        - name: HMS_THRIFT_URI
+          value: {{ include "datalab.hmsThriftUri" . }}
+        - name: E2E_WAREHOUSE_BUCKET
+          value: {{ .Values.s3.bucket | quote }}
+      command:
+        - bash
+        - -c
+        - |
+          export PYTHONPATH="/opt/spark/python:$(ls /opt/spark/python/lib/py4j-*-src.zip)"
+          exec /opt/conda/bin/python /e2e/e2e_lakehouse.py
+      resources:
+        {{- toYaml .Values.tests.resources | nindent 8 }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: script
+          mountPath: /e2e
+          readOnly: true
+  volumes:
+    - name: tmp
+      emptyDir: {}
+    - name: script
+      configMap:
+        name: {{ include "datalab.componentName" (list . "test-lakehouse") }}
+{{- end }}

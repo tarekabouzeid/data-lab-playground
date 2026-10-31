@@ -1,0 +1,29 @@
+{{- if .Values.semantic.enabled }}
+{{- $d := .Values.semantic.models.dbtDemo }}
+{{- if $d.enabled }}
+{{- /* The model is files/semantic/dbt-demo.yaml (also shown in the chat notebook); only the connection comes from values. */ -}}
+{{- $spec := .Files.Get "files/semantic/dbt-demo.yaml" | fromYaml }}
+{{- $_ := set $spec "connection" (dict "catalog" $d.catalog "database" $d.schema "viewDatabase" (printf "%s.semantic_views" $d.catalog)) }}
+apiVersion: semantic.ossie.io/v1alpha1
+kind: SemanticModel
+metadata:
+  name: {{ include "datalab.componentName" (list . "dbt-demo") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic") | nindent 4 }}
+spec:
+  {{- toYaml $spec | nindent 2 }}
+{{- end }}
+{{- range .Values.semantic.models.extra }}
+---
+apiVersion: semantic.ossie.io/v1alpha1
+kind: SemanticModel
+metadata:
+  name: {{ include "datalab.componentName" (list $ .name) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list $ "semantic") | nindent 4 }}
+spec:
+  {{- toYaml .spec | nindent 2 }}
+{{- end }}
+{{- end }}

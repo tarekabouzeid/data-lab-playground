@@ -1,6 +1,6 @@
 # data-lab Helm chart
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
+![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
 
 Ephemeral lakehouse lab: Hive Metastore (Thrift + Iceberg REST), SeaweedFS S3, Spark Connect, Trino and Airflow, with optional Jupyter and GenAI services (Ollama, Qdrant, Phoenix). Built for many parallel releases on one cluster.
 
@@ -14,11 +14,11 @@ Component versions are pinned in [docs/VERSIONS.md](../../docs/VERSIONS.md) (sec
 
 ```bash
 # from the OCI registry (published on every v* tag)
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.1.0 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.0 \
   --namespace lab1 --create-namespace --wait --timeout 10m
 
 # minimal lakehouse profile: hms + seaweedfs + spark + trino
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.1.0 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.0 \
   -n lab1 --create-namespace -f https://raw.githubusercontent.com/tarekabouzeid/data-lab-playground/main/charts/data-lab/ci/minimal-values.yaml
 
 helm test lab1 -n lab1      # Spark writes an Iceberg table, Trino reads it, then it is dropped
@@ -41,6 +41,8 @@ helm uninstall lab1 -n lab1 # removes everything, PVCs and Secrets included
 | Ollama | `ollama.enabled` | off | `ollama/ollama:0.40.3` | 11434 | GPU recommended |
 | Qdrant | `qdrant.enabled` | off | `qdrant/qdrant:v1.19.2-unprivileged` | 6333 HTTP, 6334 gRPC | — |
 | Phoenix | `phoenix.enabled` | off | `arizephoenix/phoenix:version-20.21.0-nonroot` | 6006 UI/OTLP-HTTP, 4317 OTLP-gRPC | — |
+| Semantic Operator (Kubeflow) | `semantic.enabled` | off | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-{manager,server}` (built from kubeflow/semantic-operator@4fd7057) | 8090 (`/mcp`, `/v1`) | trino, the SemanticModel CRD |
+| Gateway API routes | `gateway.enabled` | off | — (HTTPRoutes + optional Gateway) | 80 via the gateway | a Gateway API implementation |
 
 Invalid combinations fail at render with a message, for example `trino.enabled=true requires hms.enabled=true`.
 Object storage can be external: `seaweedfs.enabled=false`, `s3.endpoint=https://...`, `s3.auth.existingSecret=...`.
@@ -164,6 +166,42 @@ networkPolicy:
         matchLabels: {kubernetes.io/metadata.name: sandpiper}
 ```
 
+### Semantic layer (Kubeflow Semantic Operator)
+
+`semantic.enabled` runs the [Kubeflow Semantic Operator](https://github.com/kubeflow/semantic-operator) on the release's
+Trino: an [Apache Ossie](https://github.com/apache/ossie) model of certified metrics and dimensions, served to agents
+over MCP (`SEMANTIC_MCP_URL`) and to apps over REST (`SEMANTIC_REST_URL`). The LLM picks metrics; the server compiles one
+governed SQL statement. `semantic.models.dbtDemo` (on with `semantic`) models the dbt demo shop
+(`iceberg.dbt_demo`, built by `dbt build`: orders, split payments, refunds in installments, customers, products, unit
+costs, sales regions; the model is `files/semantic/dbt-demo.yaml`); it is published once those tables exist (the manager re-checks every
+`semantic.manager.resyncPeriod`). Add your own models with `semantic.models.extra`.
+
+- **Prerequisite**: the SemanticModel CRD (cluster-scoped), once per cluster:
+  `kubectl apply -f hack/crds/semantic.ossie.io_semanticmodels.yaml`. Without it rendering fails.
+- **One semantic-enabled release per namespace**: the upstream manager reconciles every model in its namespace; a second
+  semantic release in the same namespace is refused at install.
+- **Identity**: `header` mode (default) trusts `X-Semantic-User` / `X-Semantic-Role`, which is safe only behind the
+  release NetworkPolicy. On shared clusters set `semantic.server.auth.mode=jwt` and `semantic.server.auth.jwt.jwksURL`.
+- **Uninstall**: a pre-delete hook deletes the release's SemanticModels while the manager still runs (it holds a
+  finalizer on them), so `helm uninstall` leaves nothing behind.
+- The notebook `jupyter/notebooks/semantic/01_chat_with_your_data.ipynb` compares this path with raw text-to-SQL.
+
+### Browser access (Gateway API)
+
+`gateway.enabled` creates one HTTPRoute per enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant,
+ollama, s3, plus `gateway.extraRoutes`), with hostnames from `gateway.hostTemplate`
+(`{{ .route }}.{{ .release }}.{{ .domain }}`, so parallel releases never collide).
+Attach them to a namespaced Gateway on an existing GatewayClass (`gateway.gatewayClassName`) or to an existing Gateway
+(`gateway.parentRef`). The chart never creates a GatewayClass. Allow the gateway's proxy namespace through the
+NetworkPolicy with `gateway.allowFromNamespaces`. The endpoints ConfigMap lists `GATEWAY_URL_<ROUTE>`.
+
+### Workstation profile
+
+`ci/workstation-values.yaml` is the minikube + NVIDIA GPU lab: Jupyter on the repo's notebooks folder
+(`jupyter.persistence.existingClaim`), GenAI services, Gateway routes (Headlamp included), SparkApplication RBAC
+(`spark.applications`), the semantic layer and the lakehouse helm test. `hack/workstation/` installs its cluster-wide
+prerequisites and deploys it; see [docs/WORKSTATION_TESTING.md](../../docs/WORKSTATION_TESTING.md).
+
 ## Multiple installs
 
 - Every name is `<fullname>-<component>`, with `<fullname>` capped at 40 characters. Every object lives in
@@ -195,6 +233,8 @@ component. Services are `ClusterIP` only.
 | Phoenix | 65532:65532 | distroless `nonroot` image |
 | Spark History MCP | 1000:1000 | official Kubeflow image |
 | Airflow MCP | 1000:1000 | |
+| Semantic Operator manager, server | 65532:65532 | distroless `nonroot` images |
+| Semantic cleanup hook (pre-delete) | 185:185 | Spark image, namespaced Role on `semanticmodels` only |
 
 `readOnlyRootFilesystem` is not set (not required by "restricted"). HMS and Spark write to their image
 directories at start-up.
@@ -220,10 +260,13 @@ Requests/limits are the chart defaults. "Idle RSS" was measured with the rendere
 | Ollama | 500m | 2Gi | 8Gi (+ GPU) | — | 20Gi |
 | Qdrant | 100m | 256Mi | 2Gi | 55Mi | 5Gi |
 | Phoenix | 100m | 512Mi | 2Gi | 420Mi | 2Gi |
+| Semantic Operator manager | 50m | 128Mi | 256Mi | — | — |
+| Semantic Operator server | 100m | 256Mi | 512Mi | — | — |
 
 Profiles (sum of requests):
 - **minimal** (`ci/minimal-values.yaml`: hms, seaweedfs, spark, trino, 1 executor): ≈1.1 CPU, ≈6.3Gi.
-- **default** (minimal + Airflow + Spark History Server): ≈1.5 CPU, ≈8.5Gi. Each MCP server adds 50m / 128Mi.
+- **default** (minimal + Airflow + Spark History Server): ≈1.5 CPU, ≈8.5Gi. Each MCP server adds 50m / 128Mi; the
+  semantic layer adds 150m / 384Mi.
 
 Start-up times measured per component on the rendered configs: SeaweedFS + bucket ≈10 s, HMS schema init on an
 empty DB ≈30 s, Trino ≈60 s, Spark Connect ≈15 s, Airflow ≈30 s (migrate + api-server). Components start in
@@ -238,6 +281,7 @@ Kubernetes: `>=1.29.0-0`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| global.apiChecks | bool | `true` | Fail rendering when a required API is missing (Gateway API for `gateway`, DRA for `ollama.gpu.dra`, the SemanticModel CRD for `semantic`). Set `false` only for offline linting: `helm lint` cannot pass `--api-versions`. |
 | global.imageRegistry | string | `""` | Registry that replaces every image's `registry` (for mirrors / air-gapped clusters). Empty keeps each image's own registry. |
 | global.imagePullSecrets | list | `[]` | Pull secrets (names of existing `kubernetes.io/dockerconfigjson` Secrets) added to every pod. |
 | global.storageClass | string | `""` | Default StorageClass for every PVC. Empty uses the cluster default; `-` sets `storageClassName: ""`. |
@@ -252,6 +296,16 @@ Kubernetes: `>=1.29.0-0`
 | commonLabels | object | `{}` | Labels added to every resource. |
 | networkPolicy.enabled | bool | `true` | Create a NetworkPolicy that only admits ingress from pods of this release (same namespace) plus `extraIngressFrom`. HMS, Trino and Ollama have no authentication in this setup (see the chart README), so keep this on in shared clusters. |
 | networkPolicy.extraIngressFrom | list | `[]` | Extra NetworkPolicyPeer entries allowed to reach every component (for example the consumer's namespace). |
+| gateway.enabled | bool | `false` | Create an HTTPRoute for each enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant, ollama, s3). |
+| gateway.gatewayClassName | string | `""` | Create a namespaced Gateway `<fullname>-gateway` on this existing GatewayClass. Set this or `parentRef`, not both. |
+| gateway.parentRef | object | `{"name":"","namespace":"","sectionName":""}` | Attach the routes to an existing Gateway instead (for example a shared one in another namespace). |
+| gateway.parentRef.name | string | `""` | Name of the existing Gateway. |
+| gateway.parentRef.namespace | string | `""` | Namespace of the existing Gateway (empty = the release namespace). |
+| gateway.parentRef.sectionName | string | `""` | Listener (section) name on the existing Gateway (empty = all listeners). |
+| gateway.domain | string | `"localhost"` | Domain the route hostnames are built on. |
+| gateway.hostTemplate | string | `"{{ .route }}.{{ .release }}.{{ .domain }}"` | Hostname template. `{{ .route }}`, `{{ .release }}` and `{{ .domain }}` are replaced; keep the release in it so parallel releases get distinct hostnames. |
+| gateway.allowFromNamespaces | list | `[]` | Namespaces whose pods may reach the release (the gateway's proxy pods), added to the NetworkPolicy. |
+| gateway.extraRoutes | list | `[]` | Extra routes to Services the chart does not manage, e.g. `{name: headlamp, service: headlamp, port: 80, longLived: true}`. |
 | s3.endpoint | string | `""` | External S3 endpoint URL. Leave empty to use the bundled SeaweedFS (requires `seaweedfs.enabled`). |
 | s3.bucket | string | `"warehouse"` | Bucket holding the warehouse. The bundled SeaweedFS creates it; an external bucket must already exist. |
 | s3.region | string | `"us-east-1"` | S3 region. |
@@ -337,6 +391,7 @@ Kubernetes: `>=1.29.0-0`
 | spark.serviceAccount.create | bool | `true` | Create a ServiceAccount for the Connect server (it creates executor pods when `master: kubernetes`). |
 | spark.serviceAccount.name | string | `""` | ServiceAccount name. Empty: `<fullname>-spark`. |
 | spark.rbac.create | bool | `true` | Create a namespaced Role/RoleBinding letting the Connect server manage executor pods, ConfigMaps and PVCs. |
+| spark.applications.enabled | bool | `false` | Create the ServiceAccount `<fullname>-spark-apps` (+ Role/RoleBinding) for SparkApplication drivers. |
 | spark.podSecurityContext | object | `{"fsGroup":185,"runAsGroup":185,"runAsNonRoot":true,"runAsUser":185,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (Connect server and executors). |
 | spark.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |
 | spark.runtimeClassName | string | `""` | RuntimeClass for the server and executor pods. |
@@ -444,6 +499,7 @@ Kubernetes: `>=1.29.0-0`
 | airflow.logs.persistence.size | string | `"2Gi"` | PVC size. |
 | airflow.logs.persistence.storageClass | string | `""` | StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`. |
 | airflow.logs.persistence.accessModes | list | `["ReadWriteOnce"]` | PVC access modes. |
+| airflow.labPipelines.enabled | bool | `false` | Run lab pipelines such as `northwind_daily` (jupyter/notebooks/ops/dags): DAG tasks get `SPARK_REMOTE` (with the Spark Connect token) and `TRINO_HOST`/`TRINO_PORT`, and, with `semantic.enabled`, a ServiceAccount that may read this release's SemanticModels (`SEMANTIC_MODEL_RESOURCE`). Needs an image with the clients: `airflow/Dockerfile` (pyspark-client + dbt), e.g. `ghcr.io/tarekabouzeid/data-lab-playground/airflow:<appVersion>`. |
 | airflow.extraEnv | list | `[]` | Extra environment variables for every Airflow container (list of EnvVar). |
 | airflow.resources | object | `{"apiServer":{"limits":{"memory":"1Gi"},"requests":{"cpu":"100m","memory":"512Mi"}},"dagProcessor":{"limits":{"memory":"1Gi"},"requests":{"cpu":"50m","memory":"384Mi"}},"scheduler":{"limits":{"memory":"1536Mi"},"requests":{"cpu":"100m","memory":"512Mi"}},"triggerer":{"limits":{"memory":"768Mi"},"requests":{"cpu":"50m","memory":"256Mi"}}}` | Resources of each Airflow container (api-server, scheduler, dag-processor, triggerer). |
 | airflow.podSecurityContext | object | `{"fsGroup":0,"runAsGroup":0,"runAsNonRoot":true,"runAsUser":50000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (official image: uid 50000, gid 0). |
@@ -475,6 +531,49 @@ Kubernetes: `>=1.29.0-0`
 | airflow.database.affinity | object | `{}` | Affinity for the pod. |
 | airflow.database.podLabels | object | `{}` | Extra pod labels. |
 | airflow.database.podAnnotations | object | `{}` | Extra pod annotations. |
+| semantic.enabled | bool | `false` | Deploy the Semantic Operator manager and server. |
+| semantic.manager.image.registry | string | `"ghcr.io"` | Image registry. |
+| semantic.manager.image.repository | string | `"tarekabouzeid/data-lab-playground/semantic-operator-manager"` | Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh). |
+| semantic.manager.image.tag | string | `"3.0.0"` | Image tag (= appVersion). |
+| semantic.manager.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| semantic.manager.resyncPeriod | string | `"30s"` | How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns Ready within this period once they do). |
+| semantic.manager.engineUser | string | `"semantic-manager"` | Trino user the manager introspects metadata as. |
+| semantic.manager.resources | object | `{"limits":{"memory":"256Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Container resources. |
+| semantic.manager.podSecurityContext | object | `{"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (the images are distroless, uid 65532). |
+| semantic.manager.securityContext | object | `{}` | Extra container securityContext, merged over `global.containerSecurityContext`. |
+| semantic.manager.runtimeClassName | string | `""` | RuntimeClass. Empty falls back to `global.runtimeClassName`. |
+| semantic.manager.nodeSelector | object | `{}` | Node selector. Empty falls back to `global.nodeSelector`. |
+| semantic.manager.tolerations | list | `[]` | Tolerations. Empty falls back to `global.tolerations`. |
+| semantic.manager.affinity | object | `{}` | Affinity. |
+| semantic.manager.podLabels | object | `{}` | Extra pod labels. |
+| semantic.manager.podAnnotations | object | `{}` | Extra pod annotations. |
+| semantic.server.image.registry | string | `"ghcr.io"` | Image registry. |
+| semantic.server.image.repository | string | `"tarekabouzeid/data-lab-playground/semantic-operator-server"` | Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh). |
+| semantic.server.image.tag | string | `"3.0.0"` | Image tag (= appVersion). |
+| semantic.server.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| semantic.server.replicas | int | `1` | Server replicas. |
+| semantic.server.engineUser | string | `"semantic-server"` | Trino user queries run as (static identity). |
+| semantic.server.auth.mode | string | `"header"` | `header`: X-Semantic-User/X-Semantic-Role are trusted as sent; safe here only because the release NetworkPolicy admits nothing but this release's pods. `jwt`: bearer tokens checked against `jwt.jwksURL`. |
+| semantic.server.auth.jwt.jwksURL | string | `""` | JWKS URL of the identity provider (required for `jwt`). |
+| semantic.server.auth.jwt.issuer | string | `""` | Expected issuer (optional). |
+| semantic.server.auth.jwt.audience | string | `""` | Expected audience (optional). |
+| semantic.server.auth.jwt.principalClaim | string | `"sub"` | Claim naming the principal. |
+| semantic.server.auth.jwt.roleClaim | string | `"role"` | Claim holding the governance role. |
+| semantic.server.auth.jwt.groupsClaim | string | `""` | Claim holding groups (optional). |
+| semantic.server.extraConfig | object | `{}` | Extra keys merged into the server's config.yaml (e.g. `query: {maxRowLimit: 5000}`); see the upstream chart. |
+| semantic.server.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"100m","memory":"256Mi"}}` | Container resources. |
+| semantic.server.podSecurityContext | object | `{"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (the images are distroless, uid 65532). |
+| semantic.server.securityContext | object | `{}` | Extra container securityContext, merged over `global.containerSecurityContext`. |
+| semantic.server.runtimeClassName | string | `""` | RuntimeClass. Empty falls back to `global.runtimeClassName`. |
+| semantic.server.nodeSelector | object | `{}` | Node selector. Empty falls back to `global.nodeSelector`. |
+| semantic.server.tolerations | list | `[]` | Tolerations. Empty falls back to `global.tolerations`. |
+| semantic.server.affinity | object | `{}` | Affinity. |
+| semantic.server.podLabels | object | `{}` | Extra pod labels. |
+| semantic.server.podAnnotations | object | `{}` | Extra pod annotations. |
+| semantic.models.dbtDemo.enabled | bool | `true` | Render the `dbt-demo` SemanticModel over the dbt demo tables (jupyter/notebooks/dbt/lakehouse_demo). |
+| semantic.models.dbtDemo.catalog | string | `"iceberg"` | Trino catalog of the dbt demo tables. |
+| semantic.models.dbtDemo.schema | string | `"dbt_demo"` | Schema of the dbt demo tables. |
+| semantic.models.extra | list | `[]` | Extra SemanticModel specs, each `{name: <suffix>, spec: <SemanticModel spec>}`. |
 | jupyter.enabled | bool | `false` | Deploy JupyterLab (connects to Spark Connect, Trino and the GenAI services that are enabled). |
 | jupyter.image.registry | string | `"ghcr.io"` | Image registry. |
 | jupyter.image.repository | string | `"tarekabouzeid/data-lab-playground/jupyter"` | Image repository (built from `jupyter/Dockerfile`, published by the release workflow). |
@@ -486,6 +585,7 @@ Kubernetes: `>=1.29.0-0`
 | jupyter.persistence.size | string | `"5Gi"` | PVC size. |
 | jupyter.persistence.storageClass | string | `""` | StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`. |
 | jupyter.persistence.accessModes | list | `["ReadWriteOnce"]` | PVC access modes. |
+| jupyter.persistence.existingClaim | string | `""` | Use this existing PVC for `/home/jovyan/work` instead of creating one (e.g. the workstation's host-folder PV). |
 | jupyter.resources | object | `{"limits":{"memory":"4Gi"},"requests":{"cpu":"100m","memory":"512Mi"}}` | Container resources. |
 | jupyter.podSecurityContext | object | `{"fsGroup":100,"runAsGroup":100,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod securityContext (jovyan: uid 1000, gid 100). |
 | jupyter.securityContext | object | `{}` | Container securityContext (merged over `global.containerSecurityContext`). |
@@ -504,6 +604,8 @@ Kubernetes: `>=1.29.0-0`
 | ollama.gpu.enabled | bool | `false` | Request GPUs. |
 | ollama.gpu.resourceName | string | `"nvidia.com/gpu"` | Extended resource name of the GPU. |
 | ollama.gpu.count | int | `1` | Number of GPUs. |
+| ollama.gpu.dra.enabled | bool | `false` | Claim the GPU through DRA (requires `ollama.gpu.enabled`). |
+| ollama.gpu.dra.deviceClassName | string | `"gpu.nvidia.com"` | DeviceClass of the GPU. |
 | ollama.persistence.enabled | bool | `true` | Use a PVC for models. `false` uses an emptyDir. |
 | ollama.persistence.size | string | `"20Gi"` | PVC size. |
 | ollama.persistence.storageClass | string | `""` | StorageClass for this PVC. Empty falls back to `global.storageClass`; `-` sets `storageClassName: ""`. |
@@ -559,4 +661,5 @@ Kubernetes: `>=1.29.0-0`
 | phoenix.podAnnotations | object | `{}` | Extra pod annotations. |
 | tests.enabled | bool | `true` | Render the `helm test` pod (Spark writes an Iceberg table through Spark Connect, Trino reads it, then it is dropped). Needs `spark` and `trino`. |
 | tests.resources | object | `{"limits":{"memory":"1Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}` | Test pod resources. |
+| tests.lakehouseE2e.enabled | bool | `false` | Render the lakehouse e2e test pod. Needs `spark` and `trino`; takes a few minutes. |
 

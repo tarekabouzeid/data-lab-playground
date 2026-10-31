@@ -1,0 +1,54 @@
+# Workstation lab: one long-lived release `datalab` in namespace `datalab` on minikube with an NVIDIA GPU
+# (hack/workstation/setup-minikube.sh installs the cluster-wide prerequisites: Spark Operator, Envoy Gateway and its
+# GatewayClass `datalab`, the SemanticModel CRD, the GPU plugin and the notebooks PersistentVolume).
+# Everything the chart renders stays namespaced and Pod Security "restricted".
+jupyter:
+  enabled: true
+  persistence:
+    existingClaim: datalab-notebooks     # <repo>/jupyter/notebooks, mounted into minikube (setup-minikube.sh)
+ollama:
+  enabled: true
+  gpu:
+    enabled: true
+  models: ["gemma3:4b", "mxbai-embed-large:latest", "qwen3:4b"]   # qwen3: tool calling for semantic/01
+qdrant:
+  enabled: true
+phoenix:
+  enabled: true
+  auth:
+    enabled: false                       # single-user local lab: notebooks send traces without an API key
+gateway:
+  enabled: true
+  gatewayClassName: datalab
+  domain: localhost                      # http://<route>.datalab.localhost:8080 via gateway-forward.sh
+  allowFromNamespaces: [envoy-gateway-system]
+  extraRoutes:
+    - {name: headlamp, service: headlamp, port: 80, longLived: true}   # Headlamp is its own release (install-headlamp.sh)
+spark:
+  applications:
+    enabled: true                        # SparkApplications (Kubeflow Spark Operator) run as <release>-data-lab-spark-apps
+semantic:
+  enabled: true
+airflow:
+  image:                                 # airflow/Dockerfile: Airflow + pyspark-client + dbt (hack/workstation/build-images.sh)
+    registry: ghcr.io
+    repository: tarekabouzeid/data-lab-playground/airflow
+    tag: "3.0.0"
+  labPipelines:
+    enabled: true                        # northwind_daily: SPARK_REMOTE, TRINO_HOST, read access to the SemanticModels
+  dags:
+    subPath: ops/dags                    # jupyter/notebooks/ops/dags: northwind_daily (the repo folder, editable on the host)
+    pvc:
+      existingClaim: datalab-notebooks   # the notebooks claim (single-node minikube: Jupyter and Airflow share it)
+airflowMcp:
+  enabled: true                          # ops/01_pipeline_agent.ipynb
+sparkHistoryMcp:
+  enabled: true
+tests:
+  lakehouseE2e:
+    enabled: true
+trino:
+  heapSize: 4G
+  resources:
+    requests: {cpu: 500m, memory: 3Gi}
+    limits: {memory: 6Gi}

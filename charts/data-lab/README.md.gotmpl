@@ -41,6 +41,8 @@ helm uninstall lab1 -n lab1 # removes everything, PVCs and Secrets included
 | Ollama | `ollama.enabled` | off | `ollama/ollama:0.40.3` | 11434 | GPU recommended |
 | Qdrant | `qdrant.enabled` | off | `qdrant/qdrant:v1.19.2-unprivileged` | 6333 HTTP, 6334 gRPC | — |
 | Phoenix | `phoenix.enabled` | off | `arizephoenix/phoenix:version-20.21.0-nonroot` | 6006 UI/OTLP-HTTP, 4317 OTLP-gRPC | — |
+| Semantic Operator (Kubeflow) | `semantic.enabled` | off | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-{manager,server}` (built from kubeflow/semantic-operator@4fd7057) | 8090 (`/mcp`, `/v1`) | trino, the SemanticModel CRD |
+| Gateway API routes | `gateway.enabled` | off | — (HTTPRoutes + optional Gateway) | 80 via the gateway | a Gateway API implementation |
 
 Invalid combinations fail at render with a message, for example `trino.enabled=true requires hms.enabled=true`.
 Object storage can be external: `seaweedfs.enabled=false`, `s3.endpoint=https://...`, `s3.auth.existingSecret=...`.
@@ -164,6 +166,42 @@ networkPolicy:
         matchLabels: {kubernetes.io/metadata.name: sandpiper}
 ```
 
+### Semantic layer (Kubeflow Semantic Operator)
+
+`semantic.enabled` runs the [Kubeflow Semantic Operator](https://github.com/kubeflow/semantic-operator) on the release's
+Trino: an [Apache Ossie](https://github.com/apache/ossie) model of certified metrics and dimensions, served to agents
+over MCP (`SEMANTIC_MCP_URL`) and to apps over REST (`SEMANTIC_REST_URL`). The LLM picks metrics; the server compiles one
+governed SQL statement. `semantic.models.dbtDemo` (on with `semantic`) models the dbt demo shop
+(`iceberg.dbt_demo`, built by `dbt build`: orders, split payments, refunds in installments, customers, products, unit
+costs, sales regions; the model is `files/semantic/dbt-demo.yaml`); it is published once those tables exist (the manager re-checks every
+`semantic.manager.resyncPeriod`). Add your own models with `semantic.models.extra`.
+
+- **Prerequisite**: the SemanticModel CRD (cluster-scoped), once per cluster:
+  `kubectl apply -f hack/crds/semantic.ossie.io_semanticmodels.yaml`. Without it rendering fails.
+- **One semantic-enabled release per namespace**: the upstream manager reconciles every model in its namespace; a second
+  semantic release in the same namespace is refused at install.
+- **Identity**: `header` mode (default) trusts `X-Semantic-User` / `X-Semantic-Role`, which is safe only behind the
+  release NetworkPolicy. On shared clusters set `semantic.server.auth.mode=jwt` and `semantic.server.auth.jwt.jwksURL`.
+- **Uninstall**: a pre-delete hook deletes the release's SemanticModels while the manager still runs (it holds a
+  finalizer on them), so `helm uninstall` leaves nothing behind.
+- The notebook `jupyter/notebooks/semantic/01_chat_with_your_data.ipynb` compares this path with raw text-to-SQL.
+
+### Browser access (Gateway API)
+
+`gateway.enabled` creates one HTTPRoute per enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant,
+ollama, s3, plus `gateway.extraRoutes`), with hostnames from `gateway.hostTemplate`
+(`{{ "{{" }} .route {{ "}}" }}.{{ "{{" }} .release {{ "}}" }}.{{ "{{" }} .domain {{ "}}" }}`, so parallel releases never collide).
+Attach them to a namespaced Gateway on an existing GatewayClass (`gateway.gatewayClassName`) or to an existing Gateway
+(`gateway.parentRef`). The chart never creates a GatewayClass. Allow the gateway's proxy namespace through the
+NetworkPolicy with `gateway.allowFromNamespaces`. The endpoints ConfigMap lists `GATEWAY_URL_<ROUTE>`.
+
+### Workstation profile
+
+`ci/workstation-values.yaml` is the minikube + NVIDIA GPU lab: Jupyter on the repo's notebooks folder
+(`jupyter.persistence.existingClaim`), GenAI services, Gateway routes (Headlamp included), SparkApplication RBAC
+(`spark.applications`), the semantic layer and the lakehouse helm test. `hack/workstation/` installs its cluster-wide
+prerequisites and deploys it; see [docs/WORKSTATION_TESTING.md](../../docs/WORKSTATION_TESTING.md).
+
 ## Multiple installs
 
 - Every name is `<fullname>-<component>`, with `<fullname>` capped at 40 characters. Every object lives in
@@ -195,6 +233,8 @@ component. Services are `ClusterIP` only.
 | Phoenix | 65532:65532 | distroless `nonroot` image |
 | Spark History MCP | 1000:1000 | official Kubeflow image |
 | Airflow MCP | 1000:1000 | |
+| Semantic Operator manager, server | 65532:65532 | distroless `nonroot` images |
+| Semantic cleanup hook (pre-delete) | 185:185 | Spark image, namespaced Role on `semanticmodels` only |
 
 `readOnlyRootFilesystem` is not set (not required by "restricted"). HMS and Spark write to their image
 directories at start-up.
@@ -220,10 +260,13 @@ Requests/limits are the chart defaults. "Idle RSS" was measured with the rendere
 | Ollama | 500m | 2Gi | 8Gi (+ GPU) | — | 20Gi |
 | Qdrant | 100m | 256Mi | 2Gi | 55Mi | 5Gi |
 | Phoenix | 100m | 512Mi | 2Gi | 420Mi | 2Gi |
+| Semantic Operator manager | 50m | 128Mi | 256Mi | — | — |
+| Semantic Operator server | 100m | 256Mi | 512Mi | — | — |
 
 Profiles (sum of requests):
 - **minimal** (`ci/minimal-values.yaml`: hms, seaweedfs, spark, trino, 1 executor): ≈1.1 CPU, ≈6.3Gi.
-- **default** (minimal + Airflow + Spark History Server): ≈1.5 CPU, ≈8.5Gi. Each MCP server adds 50m / 128Mi.
+- **default** (minimal + Airflow + Spark History Server): ≈1.5 CPU, ≈8.5Gi. Each MCP server adds 50m / 128Mi; the
+  semantic layer adds 150m / 384Mi.
 
 Start-up times measured per component on the rendered configs: SeaweedFS + bucket ≈10 s, HMS schema init on an
 empty DB ≈30 s, Trino ≈60 s, Spark Connect ≈15 s, Airflow ≈30 s (migrate + api-server). Components start in

@@ -58,8 +58,9 @@ Full matrix (runtimes, bundled libraries, access paths, upgrade blockers): **[do
 | Hadoop / `hadoop-aws` | 3.4.2 (Spark) · 3.4.1 (HMS) | | each matches its runtime's bundled Hadoop |
 | AWS SDK v2 bundle | 2.41.1 (Spark) · 2.24.6 (HMS) | | |
 | Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` (no `[spark]` extra) |
-| Phoenix · Ollama · Qdrant | `version-20.20.0` · `0.40.2` · `v1.19.2` | pinned | were `latest`; same images in `docker-compose.yaml` and the Helm chart |
-| Kubernetes deployment (`helm/`) | K8s 1.37 · minikube 1.39 · Helm 4.x (4.2.4 tested) · Spark Operator 2.5.2 · Envoy Gateway v1.9.2 | | see [helm/README.md](helm/README.md) |
+| Phoenix · Ollama · Qdrant | `version-20.20.0` · `0.40.2` · `v1.19.2` | pinned | Compose; the chart pins its own (non-root) tags, see docs/VERSIONS.md §8 |
+| Helm chart `charts/data-lab` | 0.3.0 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator (`4fd7057`, built from source) | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
+| Workstation lab (`hack/workstation/`) | K8s 1.37 · minikube 1.39 · Helm 4.x · Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 | | §9 |
 
 See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
 
@@ -104,50 +105,43 @@ docker exec ollama ollama pull gemma3:4b
 
 ## ☸️ Kubernetes (Helm)
 
-There are two charts for two use cases:
+> **Docker Compose is frozen**: it keeps its current services and only gets version alignment. New features
+> (Airflow, Spark History Server, MCP servers, the semantic layer) are Kubernetes-only.
 
-| Chart | Use it for | Needs |
-|---|---|---|
-| [`charts/data-lab`](charts/data-lab/README.md) | Many short-lived, isolated installs on any cluster (per user/agent, CI on kind) | Nothing cluster-wide |
-| [`helm/datalab`](helm/README.md) | One long-lived workstation lab on minikube with an NVIDIA GPU, Headlamp UI and a gateway | Spark Operator, Envoy Gateway (cluster-wide, installed by `setup-minikube.sh`) |
-
-### `charts/data-lab` (portable, multi-install)
-
-The lakehouse also ships as a Helm chart at [`charts/data-lab`](charts/data-lab/README.md), built for many
-short-lived installs side by side on one cluster (one per user or agent). Compared with the Compose stack:
+The lakehouse ships as one Helm chart, [`charts/data-lab`](charts/data-lab/README.md). Its defaults suit many
+short-lived, isolated installs side by side (one per user or agent; Sandpiper); a profile turns it into a workstation lab.
 
 - Spark runs as a **Spark Connect** server (`sc://...:15002`) with executors as pods, plus a **Spark History Server**.
   **Airflow 3** (LocalExecutor) is included. Optional and off by default: MCP servers for agents (Kubeflow Spark
-  History MCP, Astronomer Airflow MCP), Jupyter, and the GenAI services (Ollama, Qdrant, Phoenix).
+  History MCP, Astronomer Airflow MCP), the **Kubeflow Semantic Operator** (an Apache Ossie semantic layer on Trino,
+  served over MCP), Jupyter, the GenAI services (Ollama, Qdrant, Phoenix) and Gateway API routes for browsers.
 - There are no hardcoded credentials: each one comes from an `existingSecret` or is generated once per release.
-- Everything is namespaced, runs non-root (Pod Security Standard "restricted") and is reachable only inside the cluster.
+- Everything the chart renders is namespaced and runs non-root (Pod Security Standard "restricted"). Cluster-wide
+  prerequisites (Spark Operator, Envoy Gateway, the SemanticModel CRD, GPU plugins) are installed separately.
 - The `<release>-data-lab-endpoints` ConfigMap lists every endpoint and the Secret holding its credential.
 
 ```bash
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.1.0 -n lab1 --create-namespace --wait
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.0 -n lab1 --create-namespace --wait
 helm test lab1 -n lab1        # Spark writes an Iceberg table, Trino reads it back
 helm uninstall lab1 -n lab1   # leaves nothing behind
 ```
 
-Profiles, values, credentials, security and resource footprint are in the [chart README](charts/data-lab/README.md).
-CI (`.github/workflows/chart-*.yaml`) lints the chart and runs it on kind. The audit that led to the chart is in
-[docs/HELM_GAP_REPORT.md](docs/HELM_GAP_REPORT.md).
-
-### `helm/datalab` (minikube + GPU)
-
-The same platform, with the same images and versions, also runs on Kubernetes (minikube with an NVIDIA GPU) from the chart in [`helm/`](helm/):
+### Workstation lab (minikube + NVIDIA GPU)
 
 ```bash
-helm/scripts/setup-minikube.sh      # minikube + Spark Operator + Envoy Gateway (--gpu-mode none for CPU only)
-helm/scripts/build-images.sh        # build the local images inside minikube
-helm/scripts/deploy.sh              # install the chart
-helm/scripts/e2e-k8s.sh             # the 19-check lakehouse e2e on Kubernetes (no GPU needed)
-helm/scripts/gateway-forward.sh     # Envoy Gateway on localhost:8080 → http://jupyter.datalab.localhost:8080, headlamp.…, trino.…
+hack/workstation/setup-minikube.sh      # minikube + Spark Operator + Envoy Gateway + SemanticModel CRD + Headlamp (--gpu-mode none for CPU only)
+hack/workstation/build-images.sh        # build the lab images inside minikube
+hack/workstation/deploy.sh              # charts/data-lab with ci/workstation-values.yaml (release/namespace datalab)
+hack/workstation/e2e.sh                 # helm test, the 19 checks as a SparkApplication, every notebook, the northwind_daily DAG, every URL
+hack/workstation/gateway-forward.sh     # http://jupyter.datalab.localhost:8080, trino.…, airflow.…, headlamp.…
 ```
 
-Headlamp (with the Kubeflow plugin) is installed as well: `http://headlamp.datalab.localhost:8080`, token from `helm/scripts/headlamp-token.sh`.
-Spark runs on the Kubeflow Spark Operator (a Spark Connect server in our Spark 4.1.3 image plus executor pods); notebooks reach it via `SPARK_REMOTE`.
-Details, GPU modes and access: [helm/README.md](helm/README.md); design: [docs/K8S_HELM_PLAN.md](docs/K8S_HELM_PLAN.md).
+Jupyter edits the repo's `jupyter/notebooks` folder directly. Headlamp (with the Kubeflow plugin) logs in with a token
+from `hack/workstation/headlamp-token.sh`. Test checklist: [docs/WORKSTATION_TESTING.md](docs/WORKSTATION_TESTING.md).
+
+Profiles, values, credentials, security and resource footprint are in the [chart README](charts/data-lab/README.md).
+CI (`.github/workflows/chart-*.yaml`) runs render tests, lint and kind e2e scenarios (minimal, default, parallel,
+semantic). The audit behind the chart is in [docs/HELM_GAP_REPORT.md](docs/HELM_GAP_REPORT.md).
 
 ## 🎯 Getting Started
 
@@ -155,7 +149,7 @@ Simple steps to explore the tools:
 
 1. **Start**: Run `./start-platform.sh` 
 2. **Open Jupyter**: Go to http://localhost:8888 (password: 123456)
-3. **Try the demos**: Open `data_lab_playground.ipynb` for basic examples
+3. **Try the demos**: Open `data_lab_playground.ipynb`, the tour of Northwind Gear (the one shop every notebook uses) and its pipeline
 4. **Experiment with RAG**: Try `rag_vector_demo.ipynb` for vector database examples
 5. **Explore UIs**: Check out Qdrant dashboard, Phoenix monitoring, etc.
 
@@ -203,9 +197,13 @@ Simple steps to explore the tools:
 - **Development Tools**: ipywidgets, tqdm, rich, typer
 - **dbt**: dbt-core 1.12.5 + dbt-trino 1.10.6 (project in `jupyter/notebooks/dbt/lakehouse_demo/`; the Jupyter image ships `git`, which `dbt debug`/`dbt deps` need)
 - **Example notebooks**:
-  - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques: `00` what's new + live support matrix, `01` Hilbert clustering, `02` VARIANT (format v3), `03` deletion vectors + row lineage, `04` streaming merge-append + Parquet tuning
+  - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques on the Northwind shop: `00` what's new + live support matrix, `01` Hilbert vs Z-order on delivery points ("orders near Berlin"), `02` the clickstream as VARIANT (format v3) + funnel per product, `03` a customer's right to be forgotten (deletion vectors, row lineage, snapshot expiry), `04` the order stream into `shop_bronze.order_events` (streaming merge-append, Parquet tuning)
   - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
-  - `jupyter/notebooks/lab_utils.py` — shared helper (`get_spark()` works on Compose and Spark Connect, `trino()`, `dbt()`, `reset_dbt_demo()`)
+  - [`jupyter/notebooks/semantic/`](jupyter/notebooks/semantic/) — `01` chat with your data, step by step: the dbt shop's seven tables (split payments, refunds in installments, costs and regions joins away), its Apache Ossie model, the Kubeflow Semantic Operator's MCP tools by hand, then a local LLM (`qwen3:4b`) answering through them vs writing raw SQL, scored against ground truth, plus row-level governance (Helm chart with `semantic.enabled` only)
+  - `jupyter/notebooks/lab_data.py` — Northwind Gear, the one shop the notebooks share: clickstream, deliveries, order stream and product documents derived deterministically from the dbt seeds
+  - `jupyter/notebooks/data_lab_playground.ipynb` (the tour: pipeline map, bronze snapshot, cross-catalog Trino join, rows per layer) and `rag_demo.ipynb` (why customers send products back: refund rate per product from the semantic layer, Trino or the seeds, plus support tickets retrieved from Qdrant)
+  - [`jupyter/notebooks/ops/`](jupyter/notebooks/ops/) — the Airflow DAG `dags/northwind_daily.py` (Spark Connect ingest of the day's order events into `shop_bronze.order_events` → `dbt build` on Trino → quality checks → `shop_gold.product_kpis`, and a wait for the SemanticModel's `Published` condition; runs on the lab Airflow image `airflow/Dockerfile` with `airflow.labPipelines.enabled`) and `01_pipeline_agent.ipynb`, an LLM agent over the Airflow and Spark History MCP servers (Helm chart only; the workstation profile turns all of it on and mounts `ops/dags` as the DAG folder)
+  - `jupyter/notebooks/lab_utils.py` — shared helper: every service endpoint (env set by the chart, Compose host as default), `get_spark()` (Compose and Spark Connect), `trino()`, `dbt()`, `reset_dbt_demo()`, the semantic-layer chat helpers
 - **Default Kernel**: GenAI Analytics (Python 3.12)
 - **Access**: `http://localhost:8888` (password: 123456)
 

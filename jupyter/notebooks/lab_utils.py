@@ -3,13 +3,20 @@
 Works unchanged on both deployments of the lab:
   * Docker Compose: classic Spark. The session is created here with the Iceberg REST catalog; the master and the S3A
     settings come from $SPARK_HOME/conf/spark-defaults.conf in the Jupyter image.
-  * Kubernetes: Spark Connect (SPARK_REMOTE is set). The Spark Connect server already has the catalog, the Iceberg SQL
-    extensions and the S3A settings (see helm/datalab/values.yaml, spark.sparkConf). Do not call .master() here:
+  * Kubernetes (charts/data-lab): Spark Connect (SPARK_REMOTE is set). The Spark Connect server already has the catalog,
+    the Iceberg SQL extensions and the S3A settings (charts/data-lab/templates/spark-configmap.yaml). Do not call .master() here:
     pyspark 4.1 rejects it together with SPARK_REMOTE, and static confs cannot be set by a Connect client.
+
+Every service endpoint lives here: an environment variable set by the Helm chart, with the Docker Compose host as the
+default. Notebooks import these constants instead of hardcoding hosts (tests/unit/test_notebook_endpoints.py).
 
 Imports of optional packages (boto3, trino, pyarrow) are lazy so the module imports anywhere.
 """
+import datetime
+import json
 import os
+import re
+import time
 from pathlib import Path
 
 CATALOG = "iceberg_catalog"                 # Spark name of the HMS Iceberg REST catalog
@@ -20,6 +27,11 @@ S3_KEY = os.environ.get("S3_ACCESS_KEY", "seaweedadmin")
 S3_SECRET = os.environ.get("S3_SECRET_KEY", "seaweedadmin123")
 TRINO_HOST = os.environ.get("TRINO_HOST", "trino")
 TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
+OLLAMA_URL = os.environ.get("OLLAMA_URL", os.environ.get("OLLAMA_HOST", "http://ollama:11434"))
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://qdrant:6333")
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY") or None   # the chart enables Qdrant API keys; Compose does not
+PHOENIX_URL = os.environ.get("PHOENIX_URL", "http://phoenix:6006")
+PHOENIX_OTLP_ENDPOINT = os.environ.get("PHOENIX_OTLP_GRPC_ENDPOINT", "http://phoenix:4317")
 
 
 def on_spark_connect() -> bool:
@@ -140,3 +152,312 @@ def reset_dbt_demo():
             trino(f'DROP {"VIEW" if kind == "VIEW" else "TABLE"} IF EXISTS iceberg.{schema}."{name}"')
             dropped += 1
     print(f"dbt demo reset: {dropped} tables/views dropped (schemas kept)")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Chat with your data: the Kubeflow Semantic Operator (Helm chart only, semantic.enabled=true)
+# ---------------------------------------------------------------------------------------------------------------
+SEMANTIC_USER = "lab"
+TOOL_MODEL = "qwen3:4b"   # tool calling in Ollama (gemma3 has none)
+
+
+def semantic_available() -> bool:
+    return bool(os.environ.get("SEMANTIC_MCP_URL"))
+
+
+def require_semantic() -> None:
+    if not semantic_available():
+        raise RuntimeError("The semantic layer runs only on the Helm chart with semantic.enabled=true "
+                           "(Docker Compose is frozen and does not include it).")
+    if os.environ.get("SEMANTIC_AUTH_MODE", "header") != "header":
+        raise RuntimeError("The semantic server runs with semantic.server.auth.mode=jwt; these helpers send identity "
+                           "headers (X-Semantic-User / X-Semantic-Role) and need header mode.")
+
+
+def _mcp_post(url: str, headers: dict, body: dict):
+    """POST one JSON-RPC message (MCP streamable HTTP). Keeps the session id in `headers`; None for notifications."""
+    import urllib.request
+
+    req = urllib.request.Request(url, json.dumps(body).encode(), headers)
+    with urllib.request.urlopen(req, timeout=120) as r:
+        if r.headers.get("mcp-session-id"):
+            headers["mcp-session-id"] = r.headers["mcp-session-id"]
+        raw = r.read().decode()
+    if "id" not in body or not raw.strip():
+        return None
+    if raw.lstrip().startswith("{"):
+        return json.loads(raw)
+    return json.loads([line[5:] for line in raw.splitlines() if line.startswith("data:")][-1])
+
+
+def _mcp(method: str, params: dict, role: str):
+    """One semantic-layer MCP session (identity headers for `role`). Returns the JSON-RPC result."""
+    return _mcp_session(os.environ["SEMANTIC_MCP_URL"], method, params,
+                        {"X-Semantic-User": SEMANTIC_USER, "X-Semantic-Role": role})
+
+
+def _mcp_session(url: str, method: str, params: dict, extra_headers: dict | None = None):
+    """One MCP session: initialize, then `method`. Returns the JSON-RPC result."""
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+               **(extra_headers or {})}
+    _mcp_post(url, headers, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "data-lab-notebook", "version": "1"}}})
+    _mcp_post(url, headers, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+    res = _mcp_post(url, headers, {"jsonrpc": "2.0", "id": 2, "method": method, "params": params})
+    if "error" in res:
+        raise RuntimeError(f"MCP {method}: {res['error']}")
+    return res["result"]
+
+
+def mcp_call(name: str, args: dict, role: str = "analyst") -> dict:
+    """Call one semantic-layer tool. Tool errors (e.g. a governance refusal) come back as {"error": text}."""
+    res = _mcp("tools/call", {"name": name, "arguments": args}, role)
+    text = "".join(c.get("text", "") for c in res.get("content", []) if c.get("type") == "text")
+    if res.get("isError"):
+        return {"error": text}
+    return res.get("structuredContent") or json.loads(text or "{}")
+
+
+_SUBSCHEMA_KEYS = ("items", "additionalItems", "contains", "not")   # where `true` means "any value" (a schema)
+
+
+def _ollama_schema(schema):
+    """A copy of a JSON Schema that Ollama can compile into a tool-call grammar: every object gets `properties`
+    (Ollama 0.40: "properties must be an object") and boolean sub-schemas (`"items": true`) become `{}`. Everything
+    else (nullable unions such as ["null", "array"] included, which Ollama accepts) is kept as the server sent it."""
+    if isinstance(schema, list):
+        return [_ollama_schema(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: ({} if v is True and k in _SUBSCHEMA_KEYS else _ollama_schema(v)) for k, v in schema.items() if k != "properties"}
+    if out.get("type") == "object":
+        out["properties"] = {k: _ollama_schema(v) for k, v in (schema.get("properties") or {}).items()}
+    return out
+
+
+def mcp_tool_to_ollama(tool: dict) -> dict:
+    return {"type": "function", "function": {"name": tool["name"], "description": tool.get("description", ""),
+                                             "parameters": _ollama_schema(tool.get("inputSchema") or {"type": "object"})}}
+
+
+def mcp_tools(role: str = "analyst") -> list:
+    """The semantic layer's MCP tools as Ollama tool schemas."""
+    return [mcp_tool_to_ollama(t) for t in _mcp("tools/list", {}, role)["tools"]]
+
+
+def wait_for_model(model_id: str, timeout_s: int = 180) -> None:
+    """Wait until the semantic layer serves `model_id` (the operator publishes it once its tables exist)."""
+    deadline = time.time() + timeout_s
+    while True:
+        names = [m["name"] for m in mcp_call("list_models", {}).get("models", [])]
+        if model_id in names:
+            return
+        if time.time() >= deadline:
+            raise TimeoutError(f"semantic model {model_id!r} not published after {timeout_s}s (served: {names})")
+        time.sleep(5)
+
+
+def _ollama_client():
+    import ollama
+
+    return ollama.Client(host=OLLAMA_URL)
+
+
+def _as_dict(obj):
+    return obj.model_dump(exclude_none=True) if hasattr(obj, "model_dump") else obj
+
+
+def _chat(model: str, messages: list, tools=None, num_ctx: int | None = None) -> dict:
+    # think=False: the helpers want tool calls and short answers; qwen3's reasoning trace only adds latency
+    options = {"temperature": 0, **({"num_ctx": num_ctx} if num_ctx else {})}
+    return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, think=False, options=options))
+
+
+def _ollama_show(model: str) -> dict:
+    return _as_dict(_ollama_client().show(model))
+
+
+def require_tool_model(model: str = TOOL_MODEL) -> None:
+    if "tools" not in (_ollama_show(model).get("capabilities") or []):
+        raise RuntimeError(f"Ollama model {model} has no tool calling; pull one that has (e.g. ollama pull {TOOL_MODEL})")
+
+
+SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tools only. Find certified metrics with "
+                   "list_metrics and group-by dimensions with list_dimensions, then call query_metric. Pass only the "
+                   "arguments the question needs: `grain` only together with a time dimension, no `limit` unless "
+                   "asked. If a tool returns an error, fix the arguments and call it again. Never invent numbers and "
+                   "never write SQL. Reply in one or two sentences with the numbers from the result.")
+
+
+def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", max_turns: int = 6) -> dict:
+    """Answer through the semantic layer: the LLM picks certified metrics/dimensions, the server compiles the SQL.
+
+    Returns the answer, the tool names called, the compiled SQL and rows of the last query_metric, and `steps`:
+    every tool call with its arguments and the server's result, in order (the notebook walks through them)."""
+    # Name the published model up front: a small model otherwise guesses the optional `model` argument (a real run
+    # sent model="sales"). With exactly one published model, an unknown name in a tool call is replaced by it.
+    published = [m["name"] for m in mcp_call("list_models", {}, role).get("models", [])]
+    time_dims = set()            # the server's contract: `grain` needs one of these among the requested dimensions
+    if len(published) == 1:
+        dims = mcp_call("list_dimensions", {"model": published[0]}, role).get("dimensions", [])
+        time_dims = {d["name"] for d in dims if d.get("isTime")}
+    prompt = SEMANTIC_PROMPT
+    if published:
+        prompt += f" Published semantic model(s): {', '.join(published)}; pass that name as `model` to every tool."
+    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": question}]
+    tools, calls, steps, sql, rows = mcp_tools(role), [], [], None, []
+    for _ in range(max_turns):
+        msg = _chat(model, messages, tools)["message"]
+        messages.append(msg)
+        if not msg.get("tool_calls"):
+            return {"answer": msg.get("content", ""), "tool_calls": calls, "steps": steps, "sql": sql, "rows": rows}
+        for tc in msg["tool_calls"]:
+            name, args = tc["function"]["name"], dict(tc["function"].get("arguments") or {})
+            if len(published) == 1 and args.get("model") not in (None, published[0]):
+                args["model"] = published[0]
+            calls.append(name)
+            step = {"tool": name, "args": args}
+            if name == "query_metric" and args.get("grain") and time_dims and \
+                    not time_dims & set(args.get("dimensions") or []):
+                step["note"] = f"grain dropped: {args.pop('grain')!r} needs a time dimension ({', '.join(sorted(time_dims))})"
+            out = mcp_call(name, args, role)
+            steps.append({**step, "result": out})
+            if name == "query_metric" and "sql" in out:
+                sql, rows = out["sql"], out.get("rows", [])
+            messages.append({"role": "tool", "tool_name": name, "content": json.dumps(out)[:8000]})
+    return {"answer": f"(stopped after {max_turns} turns without a final answer)", "tool_calls": calls,
+            "steps": steps, "sql": sql, "rows": rows}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Operations agent: the Airflow and Spark History MCP servers (Helm chart only: airflowMcp / sparkHistoryMcp)
+# ---------------------------------------------------------------------------------------------------------------
+OPS_MCP = {"airflow": "AIRFLOW_MCP_URL", "spark_history": "SPARK_HISTORY_MCP_URL"}   # server -> env var (endpoints)
+# The read-only tools the agent is offered. All tools of both servers (51) are ~15k tokens of schemas, beyond Ollama's
+# default 4,096-token context; nothing here can trigger, pause, clear or delete.
+OPS_TOOLS = {
+    "airflow": {"list_dags", "get_dag_details", "list_dag_runs", "get_dag_run", "diagnose_dag_run", "list_tasks",
+                "get_task_instance", "get_task_logs", "list_import_errors", "get_system_health"},
+    "spark_history": {"list_applications", "list_jobs", "list_stages", "get_stage", "get_job_bottlenecks",
+                      "list_sql_executions", "get_executor_summary"},
+}
+OPS_NUM_CTX = 16384     # tool schemas + a few tool results (each capped at 8,000 characters)
+
+
+def ops_servers() -> dict:
+    """The operations MCP servers this deployment runs: {name: url}."""
+    return {name: os.environ[env] for name, env in OPS_MCP.items() if os.environ.get(env)}
+
+
+def require_ops() -> None:
+    if not ops_servers():
+        raise RuntimeError("The Airflow and Spark History MCP servers run only on the Helm chart (airflowMcp.enabled, "
+                           "sparkHistoryMcp.enabled; the workstation profile turns both on). Docker Compose is "
+                           "frozen and does not include them.")
+
+
+def ops_tools(server: str) -> list:
+    return _mcp_session(ops_servers()[server], "tools/list", {})["tools"]
+
+
+def ops_call(server: str, name: str, args: dict):
+    """Call one tool on an operations MCP server. Returns parsed JSON when the tool returns JSON, else the text."""
+    res = _mcp_session(ops_servers()[server], "tools/call", {"name": name, "arguments": args})
+    text = "".join(c.get("text", "") for c in res.get("content", []) if c.get("type") == "text")
+    if res.get("isError"):
+        return {"error": text}
+    if res.get("structuredContent") is not None:
+        return res["structuredContent"]
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+OPS_PROMPT = ("You are the on-call data engineer for Northwind Gear's lakehouse. Answer with the tools: the Airflow "
+              "tools for DAGs, runs and task logs; the Spark History tools for Spark applications, jobs and stages. "
+              "Never guess ids: list first, then drill down. Do not add filters (dates, states, limits) the question "
+              "does not ask for. Reply in at most five sentences with the facts you found.")
+
+
+def ask_ops(question: str, model: str = TOOL_MODEL, max_turns: int = 8) -> dict:
+    """Let the LLM investigate with the tools of every operations MCP server. Tool names are prefixed with the server
+    (`airflow__list_dags`). Returns the answer and `steps` (every tool call, its arguments and a result excerpt)."""
+    servers = ops_servers()
+    tools, owner = [], {}
+    for server in servers:
+        for t in ops_tools(server):
+            if t["name"] not in OPS_TOOLS.get(server, ()):
+                continue
+            name = f"{server}__{t['name']}"
+            owner[name] = (server, t["name"])
+            tools.append(mcp_tool_to_ollama({**t, "name": name}))
+    # The model does not know today's date: asked what ran "recently", it filtered on a training-era date.
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    messages = [{"role": "system", "content": f"{OPS_PROMPT} Today is {today} (UTC)."},
+                {"role": "user", "content": question}]
+    steps = []
+    for _ in range(max_turns):
+        msg = _chat(model, messages, tools, num_ctx=OPS_NUM_CTX)["message"]
+        messages.append(msg)
+        if not msg.get("tool_calls"):
+            return {"answer": msg.get("content", ""), "steps": steps}
+        for tc in msg["tool_calls"]:
+            name, args = tc["function"]["name"], tc["function"].get("arguments") or {}
+            if name in owner:
+                out = ops_call(*owner[name], args)
+            else:
+                out = {"error": f"unknown tool {name}"}
+            text = out if isinstance(out, str) else json.dumps(out, default=str)
+            steps.append({"tool": name, "args": args, "result": text[:300]})
+            messages.append({"role": "tool", "tool_name": name, "content": text[:8000]})
+    return {"answer": f"(stopped after {max_turns} turns without a final answer)", "steps": steps}
+
+
+RAW_PROMPT = ("You write one Trino SQL query that answers the question over the tables below (catalog {catalog}, "
+              "schema {schema}). Reply with the query only, in a ```sql block.\n\n{ddl}")
+
+
+def _table_ddl(tables: list, schema: str) -> str:
+    """CREATE-style column lists from information_schema (works for dbt's views too; SHOW CREATE TABLE does not)."""
+    names = ", ".join(f"'{t}'" for t in tables)
+    cols = trino(f"SELECT table_name, column_name, data_type FROM {TRINO_CATALOG}.information_schema.columns "
+                 f"WHERE table_schema = '{schema}' AND table_name IN ({names}) ORDER BY table_name, ordinal_position")
+    by_table = {}
+    for table, column, dtype in cols.values.tolist():
+        by_table.setdefault(table, []).append(f"  {column} {dtype}")
+    return "\n\n".join(f"CREATE TABLE {TRINO_CATALOG}.{schema}.{t} (\n" + ",\n".join(by_table.get(t, [])) + "\n)"
+                       for t in tables)
+
+
+def ask_raw_sql(question: str, tables: list, model: str = TOOL_MODEL, schema: str = "dbt_demo") -> dict:
+    """The baseline: the LLM sees the tables' columns and writes Trino SQL itself."""
+    prompt = RAW_PROMPT.format(catalog=TRINO_CATALOG, schema=schema, ddl=_table_ddl(tables, schema))
+    reply = _chat(model, [{"role": "system", "content": prompt}, {"role": "user", "content": question}])["message"]
+    text = re.sub(r"<think>.*?</think>", "", reply.get("content", ""), flags=re.S)   # qwen3 may think inline
+    m = re.search(r"```(?:sql)?\s*(.*?)```", text, re.S | re.I)
+    sql = (m.group(1) if m else text).strip().rstrip(";")
+    try:
+        df = trino(sql)
+        return {"answer": text, "sql": sql, "rows": df.values.tolist(), "error": None}
+    except Exception as e:  # the model's SQL failed: that is part of the comparison
+        return {"answer": text, "sql": sql, "rows": [], "error": str(e)}
+
+
+def _norm(v, tol):
+    if hasattr(v, "isoformat"):                       # date / datetime / pandas Timestamp: compare by day
+        return v.isoformat()[:10]
+    text = str(v).strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}([T ]|$)", text):   # ISO date or timestamp string (e.g. from the semantic server)
+        return text[:10]
+    try:
+        return round(float(v) / tol) * tol
+    except (TypeError, ValueError):
+        return text.lower()
+
+
+def rows_match(rows, truth, tol: float = 0.01) -> bool:
+    """Same result set as the ground truth: row and column order, number types and rounding to `tol` do not matter."""
+    def canon(rs):
+        return sorted(tuple(sorted((_norm(v, tol) for v in r), key=repr)) for r in rs)
+    return bool(truth) and len(rows) == len(truth) and canon(rows) == canon(truth)
