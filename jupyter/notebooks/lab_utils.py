@@ -375,7 +375,8 @@ def ops_call(server: str, name: str, args: dict):
 
 OPS_PROMPT = ("You are the on-call data engineer for Northwind Gear's lakehouse. Answer with the tools: the Airflow "
               "tools for DAGs, runs and task logs; the Spark History tools for Spark applications, jobs and stages. "
-              "Never guess ids: list first, then drill down. Reply in at most five sentences with the facts you found.")
+              "Never guess ids: list first, then drill down. Do not add filters (dates, states, limits) the question "
+              "does not ask for. Reply in at most five sentences with the facts you found.")
 
 
 def ask_ops(question: str, model: str = TOOL_MODEL, max_turns: int = 8) -> dict:
