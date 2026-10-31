@@ -23,7 +23,7 @@ def test_mcp_schema_to_ollama():
 
 def test_mcp_schemas_are_normalized_for_ollama():
     """Ollama 0.40 rejects valid JSON Schema it cannot compile into a grammar: an object without `properties`
-    ("properties must be an object", e.g. list_models) and nullable unions such as ["null", "array"]."""
+    ("properties must be an object", e.g. list_models) and boolean sub-schemas. Nullable unions it accepts: kept."""
     no_args = lab_utils.mcp_tool_to_ollama({"name": "list_models", "inputSchema": {"type": "object", "additionalProperties": False}})
     assert no_args["function"]["parameters"] == {"type": "object", "properties": {}, "additionalProperties": False}
     assert lab_utils.mcp_tool_to_ollama({"name": "x"})["function"]["parameters"] == {"type": "object", "properties": {}}
@@ -33,9 +33,9 @@ def test_mcp_schemas_are_normalized_for_ollama():
         "limit": {"type": ["integer", "null"]},
         "nested": {"type": "object"}}}
     props = lab_utils.mcp_tool_to_ollama({"name": "q", "inputSchema": schema})["function"]["parameters"]["properties"]
-    assert props["metrics"] == {"type": "array", "items": {"type": "string"}}
-    assert props["filters"]["type"] == "array" and props["filters"]["items"]["properties"] == {"op": {"type": "string"}}
-    assert props["limit"] == {"type": "integer"}
+    assert props["metrics"] == {"type": ["null", "array"], "items": {"type": "string"}}
+    assert props["filters"]["items"]["properties"] == {"op": {"type": "string"}}
+    assert props["limit"] == {"type": ["integer", "null"]}
     assert props["nested"] == {"type": "object", "properties": {}}
     assert schema["properties"]["metrics"]["type"] == ["null", "array"]      # the server's schema is not modified
     # boolean schemas ("items": true) must be objects for Ollama; keyword booleans stay booleans
@@ -191,7 +191,8 @@ def test_rows_match_detects_wrong_answers():
 def test_ask_semantic_records_each_step(monkeypatch):
     chat = fake_chat([call("list_metrics", {}), call("query_metric", {"metrics": ["total_revenue"]}),
                       {"role": "assistant", "content": "Total revenue is 40."}])
-    results = {"list_metrics": {"metrics": [{"name": "total_revenue"}]}, "query_metric": QUERY_RESULT}
+    results = {"list_metrics": {"metrics": [{"name": "total_revenue"}]}, "query_metric": QUERY_RESULT,
+               "list_models": {"models": [{"name": "dbt_demo"}]}, "list_dimensions": {"dimensions": []}}
     monkeypatch.setattr(lab_utils, "_chat", chat)
     monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
     monkeypatch.setattr(lab_utils, "mcp_call", lambda name, args, role="analyst": results[name])
@@ -288,3 +289,52 @@ def test_chat_turns_thinking_off(monkeypatch):
     monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
     assert lab_utils._chat("qwen3:4b", [{"role": "user", "content": "hi"}])["message"]["content"] == "ok"
     assert seen["think"] is False and seen["options"] == {"temperature": 0}
+
+
+def test_ask_semantic_names_the_published_model(monkeypatch):
+    """A real qwen3 run guessed model="sales" for list_metrics: the prompt names the published model, and with exactly
+    one published model an unknown name in a tool call is replaced by it (the server treats `model` as optional then)."""
+    chat = fake_chat([call("list_metrics", {"model": "sales"}),
+                      call("query_metric", {"model": "sales", "metrics": ["total_revenue"]}),
+                      {"role": "assistant", "content": "Total revenue is 40."}])
+    sent = []
+
+    def mcp(name, args, role="analyst"):
+        sent.append((name, dict(args)))
+        return {"list_models": {"models": [{"name": "dbt_demo"}]}, "list_metrics": {"metrics": []},
+                "list_dimensions": {"dimensions": []}, "query_metric": QUERY_RESULT}[name]
+
+    monkeypatch.setattr(lab_utils, "_chat", chat)
+    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
+    monkeypatch.setattr(lab_utils, "mcp_call", mcp)
+    out = lab_utils.ask_semantic("What is total revenue?")
+    assert sent == [("list_models", {}), ("list_dimensions", {"model": "dbt_demo"}), ("list_metrics", {"model": "dbt_demo"}),
+                    ("query_metric", {"model": "dbt_demo", "metrics": ["total_revenue"]})]
+    assert out["tool_calls"] == ["list_metrics", "query_metric"]          # the pre-fetch is not an LLM tool call
+    assert "dbt_demo" in chat.sent[0][0]["content"]                      # the system prompt names the model
+
+
+def test_ask_semantic_drops_a_grain_without_time_dimension(monkeypatch):
+    """The server's contract: `grain` requires a time dimension. A real qwen3 run kept sending grain="day" with only
+    dim_products.category; the helper drops it (and says so in the step) instead of looping on the error."""
+    chat = fake_chat([call("query_metric", {"metrics": ["gross_margin"], "dimensions": ["dim_products.category"],
+                                            "grain": "day"}),
+                      call("query_metric", {"metrics": ["gross_margin"], "dimensions": ["fct_orders.order_date"],
+                                            "grain": "week"}),
+                      {"role": "assistant", "content": "done"}])
+    sent = []
+
+    def mcp(name, args, role="analyst"):
+        sent.append((name, dict(args)))
+        return {"list_models": {"models": [{"name": "dbt_demo"}]},
+                "list_dimensions": {"dimensions": [{"name": "fct_orders.order_date", "isTime": True},
+                                                   {"name": "dim_products.category"}]},
+                "query_metric": QUERY_RESULT}[name]
+
+    monkeypatch.setattr(lab_utils, "_chat", chat)
+    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
+    monkeypatch.setattr(lab_utils, "mcp_call", mcp)
+    out = lab_utils.ask_semantic("Gross margin per category?")
+    queries = [a for n, a in sent if n == "query_metric"]
+    assert "grain" not in queries[0] and queries[1]["grain"] == "week"     # kept with a time dimension
+    assert "grain dropped" in out["steps"][0]["note"] and "note" not in out["steps"][1]

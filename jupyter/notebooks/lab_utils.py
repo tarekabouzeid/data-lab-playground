@@ -222,16 +222,13 @@ _SUBSCHEMA_KEYS = ("items", "additionalItems", "contains", "not")   # where `tru
 
 def _ollama_schema(schema):
     """A copy of a JSON Schema that Ollama can compile into a tool-call grammar: every object gets `properties`
-    (Ollama 0.40: "properties must be an object"), boolean sub-schemas (`"items": true`) become `{}`, and nullable unions
-    like ["null", "array"] become the plain type."""
+    (Ollama 0.40: "properties must be an object") and boolean sub-schemas (`"items": true`) become `{}`. Everything
+    else (nullable unions such as ["null", "array"] included, which Ollama accepts) is kept as the server sent it."""
     if isinstance(schema, list):
         return [_ollama_schema(s) for s in schema]
     if not isinstance(schema, dict):
         return schema
     out = {k: ({} if v is True and k in _SUBSCHEMA_KEYS else _ollama_schema(v)) for k, v in schema.items() if k != "properties"}
-    if isinstance(out.get("type"), list):
-        types = [t for t in out["type"] if t != "null"]
-        out["type"] = types[0] if len(types) == 1 else types
     if out.get("type") == "object":
         out["properties"] = {k: _ollama_schema(v) for k, v in (schema.get("properties") or {}).items()}
     return out
@@ -285,8 +282,10 @@ def require_tool_model(model: str = TOOL_MODEL) -> None:
 
 
 SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tools only. Find certified metrics with "
-                   "list_metrics and group-by dimensions with list_dimensions, then call query_metric. Never invent "
-                   "numbers and never write SQL. Reply in one or two sentences with the numbers from the result.")
+                   "list_metrics and group-by dimensions with list_dimensions, then call query_metric. Pass only the "
+                   "arguments the question needs: `grain` only together with a time dimension, no `limit` unless "
+                   "asked. If a tool returns an error, fix the arguments and call it again. Never invent numbers and "
+                   "never write SQL. Reply in one or two sentences with the numbers from the result.")
 
 
 def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", max_turns: int = 6) -> dict:
@@ -294,7 +293,17 @@ def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", 
 
     Returns the answer, the tool names called, the compiled SQL and rows of the last query_metric, and `steps`:
     every tool call with its arguments and the server's result, in order (the notebook walks through them)."""
-    messages = [{"role": "system", "content": SEMANTIC_PROMPT}, {"role": "user", "content": question}]
+    # Name the published model up front: a small model otherwise guesses the optional `model` argument (a real run
+    # sent model="sales"). With exactly one published model, an unknown name in a tool call is replaced by it.
+    published = [m["name"] for m in mcp_call("list_models", {}, role).get("models", [])]
+    time_dims = set()            # the server's contract: `grain` needs one of these among the requested dimensions
+    if len(published) == 1:
+        dims = mcp_call("list_dimensions", {"model": published[0]}, role).get("dimensions", [])
+        time_dims = {d["name"] for d in dims if d.get("isTime")}
+    prompt = SEMANTIC_PROMPT
+    if published:
+        prompt += f" Published semantic model(s): {', '.join(published)}; pass that name as `model` to every tool."
+    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": question}]
     tools, calls, steps, sql, rows = mcp_tools(role), [], [], None, []
     for _ in range(max_turns):
         msg = _chat(model, messages, tools)["message"]
@@ -302,10 +311,16 @@ def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", 
         if not msg.get("tool_calls"):
             return {"answer": msg.get("content", ""), "tool_calls": calls, "steps": steps, "sql": sql, "rows": rows}
         for tc in msg["tool_calls"]:
-            name, args = tc["function"]["name"], tc["function"].get("arguments") or {}
+            name, args = tc["function"]["name"], dict(tc["function"].get("arguments") or {})
+            if len(published) == 1 and args.get("model") not in (None, published[0]):
+                args["model"] = published[0]
             calls.append(name)
+            step = {"tool": name, "args": args}
+            if name == "query_metric" and args.get("grain") and time_dims and \
+                    not time_dims & set(args.get("dimensions") or []):
+                step["note"] = f"grain dropped: {args.pop('grain')!r} needs a time dimension ({', '.join(sorted(time_dims))})"
             out = mcp_call(name, args, role)
-            steps.append({"tool": name, "args": args, "result": out})
+            steps.append({**step, "result": out})
             if name == "query_metric" and "sql" in out:
                 sql, rows = out["sql"], out.get("rows", [])
             messages.append({"role": "tool", "tool_name": name, "content": json.dumps(out)[:8000]})
