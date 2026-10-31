@@ -56,7 +56,7 @@ Rules:
 - [x] `iceberg/03`: copy the orders to `shop_v3.orders`; customer N asks to be forgotten → delete, deletion vectors, row lineage, time-travel audit.
 - [x] `iceberg/01`: `lab_data.deliveries()` → Hilbert vs Z-order for "orders near Berlin".
 - [x] `data_lab_playground`: the pipeline map and row counts per layer, replacing the random `ecommerce_sales`.
-- [x] Each notebook runs headless on Compose and on the workstation (runbook). Every notebook, every cell, was executed headless with nbclient on 2026-10-31, against real services and real models:
+- [ ] Each notebook runs headless on Compose and on the workstation (runbook). **Sandbox part done (below); the GPU workstation run is open: [docs/TODO_MANUAL_TESTS.md](../../TODO_MANUAL_TESTS.md).** Every notebook, every cell, was executed headless with nbclient on 2026-10-31, against real services and real models:
   - **Compose mode** (the repo's `docker-compose.yaml` services: SeaweedFS, metastore-db, HMS 4.2.1, Trino 483, classic Spark master + worker 4.1.3; the Jupyter image's `spark-defaults.conf`; the `lab_utils` Compose default endpoints; Qdrant; Ollama):
     - `data_lab_playground`, `iceberg/00–04`, `dbt/01–03`: no errors.
     - `rag_demo`, all sections: no errors. With real `gemma3:4b` + `mxbai-embed-large`, the SSD answer names the dead-on-arrival drives and crushed packaging, and the router answer names firmware 2.4.1; both cite ticket order ids and the refund rates from Trino.
