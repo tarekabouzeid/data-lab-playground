@@ -270,7 +270,9 @@ def _as_dict(obj):
 
 
 def _chat(model: str, messages: list, tools=None) -> dict:
-    return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, options={"temperature": 0}))
+    # think=False: the helpers want tool calls and short answers; qwen3's reasoning trace only adds latency
+    return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, think=False,
+                                          options={"temperature": 0}))
 
 
 def _ollama_show(model: str) -> dict:

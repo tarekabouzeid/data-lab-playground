@@ -274,3 +274,17 @@ def test_require_ops_explains_where_it_runs(monkeypatch):
     monkeypatch.delenv("SPARK_HISTORY_MCP_URL", raising=False)
     with pytest.raises(RuntimeError, match="only on the Helm chart"):
         lab_utils.require_ops()
+
+
+def test_chat_turns_thinking_off(monkeypatch):
+    """Tool-calling helpers need tool calls and short answers, not qwen3's reasoning trace (slow, and it leaks)."""
+    seen = {}
+
+    class Client:
+        def chat(self, **kw):
+            seen.update(kw)
+            return {"message": {"content": "ok"}}
+
+    monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
+    assert lab_utils._chat("qwen3:4b", [{"role": "user", "content": "hi"}])["message"]["content"] == "ok"
+    assert seen["think"] is False and seen["options"] == {"temperature": 0}
