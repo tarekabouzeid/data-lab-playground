@@ -20,7 +20,7 @@ done
 require docker; require minikube; require helm
 
 REGISTRY=ghcr.io/tarekabouzeid/data-lab-playground
-SERVICES=(hive-metastore spark jupyter airflow-mcp)
+SERVICES=(hive-metastore spark jupyter airflow-mcp airflow)
 
 if [[ $LOAD == false ]]; then
   eval "$(minikube -p "$MINIKUBE_PROFILE" docker-env)"

@@ -106,10 +106,11 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | 2026-10-10 (`helm/datalab` minikube chart) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Spark Operator 2.5.2, Envoy Gateway 1.9.2, Headlamp 0.45.0) |
 | 2026-10-12 (`charts/data-lab` 0.1.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Airflow 3.3.2, Postgres 17.11 in the chart) |
 | 2026-10-30 (`charts/data-lab` 0.2.0, `helm/datalab` merged in and removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Kubeflow Semantic Operator built from source at 4fd7057; Compose frozen) |
+| 2026-10-31 (`charts/data-lab` 0.3.0, `airflow.labPipelines`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ lab Airflow image: pyspark-client 4.1.3, dbt-core 1.12.5 + dbt-trino 1.10.6) |
 
 ## 8. Helm chart images (`charts/data-lab`)
 
-Chart `0.2.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+Chart `0.3.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
 `charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
 
 | Component | Image | Tag | Same as Compose? |
@@ -121,6 +122,7 @@ Chart `0.2.0`, `appVersion` **3.0.0** (the lab release these versions ship in). 
 | SeaweedFS | `chrislusf/seaweedfs` | `4.48` | ✅ |
 | Postgres (HMS, Airflow) | `postgres` | `17.11` | ❌ Compose HMS uses 13 (see §1) |
 | Airflow | `apache/airflow` | `3.3.2-python3.12` | chart only |
+| Airflow, lab pipelines (`airflow.labPipelines`, workstation profile) | `ghcr.io/tarekabouzeid/data-lab-playground/airflow` (built from `airflow/Dockerfile`: `apache/airflow:3.3.2-python3.12` + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`) | `3.0.0` | chart only |
 | Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` | chart only |
 | Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` | chart only |
 | Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` | chart only |

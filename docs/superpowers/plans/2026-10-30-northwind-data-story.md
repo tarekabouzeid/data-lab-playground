@@ -56,32 +56,30 @@ Rules:
 - [x] `iceberg/03`: copy the orders to `shop_v3.orders`; customer N asks to be forgotten → delete, deletion vectors, row lineage, time-travel audit.
 - [x] `iceberg/01`: `lab_data.deliveries()` → Hilbert vs Z-order for "orders near Berlin".
 - [x] `data_lab_playground`: the pipeline map and row counts per layer, replacing the random `ecommerce_sales`.
-- [x] Each notebook runs headless on Compose and on the workstation (runbook). Here: code cells compile and the unit tests pass. The real run is `hack/workstation/e2e.sh` on the user's machine (the sandbox has no Spark/Trino stack).
+- [ ] Each notebook runs headless on Compose and on the workstation (runbook). **Partly verified; the rest needs the user's machine.**
+  - **Ran headless here:** `iceberg/01–04`, `data_lab_playground`, `dbt/01` and `rag_demo` §1 (the numbers), executed with nbclient against a lab-like stack. The stack was Spark Connect 4.1.3, HMS 4.2.1 REST, Trino 483 and SeaweedFS (the chart's images, in Docker), on 2026-10-31. Every Spark/Trino cell passed after two fixes the run found: `iceberg/02` hit the shredded-variant reader bug on a filtered count, and the playground's AI-summary cell needed to survive a missing Ollama.
+  - **Not run here** (no GPU/Ollama, no Kubernetes):
+    - the LLM sections of the playground, `rag_demo` §2–3 and `ops/01` (the Qdrant indexing and metadata filters were checked with deterministic fake embeddings; the ops MCP helpers were called against real Airflow and Spark History MCP servers)
+    - `semantic/01`
+    - the Compose classic-Spark mode
+  - **Still to run:** the full pass is `hack/workstation/e2e.sh` (runbook step 4) and the Compose notebooks (runbook step 2).
 
 ### Step 3: AI and operations on the same shop
 - [x] `rag_demo`: index `lab_data.product_docs()`; "Why are router refunds so high?" combines the semantic layer's refund rate per product (chart) or Trino SQL (Compose) with retrieved tickets.
-- [x] Airflow DAG `northwind_daily` (shipped with the chart's DAG source and the workstation profile): Spark Connect ingest → `dbt build` (Trino) → wait for `Published` (semantic, chart only).
+- [x] Airflow DAG `northwind_daily` (shipped with the chart's DAG source and the workstation profile): Spark Connect ingest → `dbt build` (Trino) → wait for `Published` (semantic, chart only). Plus quality checks and `shop_gold.product_kpis`. `airflow dags test` on Airflow 3.3.2 (lab image) passed end to end: ingest replay 10 / 60 events, dbt `PASS=50`, checks 0, gold 10 rows, `published` skipped (no semantic layer in that stack). The wait itself is unit-tested against the CRD's condition shape; it runs for real only on the workstation (`e2e.sh` step 4).
 - [x] `ops/01_pipeline_agent`: ask the Airflow and Spark History MCP servers about the last DAG run and its Spark apps.
 - [x] Docs and the runbook.
 
 ## Outcome and deviations
 
-- **Gold layer:** the DAG publishes `shop_gold.product_kpis` (orders, gross sales, refunded amount, and refund rate with
-  the semantic model's definition, per product and run date). `data_lab_playground` lists it in *Rows per layer*.
-- **DAG shape:** `check_inputs → upsert_bronze_orders (MERGE into shop_bronze.orders_current) → quality_checks →
-  publish_product_kpis`. All of it is SQL on Trino over HTTP. Two steps from the draft were dropped:
-  - *Spark Connect ingest* and *dbt build*: the stock `apache/airflow` image has neither pyspark nor dbt. Adding them
-    means a custom Airflow image or KubernetesPodOperator RBAC, and that is a chart feature of its own.
-  - *Wait for Published*: that needs Kubernetes API access from Airflow. The semantic notebook and `rag_demo` check
-    the model through MCP instead.
-  The dbt models still come from `dbt/01–03`; `check_inputs` names the missing table.
+- **DAG as planned, on a lab Airflow image:**
+  - The stock `apache/airflow` image has neither pyspark nor dbt. `airflow/Dockerfile` adds pyspark-client 4.1.3 to Airflow's environment, and dbt 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`.
+  - Chart 0.3.0 adds `airflow.labPipelines.enabled` (off by default; the default render is unchanged). It sets `SPARK_REMOTE`, `TRINO_HOST`/`TRINO_PORT` and `SEMANTIC_MODEL_RESOURCE`. With `semantic.enabled`, it adds a ServiceAccount + Role that may only get/list/watch the release's SemanticModels, which is what `wait_for_published` reads.
+  - The workstation profile uses the lab image with `labPipelines` on.
+- **Added beyond the plan:** quality checks and the gold table `shop_gold.product_kpis` (refund rate with the semantic model's definition, per product and run date). `data_lab_playground` lists it in *Rows per layer*.
 - **Shipping the DAG:**
-  - The DAG lives in `jupyter/notebooks/ops/dags/`. The workstation profile mounts the notebooks claim with
-    `subPath: ops/dags`, so there is no new PV and no chart template change.
-  - The DAG is unpaused at creation. `hack/workstation/e2e.sh` triggers it after the dbt notebooks and requires
-    `success`.
-- **Ops agent:** `lab_utils.ask_ops` prefixes each tool with its server (`airflow__…`, `spark_history__…`) and
-  routes the call. Unit-tested with fake MCP sessions.
-- **RAG question:** by amount, the refund rate is highest for tablet and dock (a few expensive returns). By count,
-  tickets lead for router and SSD. So `rag_demo` asks about the two most-ticketed products and shows both columns.
-  That is the point: the numbers say *what*, the tickets say *why*.
+  - The DAG lives in `jupyter/notebooks/ops/dags/`. The workstation profile mounts the notebooks claim with `subPath: ops/dags`, so the DAG finds `lab_data.py` and the dbt project two folders up.
+  - dbt writes its target and logs to a temp dir, because the volume may be read-only (verified with a read-only mount).
+  - The DAG is unpaused at creation. `hack/workstation/e2e.sh` triggers it after the dbt notebooks and requires `success`.
+- **Ops agent:** `lab_utils.ask_ops` prefixes each tool with its server (`airflow__…`, `spark_history__…`) and routes the call. The tool listing and calls were verified against real MCP servers (34 Airflow tools, 17 Spark History tools). The LLM loop is unit-tested with fake sessions.
+- **RAG question:** by amount, the refund rate is highest for tablet and dock (a few expensive returns). By count, tickets lead for router and SSD. So `rag_demo` asks about the two most-ticketed products and shows both columns: the numbers say *what*, the tickets say *why*. The numbers path (Trino over the marts) was verified and matches the seeds exactly.

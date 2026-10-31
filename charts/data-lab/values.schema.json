@@ -1393,6 +1393,16 @@
             }
           }
         },
+        "labPipelines": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Run lab pipelines such as `northwind_daily` (jupyter/notebooks/ops/dags): DAG tasks get `SPARK_REMOTE` (with the Spark Connect token) and `TRINO_HOST`/`TRINO_PORT`, and, with `semantic.enabled`, a ServiceAccount that may read this release's SemanticModels (`SEMANTIC_MODEL_RESOURCE`). Needs an image with the clients: `airflow/Dockerfile` (pyspark-client + dbt), e.g. `ghcr.io/tarekabouzeid/data-lab-playground/airflow:<appVersion>`."
+            }
+          }
+        },
         "extraEnv": {
           "type": "array",
           "items": {

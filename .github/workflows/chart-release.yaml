@@ -48,7 +48,7 @@ jobs:
       - name: Build and push lab images
         if: startsWith(github.ref_name, 'v')
         run: |
-          for c in hive-metastore spark jupyter airflow-mcp; do
+          for c in hive-metastore spark jupyter airflow-mcp airflow; do
             img="$REGISTRY/$OWNER/data-lab-playground/$c:$APP"
             # source label links the GHCR package to this repo
             docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c"

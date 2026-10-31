@@ -1,59 +1,54 @@
 """northwind_daily: Northwind Gear's daily pipeline, on Airflow 3 (stage 8 of the lab's data story).
 
-  check_inputs -> upsert_bronze_orders -> quality_checks -> publish_product_kpis
+  ingest_order_events -> dbt_build -> quality_checks -> publish_product_kpis
+                                   -> wait_for_published
 
-* check_inputs          the seeds (dbt_demo_raw) and the dbt marts (dbt_demo) exist; run dbt/01 once if not
-* upsert_bronze_orders  MERGE the raw orders into shop_bronze.orders_current: new orders are inserted, status changes
-                        (placed -> shipped -> returned) update the row; one Iceberg snapshot per run
-* quality_checks        no orphan refunds, no unknown products, no negative amounts, one row per order
+* ingest_order_events   Spark Connect: append the day's order events (lab_data.order_events(), one new `replay`) to
+                        shop_bronze.order_events, the bronze table iceberg/04 streams into
+* dbt_build             `dbt build` of the dbt project (seeds -> staging -> marts -> snapshots, with its tests) on Trino
+* quality_checks        no orphan refunds, no events or orders for unknown orders/products, no negative amounts,
+                        one row per order in the marts
 * publish_product_kpis  shop_gold.product_kpis: orders, gross sales, refunded amount and refund rate per product
                         (the semantic model's refund_rate definition), stamped with the run's logical date
+* wait_for_published    the Kubeflow Semantic Operator re-checks the SemanticModel against the rebuilt tables; wait
+                        until its Published condition is True (skipped where there is no semantic layer)
 
-Every task is SQL on Trino over HTTP (`requests` ships with Airflow), so the stock apache/airflow image runs it.
-Trino's address comes from TRINO_HOST / TRINO_PORT (the workstation profile sets them via airflow.extraEnv); the
-default is the Docker Compose host name. The workstation profile mounts this folder as the DAG folder
-(airflow.dags.pvc.existingClaim = the notebooks claim, subPath ops/dags). ops/01_pipeline_agent.ipynb asks the
-Airflow MCP server about the runs.
+Needs the lab Airflow image (airflow/Dockerfile: pyspark-client + dbt) and `airflow.labPipelines.enabled`, which sets
+SPARK_REMOTE, TRINO_HOST/TRINO_PORT and SEMANTIC_MODEL_RESOURCE and lets the pod read its SemanticModels. The
+workstation profile does both and mounts jupyter/notebooks as the DAG volume (subPath ops/dags), so lab_data.py and
+the dbt project sit two folders up from this file. ops/01_pipeline_agent.ipynb asks the Airflow MCP server about runs.
 """
 import os
+import subprocess
+import sys
+import tempfile
 import time
 from datetime import datetime
+from pathlib import Path
 
 import requests
 
+NOTEBOOKS = Path(__file__).resolve().parents[2]          # jupyter/notebooks: lab_data.py, lab_utils.py, dbt/
+DBT_PROJECT = NOTEBOOKS / "dbt" / "lakehouse_demo"
 TRINO = f"http://{os.environ.get('TRINO_HOST', 'trino')}:{os.environ.get('TRINO_PORT', '8080')}"
 HEADERS = {"X-Trino-User": "airflow", "X-Trino-Catalog": "iceberg", "X-Trino-Source": "northwind_daily"}
 
-INPUTS = ["iceberg.dbt_demo_raw.raw_orders", "iceberg.dbt_demo_raw.raw_refunds", "iceberg.dbt_demo_raw.raw_payments",
-          "iceberg.dbt_demo_raw.raw_products", "iceberg.dbt_demo.fct_orders", "iceberg.dbt_demo.fct_refunds",
-          "iceberg.dbt_demo.dim_products"]
-
-BRONZE = [
-    "CREATE SCHEMA IF NOT EXISTS iceberg.shop_bronze",
-    """CREATE TABLE IF NOT EXISTS iceberg.shop_bronze.orders_current (
-         order_id bigint, customer_id bigint, product_id bigint, quantity integer, order_ts timestamp(6),
-         status varchar, loaded_at timestamp(6))""",
-    """MERGE INTO iceberg.shop_bronze.orders_current t
-       USING (SELECT CAST(order_id AS bigint) AS order_id, CAST(customer_id AS bigint) AS customer_id,
-                     CAST(product_id AS bigint) AS product_id, CAST(quantity AS integer) AS quantity,
-                     CAST(order_ts AS timestamp(6)) AS order_ts, status
-              FROM iceberg.dbt_demo_raw.raw_orders) s
-       ON t.order_id = s.order_id
-       WHEN MATCHED AND t.status <> s.status THEN UPDATE SET status = s.status, loaded_at = CAST(current_timestamp AS timestamp(6))
-       WHEN NOT MATCHED THEN INSERT VALUES (s.order_id, s.customer_id, s.product_id, s.quantity, s.order_ts, s.status,
-                                            CAST(current_timestamp AS timestamp(6)))""",
-]
+EVENTS_TABLE = "shop_bronze.order_events"                  # same schema as iceberg/04
+EVENTS_DDL = """CREATE TABLE IF NOT EXISTS {t} (event_id BIGINT, replay BIGINT, order_id BIGINT, customer_id BIGINT,
+                product_id BIGINT, quantity INT, order_ts TIMESTAMP, status STRING, ingested_at TIMESTAMP)
+                USING iceberg TBLPROPERTIES ('format-version' = '2')"""
 
 # name -> query returning one number that must be 0
 CHECKS = {
     "orphan refunds": """SELECT count(*) FROM iceberg.dbt_demo_raw.raw_refunds r
                          LEFT JOIN iceberg.dbt_demo_raw.raw_orders o ON o.order_id = r.order_id WHERE o.order_id IS NULL""",
-    "orders with an unknown product": """SELECT count(*) FROM iceberg.shop_bronze.orders_current o
-                         LEFT JOIN iceberg.dbt_demo_raw.raw_products p ON p.product_id = o.product_id WHERE p.product_id IS NULL""",
+    "events for unknown orders": """SELECT count(*) FROM iceberg.shop_bronze.order_events e
+                         LEFT JOIN iceberg.dbt_demo_raw.raw_orders o ON o.order_id = e.order_id WHERE o.order_id IS NULL""",
+    "orders with an unknown product": """SELECT count(*) FROM iceberg.dbt_demo.fct_orders o
+                         LEFT JOIN iceberg.dbt_demo.dim_products p ON p.product_id = o.product_id WHERE p.product_id IS NULL""",
     "negative amounts": """SELECT (SELECT count(*) FROM iceberg.dbt_demo_raw.raw_payments WHERE amount < 0)
                                 + (SELECT count(*) FROM iceberg.dbt_demo_raw.raw_refunds WHERE amount < 0)""",
-    "duplicate orders in bronze": """SELECT count(*) FROM (SELECT order_id FROM iceberg.shop_bronze.orders_current
-                                     GROUP BY order_id HAVING count(*) > 1)""",
+    "duplicate orders in the marts": """SELECT count(*) - count(DISTINCT order_id) FROM iceberg.dbt_demo.fct_orders""",
 }
 
 GOLD = [
@@ -75,6 +70,21 @@ GOLD = [
        FROM sales s LEFT JOIN refunds r ON r.product = s.product""",
 ]
 
+try:
+    from airflow.sdk.exceptions import AirflowSkipException as Skip
+except ImportError:      # outside Airflow (unit tests)
+    class Skip(Exception):
+        pass
+
+
+def _lab():
+    """lab_utils / lab_data from the notebooks folder (the DAG volume on the chart, the repo elsewhere)."""
+    if str(NOTEBOOKS) not in sys.path:
+        sys.path.insert(0, str(NOTEBOOKS))
+    import lab_data
+    import lab_utils
+    return lab_utils, lab_data
+
 
 def trino_sql(sql: str) -> list:
     """Run one statement through Trino's HTTP protocol and return all rows (raises on a query error)."""
@@ -94,20 +104,50 @@ def trino_sql(sql: str) -> list:
         body = res.json()
 
 
-def check_inputs(run=trino_sql) -> dict:
-    counts = {}
-    for table in INPUTS:
-        try:
-            counts[table] = run(f"SELECT count(*) FROM {table}")[0][0]
-        except RuntimeError as exc:
-            raise RuntimeError(f"{table} is missing: run the dbt seeds and models first (notebook dbt/01)") from exc
-    return counts
+def order_event_rows(events: list, replay: int) -> list:
+    """One replay of the order log as rows of shop_bronze.order_events (event ids continue where iceberg/04's do)."""
+    n = len(events)
+    return [{"event_id": replay * n + i, "replay": replay, "order_id": e["order_id"], "customer_id": e["customer_id"],
+             "product_id": e["product_id"], "quantity": e["quantity"], "order_ts": e["order_ts"], "status": e["status"]}
+            for i, e in enumerate(events)]
 
 
-def upsert_bronze_orders(run=trino_sql) -> int:
-    for sql in BRONZE:
-        run(sql)
-    return run("SELECT count(*) FROM iceberg.shop_bronze.orders_current")[0][0]
+def ingest_order_events(spark=None) -> dict:
+    """Spark Connect: append one replay of the order events to the bronze table."""
+    lab_utils, lab_data = _lab()
+    own = spark is None
+    spark = spark or lab_utils.get_spark("northwind_daily")
+    try:
+        from pyspark.sql import functions as F
+
+        table = f"{lab_utils.CATALOG}.{EVENTS_TABLE}"
+        spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {lab_utils.CATALOG}.shop_bronze")
+        spark.sql(EVENTS_DDL.format(t=table))
+        replay = spark.sql(f"SELECT coalesce(max(replay), -1) + 1 AS r FROM {table}").collect()[0][0]
+        rows = order_event_rows(lab_data.order_events(), replay)
+        schema = ("event_id long, replay long, order_id long, customer_id long, product_id long, quantity int, "
+                  "order_ts string, status string")
+        (spark.createDataFrame(rows, schema)
+              .withColumn("order_ts", F.to_timestamp("order_ts"))
+              .withColumn("ingested_at", F.current_timestamp())
+              .writeTo(table).append())
+        return {"table": table, "replay": replay, "events": len(rows)}
+    finally:
+        if own:
+            spark.stop()
+
+
+def dbt_build(run=subprocess.run) -> str:
+    """`dbt build` on Trino. Target and logs go to a temp folder: the project folder may be mounted read-only."""
+    work = Path(tempfile.mkdtemp(prefix="northwind-dbt-"))
+    cmd = [os.environ.get("DBT_BIN", "dbt"), "build", "--project-dir", str(DBT_PROJECT),
+           "--profiles-dir", str(DBT_PROJECT), "--target-path", str(work / "target"), "--log-path", str(work / "logs")]
+    res = run(cmd, capture_output=True, text=True, env={**os.environ, "DBT_SEND_ANONYMOUS_USAGE_STATS": "false"})
+    print(res.stdout[-6000:])
+    if res.returncode != 0:
+        raise RuntimeError(f"dbt build failed (exit {res.returncode}):\n{res.stdout[-3000:]}\n{res.stderr[-2000:]}")
+    done = [line for line in res.stdout.splitlines() if "Done." in line]
+    return done[-1].strip() if done else "dbt build finished"
 
 
 def quality_checks(run=trino_sql) -> dict:
@@ -124,6 +164,34 @@ def publish_product_kpis(ds: str, run=trino_sql) -> list:
     return run("SELECT product, refund_rate FROM iceberg.shop_gold.product_kpis ORDER BY refund_rate DESC LIMIT 3")
 
 
+def _k8s_semantic_model(name: str) -> dict:
+    from kubernetes import client, config
+
+    config.load_incluster_config()
+    namespace = os.environ.get("DATALAB_NAMESPACE") or \
+        Path("/var/run/secrets/kubernetes.io/serviceaccount/namespace").read_text().strip()
+    return client.CustomObjectsApi().get_namespaced_custom_object(
+        "semantic.ossie.io", "v1alpha1", namespace, "semanticmodels", name)
+
+
+def wait_for_published(get_model=None, timeout_s: int = 600, poll_s: int = 10) -> dict:
+    """Wait until the SemanticModel's Published condition is True (the operator re-checks it against the tables)."""
+    name = os.environ.get("SEMANTIC_MODEL_RESOURCE")
+    if not name:
+        raise Skip("no semantic layer in this deployment (semantic.enabled and airflow.labPipelines.enabled)")
+    get_model = get_model or _k8s_semantic_model
+    deadline = time.time() + timeout_s
+    while True:
+        conditions = {c.get("type"): c for c in (get_model(name).get("status") or {}).get("conditions") or []}
+        published = conditions.get("Published", {})
+        if published.get("status") == "True":
+            return {"model": name, "published": True, "reason": published.get("reason")}
+        if time.time() >= deadline:
+            raise TimeoutError(f"SemanticModel {name}: Published={published.get('status')!r} after {timeout_s}s "
+                               f"({published.get('reason')}: {published.get('message')})")
+        time.sleep(poll_s)
+
+
 try:
     from airflow.sdk import dag, task
 except ImportError:      # imported outside Airflow (unit tests, notebooks): the task functions above still work
@@ -134,21 +202,27 @@ if dag is not None:
          is_paused_upon_creation=False, tags=["northwind", "lab"], doc_md=__doc__)
     def northwind_daily():
         @task
-        def inputs():
-            return check_inputs()
+        def ingest():
+            return ingest_order_events()
 
         @task
-        def bronze(_counts):
-            return upsert_bronze_orders()
+        def build(_ingested):
+            return dbt_build()
 
         @task
-        def checks(_rows):
+        def checks(_built):
             return quality_checks()
 
         @task
         def gold(_checks, ds=None):
             return publish_product_kpis(ds)
 
-        gold(checks(bronze(inputs())))
+        @task
+        def published(_built):
+            return wait_for_published()
+
+        built = build(ingest())
+        gold(checks(built))
+        published(built)
 
     northwind_daily()
