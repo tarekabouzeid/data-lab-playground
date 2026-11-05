@@ -5,7 +5,7 @@ fails. CI already covers lint, render tests and the kind scenarios. This list ad
 minikube lab, a browser, and the notebooks.
 
 Prerequisites: Docker, kind, minikube 1.39, Helm 4.x (3.19+ works for the chart), kubectl, jq, Python 3.11+ with
-`pytest pyyaml jsonschema`, and an NVIDIA GPU with the container toolkit for step 4. Steps 1 to 3 and 5 need no GPU.
+`pytest pyyaml jsonschema requests` (requests: the northwind_daily DAG test), and an NVIDIA GPU with the container toolkit for step 4. Steps 1 to 3 and 5 need no GPU.
 
 ## 1. Static checks (no cluster)
 
