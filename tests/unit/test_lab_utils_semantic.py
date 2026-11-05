@@ -152,7 +152,7 @@ def test_require_tool_model(monkeypatch):
     with pytest.raises(RuntimeError, match="gemma3:4b"):
         lab_utils.require_tool_model("gemma3:4b")
     monkeypatch.setattr(lab_utils, "_ollama_show", lambda model: {"capabilities": ["completion", "tools"]})
-    lab_utils.require_tool_model("qwen3:4b")
+    lab_utils.require_tool_model("qwen3:4b-instruct")
 
 
 def test_mcp_call_parses_tool_result(monkeypatch):
@@ -288,8 +288,30 @@ def test_chat_turns_thinking_off(monkeypatch):
             return {"message": {"content": "ok"}}
 
     monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
-    assert lab_utils._chat("qwen3:4b", [{"role": "user", "content": "hi"}])["message"]["content"] == "ok"
-    assert seen["think"] is False and seen["options"] == {"temperature": 0}
+    assert lab_utils._chat("qwen3:4b-instruct", [{"role": "user", "content": "hi"}])["message"]["content"] == "ok"
+    assert seen["think"] is False
+    assert seen["options"] == {"temperature": 0, "num_predict": lab_utils.CHAT_MAX_TOKENS}
+
+
+def test_chat_caps_generation(monkeypatch):
+    """Ollama's default num_predict=-1 plus context shift generated forever with a thinking model (runner OOM-killed):
+    every turn sends a positive cap, also when num_ctx is set."""
+    seen = {}
+
+    class Client:
+        def chat(self, **kw):
+            seen.update(kw)
+            return {"message": {"content": "ok"}}
+
+    monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
+    lab_utils._chat(lab_utils.TOOL_MODEL, [{"role": "user", "content": "hi"}], num_ctx=8192)
+    assert 0 < seen["options"]["num_predict"] == lab_utils.CHAT_MAX_TOKENS <= 4096
+    assert seen["options"]["num_ctx"] == 8192
+
+
+def test_tool_model_is_the_instruct_tag():
+    """Plain `qwen3:4b` is Qwen3-4B-Thinking-2507 (thinking-only): think=False cannot stop its reasoning."""
+    assert lab_utils.TOOL_MODEL == "qwen3:4b-instruct"
 
 
 def test_ask_semantic_names_the_published_model(monkeypatch):

@@ -158,7 +158,12 @@ def reset_dbt_demo():
 # Chat with your data: the Kubeflow Semantic Operator (Helm chart only, semantic.enabled=true)
 # ---------------------------------------------------------------------------------------------------------------
 SEMANTIC_USER = "lab"
-TOOL_MODEL = "qwen3:4b"   # tool calling in Ollama (gemma3 has none)
+# Tool calling in Ollama (gemma3 has none). Not plain `qwen3:4b`: that tag is now Qwen3-4B-Thinking-2507, which is
+# thinking-only (think=False is ignored), so its reasoning leaks into the reply and it never reaches a tool call.
+TOOL_MODEL = "qwen3:4b-instruct"
+# Generation cap per chat turn. Ollama's default num_predict=-1 plus context shift never ends when a model keeps
+# reasoning (a real run grew the runner to 7 GB and got OOM-killed); a tool call or SQL answer needs far less.
+CHAT_MAX_TOKENS = 2048
 
 
 def semantic_available() -> bool:
@@ -268,8 +273,9 @@ def _as_dict(obj):
 
 
 def _chat(model: str, messages: list, tools=None, num_ctx: int | None = None) -> dict:
-    # think=False: the helpers want tool calls and short answers; qwen3's reasoning trace only adds latency
-    options = {"temperature": 0, **({"num_ctx": num_ctx} if num_ctx else {})}
+    # think=False: the helpers want tool calls and short answers, so models that can switch reasoning off do
+    # (thinking-only models ignore it). num_predict bounds every turn, see CHAT_MAX_TOKENS.
+    options = {"temperature": 0, "num_predict": CHAT_MAX_TOKENS, **({"num_ctx": num_ctx} if num_ctx else {})}
     return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, think=False, options=options))
 
 
@@ -434,7 +440,7 @@ def ask_raw_sql(question: str, tables: list, model: str = TOOL_MODEL, schema: st
     """The baseline: the LLM sees the tables' columns and writes Trino SQL itself."""
     prompt = RAW_PROMPT.format(catalog=TRINO_CATALOG, schema=schema, ddl=_table_ddl(tables, schema))
     reply = _chat(model, [{"role": "system", "content": prompt}, {"role": "user", "content": question}])["message"]
-    text = re.sub(r"<think>.*?</think>", "", reply.get("content", ""), flags=re.S)   # qwen3 may think inline
+    text = re.sub(r"<think>.*?</think>", "", reply.get("content", ""), flags=re.S)   # thinking models may reason inline
     m = re.search(r"```(?:sql)?\s*(.*?)```", text, re.S | re.I)
     sql = (m.group(1) if m else text).strip().rstrip(";")
     try:
