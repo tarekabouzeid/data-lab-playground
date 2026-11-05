@@ -12,9 +12,9 @@ criterion. Full checklist: [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).
   ```
   Pass: `workstation e2e passed`, including `northwind_daily run e2e-<n>: success` and
   `ok ops/01_pipeline_agent.ipynb`.
-- [ ] **`semantic/01` with the real `qwen3:4b`** (the sandbox used Qwen3-4B-Instruct-2507 as a stand-in). Pass: the
-  semantic layer scores 6/6, and the step-by-step cell runs `list_metrics → list_dimensions → query_metric`.
-- [ ] **`ops/01` with the real `qwen3:4b`.** Pass: it names the latest `northwind_daily` run and its task states, and
+- [ ] **`semantic/01` with `qwen3:4b-instruct`** (Qwen3-4B-Instruct-2507, the sandbox's stand-in; plain `qwen3:4b` is
+  thinking-only and never reaches a tool call). Pass: the semantic layer scores 6/6, and the step-by-step cell runs `list_metrics → list_dimensions → query_metric`.
+- [ ] **`ops/01` with `qwen3:4b-instruct`.** Pass: it names the latest `northwind_daily` run and its task states, and
   Spark application ids from the History Server.
 - [ ] **`rag_demo` on GPU.** Pass: `numbers from: semantic layer (certified metrics)`; the router answer names firmware
   2.4.1 and the SSD answer the dead-on-arrival drives.

@@ -107,10 +107,11 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | 2026-10-12 (`charts/data-lab` 0.1.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Airflow 3.3.2, Postgres 17.11 in the chart) |
 | 2026-10-30 (`charts/data-lab` 0.2.0, `helm/datalab` merged in and removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Kubeflow Semantic Operator built from source at 4fd7057; Compose frozen) |
 | 2026-10-31 (`charts/data-lab` 0.3.0, `airflow.labPipelines`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ lab Airflow image: pyspark-client 4.1.3, dbt-core 1.12.5 + dbt-trino 1.10.6) |
+| 2026-11-05 (`charts/data-lab` 0.3.1, workstation tool model `qwen3:4b-instruct`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (plain `qwen3:4b` became the thinking-only Qwen3-4B-Thinking-2507) |
 
 ## 8. Helm chart images (`charts/data-lab`)
 
-Chart `0.3.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+Chart `0.3.1`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
 `charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
 
 | Component | Image | Tag | Same as Compose? |
@@ -139,7 +140,11 @@ Semantic layer notes: no upstream GitHub release exists yet (chart 0.1.0 in the 
 config, no `--config` flag), so the lab builds both images from that commit. Move the pin (`COMMIT` in
 `hack/build-semantic-operator.sh`, the CRD header, `_semantic.tpl`) together. Ossie expressions use
 `ANSI_SQL` because `TRINO` is not an Ossie dialect yet (apache/ossie#607, open). The chat notebook's tool-calling model is
-**`qwen3:4b`** (pulled by Ollama in the workstation profile; `gemma3` has no tool calling). The Jupyter image pins
+**`qwen3:4b-instruct`** (Qwen3-4B-Instruct-2507, pulled by Ollama in the workstation profile; `gemma3` has no tool
+calling). It replaced plain `qwen3:4b` in chart 0.3.1: that tag now resolves to Qwen3-4B-Thinking-2507, which is
+thinking-only (`think=False` is ignored), so its reasoning leaked into the reply, it never reached a tool call, and
+without a generation cap it ran until the Ollama runner was OOM-killed. `lab_utils._chat` caps every turn at
+`num_predict=2048`. The Jupyter image pins
 `ollama==0.6.3` (Python client); MCP is spoken with the standard library (no `mcp` SDK).
 
 The six `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp, semantic-operator-manager, semantic-operator-server) are pushed by `.github/workflows/chart-release.yaml` on the

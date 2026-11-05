@@ -59,7 +59,7 @@ Full matrix (runtimes, bundled libraries, access paths, upgrade blockers): **[do
 | AWS SDK v2 bundle | 2.41.1 (Spark) · 2.24.6 (HMS) | | |
 | Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` (no `[spark]` extra) |
 | Phoenix · Ollama · Qdrant | `version-20.20.0` · `0.40.2` · `v1.19.2` | pinned | Compose; the chart pins its own (non-root) tags, see docs/VERSIONS.md §8 |
-| Helm chart `charts/data-lab` | 0.3.0 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator (`4fd7057`, built from source) | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
+| Helm chart `charts/data-lab` | 0.3.1 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator (`4fd7057`, built from source) | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
 | Workstation lab (`hack/workstation/`) | K8s 1.37 · minikube 1.39 · Helm 4.x · Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 | | §9 |
 
 See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
@@ -121,7 +121,7 @@ short-lived, isolated installs side by side (one per user or agent; Sandpiper); 
 - The `<release>-data-lab-endpoints` ConfigMap lists every endpoint and the Secret holding its credential.
 
 ```bash
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.0 -n lab1 --create-namespace --wait
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.1 -n lab1 --create-namespace --wait
 helm test lab1 -n lab1        # Spark writes an Iceberg table, Trino reads it back
 helm uninstall lab1 -n lab1   # leaves nothing behind
 ```
@@ -199,7 +199,7 @@ Simple steps to explore the tools:
 - **Example notebooks**:
   - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques on the Northwind shop: `00` what's new + live support matrix, `01` Hilbert vs Z-order on delivery points ("orders near Berlin"), `02` the clickstream as VARIANT (format v3) + funnel per product, `03` a customer's right to be forgotten (deletion vectors, row lineage, snapshot expiry), `04` the order stream into `shop_bronze.order_events` (streaming merge-append, Parquet tuning)
   - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
-  - [`jupyter/notebooks/semantic/`](jupyter/notebooks/semantic/) — `01` chat with your data, step by step: the dbt shop's seven tables (split payments, refunds in installments, costs and regions joins away), its Apache Ossie model, the Kubeflow Semantic Operator's MCP tools by hand, then a local LLM (`qwen3:4b`) answering through them vs writing raw SQL, scored against ground truth, plus row-level governance (Helm chart with `semantic.enabled` only)
+  - [`jupyter/notebooks/semantic/`](jupyter/notebooks/semantic/) — `01` chat with your data, step by step: the dbt shop's seven tables (split payments, refunds in installments, costs and regions joins away), its Apache Ossie model, the Kubeflow Semantic Operator's MCP tools by hand, then a local LLM (`qwen3:4b-instruct`) answering through them vs writing raw SQL, scored against ground truth, plus row-level governance (Helm chart with `semantic.enabled` only)
   - `jupyter/notebooks/lab_data.py` — Northwind Gear, the one shop the notebooks share: clickstream, deliveries, order stream and product documents derived deterministically from the dbt seeds
   - `jupyter/notebooks/data_lab_playground.ipynb` (the tour: pipeline map, bronze snapshot, cross-catalog Trino join, rows per layer) and `rag_demo.ipynb` (why customers send products back: refund rate per product from the semantic layer, Trino or the seeds, plus support tickets retrieved from Qdrant)
   - [`jupyter/notebooks/ops/`](jupyter/notebooks/ops/) — the Airflow DAG `dags/northwind_daily.py` (Spark Connect ingest of the day's order events into `shop_bronze.order_events` → `dbt build` on Trino → quality checks → `shop_gold.product_kpis`, and a wait for the SemanticModel's `Published` condition; runs on the lab Airflow image `airflow/Dockerfile` with `airflow.labPipelines.enabled`) and `01_pipeline_agent.ipynb`, an LLM agent over the Airflow and Spark History MCP servers (Helm chart only; the workstation profile turns all of it on and mounts `ops/dags` as the DAG folder)
