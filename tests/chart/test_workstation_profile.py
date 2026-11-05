@@ -1,4 +1,6 @@
 """ci/workstation-values.yaml: the minikube lab profile keeps every Sandpiper guarantee (namespaced, no hostPath)."""
+import re
+
 from conftest import by_kind, render, workload
 
 API = ["gateway.networking.k8s.io/v1/Gateway", "semantic.ossie.io/v1alpha1/SemanticModel"]
@@ -27,7 +29,9 @@ def test_urls_match_the_old_minikube_lab():
 
 def test_tool_calling_model_is_pulled():
     script = workload(ws(), "ollama")["spec"]["template"]["spec"]["containers"][0]["command"][2]
-    assert "qwen3:4b" in script
+    pulled = re.search(r"for m in (.*?); do", script).group(1).split()
+    assert "qwen3:4b-instruct" in pulled
+    assert "qwen3:4b" not in pulled   # Qwen3-4B-Thinking-2507: thinking-only, never reaches a tool call
 
 
 def test_semantic_and_spark_apps_on():

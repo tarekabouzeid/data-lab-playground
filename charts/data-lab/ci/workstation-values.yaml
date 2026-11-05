@@ -10,7 +10,7 @@ ollama:
   enabled: true
   gpu:
     enabled: true
-  models: ["gemma3:4b", "mxbai-embed-large:latest", "qwen3:4b"]   # qwen3: tool calling for semantic/01
+  models: ["gemma3:4b", "mxbai-embed-large:latest", "qwen3:4b-instruct"]   # tool calling for semantic/01 + ops/01 (plain qwen3:4b is thinking-only)
 qdrant:
   enabled: true
 phoenix:

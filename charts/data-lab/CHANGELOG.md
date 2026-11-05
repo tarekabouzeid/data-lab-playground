@@ -3,6 +3,17 @@
 Chart versions follow semver. `appVersion` is the lab release the chart deploys (see
 [RELEASE_NOTES.md](../../RELEASE_NOTES.md) and [docs/VERSIONS.md](../../docs/VERSIONS.md)).
 
+## 0.3.1 — unreleased (appVersion 3.0.0)
+
+Workstation profile fix. No change to `values.yaml` or the templates: default renders are identical to 0.3.0.
+
+### Fixed
+- `ci/workstation-values.yaml`: Ollama pulls `qwen3:4b-instruct` (Qwen3-4B-Instruct-2507) instead of `qwen3:4b`. That
+  tag now resolves to Qwen3-4B-Thinking-2507, which is thinking-only (`think=False` cannot switch it off): its
+  reasoning leaked into the reply, it never reached a tool call, and with no generation cap it ran until the Ollama
+  runner was OOM-killed. `semantic/01` and `ops/01` use the instruct tag (`lab_utils.TOOL_MODEL`) and cap every turn
+  (`lab_utils.CHAT_MAX_TOKENS`).
+
 ## 0.3.0 — unreleased (appVersion 3.0.0)
 
 Lab pipelines on Airflow. Additive only: with default values the chart renders exactly what 0.2.0 renders.

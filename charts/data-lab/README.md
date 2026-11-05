@@ -1,6 +1,6 @@
 # data-lab Helm chart
 
-![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
+![Version: 0.3.1](https://img.shields.io/badge/Version-0.3.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
 
 Ephemeral lakehouse lab: Hive Metastore (Thrift + Iceberg REST), SeaweedFS S3, Spark Connect, Trino and Airflow, with optional Jupyter and GenAI services (Ollama, Qdrant, Phoenix). Built for many parallel releases on one cluster.
 
@@ -14,11 +14,11 @@ Component versions are pinned in [docs/VERSIONS.md](../../docs/VERSIONS.md) (sec
 
 ```bash
 # from the OCI registry (published on every v* tag)
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.0 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.1 \
   --namespace lab1 --create-namespace --wait --timeout 10m
 
 # minimal lakehouse profile: hms + seaweedfs + spark + trino
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.0 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.1 \
   -n lab1 --create-namespace -f https://raw.githubusercontent.com/tarekabouzeid/data-lab-playground/main/charts/data-lab/ci/minimal-values.yaml
 
 helm test lab1 -n lab1      # Spark writes an Iceberg table, Trino reads it, then it is dropped
