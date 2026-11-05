@@ -9,6 +9,8 @@ HOST = re.compile(r"https?://(phoenix|ollama|qdrant|trino|hive-metastore|seaweed
 
 def code_cells():
     for f in sorted(NB.rglob("*.ipynb")):
+        if ".ipynb_checkpoints" in f.parts:   # Jupyter's gitignored autosaves, not the shipped notebooks
+            continue
         for i, c in enumerate(json.loads(f.read_text())["cells"]):
             if c["cell_type"] == "code":
                 yield f.relative_to(NB), i, "".join(c["source"])
