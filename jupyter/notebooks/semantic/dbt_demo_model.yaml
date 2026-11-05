@@ -1,0 +1,461 @@
+# The dbt demo shop as an Apache Ossie semantic model: the `spec` of the chart's SemanticModel `<release>-data-lab-dbt-demo`
+# (semantic.models.dbtDemo; charts/data-lab/templates/semantic-models.yaml sets connection.catalog/database from values).
+# A copy lives next to the notebook (jupyter/notebooks/semantic/dbt_demo_model.yaml); hack/check-compose-parity.py
+# keeps them identical. Expressions are ANSI_SQL: TRINO is not an Ossie dialect yet (apache/ossie#607).
+connection:
+  catalog: iceberg
+  database: dbt_demo
+  viewDatabase: iceberg.semantic_views
+ossie:
+  name: dbt_demo
+  description: 'The dbt demo shop: orders, payments, refunds, customers, products, unit costs and sales regions'
+  ai_context:
+    instructions: Use this model for questions about revenue, margin, refunds, payments, orders, customers and products. Metrics
+      are certified definitions; never re-derive them from raw columns. Revenue and average order value exclude returned orders;
+      gross margin is revenue minus unit cost; refund rate is refunds over gross sales. Payment method only goes with amount_collected
+      and payment_count; refund reason only with refunded_amount.
+  datasets:
+  - name: fct_orders
+    source: fct_orders
+    primary_key:
+    - order_id
+    description: One row per order (one product line)
+    ai_context:
+      synonyms:
+      - orders
+      - sales
+      - purchases
+    fields:
+    - name: order_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: order_id
+      description: Order id
+    - name: customer_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: customer_id
+      description: Customer who ordered
+    - name: product_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: product_id
+      description: Product ordered
+    - name: quantity
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: quantity
+      description: Units ordered
+    - name: amount
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: amount
+      description: Order amount (quantity x unit price), before refunds
+    - name: order_date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: order_ts
+      description: When the order was placed
+      dimension:
+        is_time: true
+      ai_context:
+        synonyms:
+        - date
+        - day
+        - week
+        - month
+    - name: status
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: status
+      description: 'Order status: open, fulfilled or returned'
+      dimension: {}
+  - name: fct_payments
+    source: fct_payments
+    primary_key:
+    - payment_id
+    description: One row per payment; an order can be paid in several parts
+    ai_context:
+      synonyms:
+      - payments
+      - transactions
+      - collections
+    fields:
+    - name: payment_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: payment_id
+      description: Payment id
+    - name: order_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: order_id
+      description: Order paid
+    - name: method
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: method
+      description: 'Payment method: card, paypal, bank_transfer or gift_card'
+      dimension: {}
+      ai_context:
+        synonyms:
+        - payment type
+    - name: amount
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: amount
+      description: Amount paid
+  - name: fct_refunds
+    source: fct_refunds
+    primary_key:
+    - refund_id
+    description: One row per refund; an order can be refunded in installments
+    ai_context:
+      synonyms:
+      - refunds
+      - returns money
+      - chargebacks
+    fields:
+    - name: refund_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: refund_id
+      description: Refund id
+    - name: order_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: order_id
+      description: Order refunded
+    - name: amount
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: amount
+      description: Amount refunded
+    - name: reason
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: reason
+      description: 'Why: returned (whole order) or damaged (partial goodwill refund)'
+      dimension: {}
+  - name: stg_customers
+    source: stg_customers
+    primary_key:
+    - customer_id
+    description: Customers of the shop
+    ai_context:
+      synonyms:
+      - customers
+      - buyers
+      - accounts
+    fields:
+    - name: customer_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: customer_id
+      description: Customer id
+    - name: name
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: name
+      description: Customer name
+    - name: email
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: email
+      description: Customer e-mail (personal data)
+    - name: country
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: country
+      description: Customer country code (DE, ES, FR, IT, NL)
+      dimension: {}
+    - name: plan
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: plan
+      description: 'Subscription plan: free, pro or enterprise'
+      dimension: {}
+      ai_context:
+        synonyms:
+        - tier
+        - subscription
+  - name: dim_products
+    source: dim_products
+    primary_key:
+    - product_id
+    description: Product catalogue
+    ai_context:
+      synonyms:
+      - products
+      - items
+      - catalogue
+    fields:
+    - name: product_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: product_id
+      description: Product id
+    - name: product_name
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: product_name
+      description: Product name
+      dimension: {}
+    - name: category
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: category
+      description: 'Product category: computing or peripherals'
+      dimension: {}
+  - name: dim_product_costs
+    source: dim_product_costs
+    primary_key:
+    - product_id
+    description: What the shop pays per unit
+    fields:
+    - name: product_id
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: product_id
+      description: Product id
+    - name: unit_cost
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: unit_cost
+      description: Purchase cost per unit
+    - name: supplier
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: supplier
+      description: Supplier of the product
+      dimension: {}
+      ai_context:
+        synonyms:
+        - vendor
+  - name: dim_regions
+    source: dim_regions
+    primary_key:
+    - country
+    description: Sales region of each customer country
+    fields:
+    - name: country
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: country
+      description: Country code
+    - name: sales_region
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: sales_region
+      description: 'Sales region: DACH, Southern Europe or Western Europe'
+      dimension: {}
+      ai_context:
+        synonyms:
+        - region
+        - market
+  relationships:
+  - name: orders_to_customers
+    from: fct_orders
+    to: stg_customers
+    from_columns:
+    - customer_id
+    to_columns:
+    - customer_id
+  - name: orders_to_products
+    from: fct_orders
+    to: dim_products
+    from_columns:
+    - product_id
+    to_columns:
+    - product_id
+  - name: products_to_costs
+    from: dim_products
+    to: dim_product_costs
+    from_columns:
+    - product_id
+    to_columns:
+    - product_id
+  - name: customers_to_regions
+    from: stg_customers
+    to: dim_regions
+    from_columns:
+    - country
+    to_columns:
+    - country
+  - name: payments_to_orders
+    from: fct_payments
+    to: fct_orders
+    from_columns:
+    - order_id
+    to_columns:
+    - order_id
+  - name: refunds_to_orders
+    from: fct_refunds
+    to: fct_orders
+    from_columns:
+    - order_id
+    to_columns:
+    - order_id
+  metrics:
+  - name: total_revenue
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(CASE WHEN fct_orders.status <> 'returned' THEN fct_orders.amount ELSE 0 END)
+    description: 'Revenue: order amounts of all orders that were not returned'
+    ai_context:
+      synonyms:
+      - revenue
+      - sales
+      - turnover
+      - income
+  - name: order_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: COUNT(DISTINCT fct_orders.order_id)
+    description: Number of orders (all statuses)
+    ai_context:
+      synonyms:
+      - orders
+      - number of orders
+  - name: units_sold
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(fct_orders.quantity)
+    description: Units ordered (all statuses)
+    ai_context:
+      synonyms:
+      - units
+      - quantity
+      - items sold
+  - name: average_order_value
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(CASE WHEN fct_orders.status <> 'returned' THEN fct_orders.amount ELSE 0 END) / NULLIF(COUNT(DISTINCT
+          fct_orders.order_id), 0)
+    description: Revenue (excluding returns) per order
+    ai_context:
+      synonyms:
+      - AOV
+      - average order value
+      - basket size
+  - name: customer_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: COUNT(DISTINCT fct_orders.customer_id)
+    description: Customers with at least one order
+    ai_context:
+      synonyms:
+      - customers
+      - buyers
+      - number of customers
+  - name: gross_margin
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(CASE WHEN fct_orders.status <> 'returned' THEN fct_orders.amount - fct_orders.quantity * dim_product_costs.unit_cost
+          ELSE 0 END)
+    description: Revenue minus the unit cost of the units sold (returned orders excluded)
+    ai_context:
+      synonyms:
+      - margin
+      - profit
+      - gross profit
+  - name: refunded_amount
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(fct_refunds.amount)
+    description: Money refunded to customers (all installments)
+    ai_context:
+      synonyms:
+      - refunds
+      - refunded
+      - money returned
+  - name: refund_rate
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(fct_refunds.amount) / NULLIF(SUM(fct_orders.amount), 0)
+    description: Share of gross sales (all orders) refunded
+    ai_context:
+      synonyms:
+      - refund rate
+      - refund ratio
+      - return rate
+  - name: amount_collected
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(fct_payments.amount)
+    description: Money collected from customers (all payments)
+    ai_context:
+      synonyms:
+      - payments received
+      - cash collected
+      - collected
+  - name: payment_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: COUNT(DISTINCT fct_payments.payment_id)
+    description: Number of payments
+    ai_context:
+      synonyms:
+      - payments
+      - transactions
+governance:
+  defaultRole: analyst
+  roles:
+  - name: analyst
+    allowMetrics:
+    - '*'
+  - name: marketing
+    allowMetrics:
+    - '*'
+    denyFields:
+    - stg_customers.email
+  - name: dach_sales
+    allowMetrics:
+    - total_revenue
+    - order_count
+    - units_sold
+    - average_order_value
+    - customer_count
+    denyFields:
+    - stg_customers.email
+    rowFilters:
+    - dataset: dim_regions
+      predicate: sales_region = 'DACH'

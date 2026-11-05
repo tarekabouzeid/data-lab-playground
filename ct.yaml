@@ -5,3 +5,5 @@ chart-dirs:
 validate-maintainers: false
 check-version-increment: true
 helm-extra-args: --timeout 600s
+# helm lint cannot pass --api-versions; the gateway/DRA/semantic API checks run in the kubeconform step instead
+helm-lint-extra-args: --set global.apiChecks=false

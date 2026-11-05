@@ -8,7 +8,7 @@ Usage: include "datalab.simpleComponent" (dict "root" $ "component" "qdrant" "va
 {{- $root := .root -}}
 {{- $c := .values -}}
 {{- $name := include "datalab.componentName" (list $root .component) -}}
-{{- if $c.persistence.enabled }}
+{{- if and $c.persistence.enabled (not $c.persistence.existingClaim) }}
 {{ include "datalab.pvc" (list $root .component $c.persistence) }}
 ---
 {{- end }}
@@ -51,6 +51,9 @@ spec:
       {{- include "datalab.podSpecCommon" (list $root $c) | nindent 6 }}
       automountServiceAccountToken: false
       enableServiceLinks: false
+      {{- with .podExtra }}
+      {{- . | nindent 6 }}
+      {{- end }}
       containers:
         - name: {{ .component }}
           image: {{ include "datalab.image" (list $root $c.image) }}

@@ -175,7 +175,10 @@ spec:
 
 {{/* Volume source: PVC or emptyDir. Usage: include "datalab.volumeSource" (list $ "hms-db" .Values.hms.database.persistence) */}}
 {{- define "datalab.volumeSource" -}}
-{{- if (index . 2).enabled }}
+{{- if (index . 2).existingClaim }}
+persistentVolumeClaim:
+  claimName: {{ (index . 2).existingClaim }}
+{{- else if (index . 2).enabled }}
 persistentVolumeClaim:
   claimName: {{ include "datalab.componentName" (list (index . 0) (index . 1)) }}
 {{- else }}
@@ -318,4 +321,39 @@ Usage: include "datalab.eventLogDirInit" .
   volumeMounts:
     - name: tmp
       mountPath: /tmp
+{{- end -}}
+
+{{/* ---------- gateway ---------- */}}
+
+{{/*
+Routes for the enabled UIs plus gateway.extraRoutes, as a YAML list of {name, service, port, longLived, host}.
+Usage: include "datalab.gatewayRoutes" . | fromYamlArray
+*/}}
+{{- define "datalab.gatewayRoutes" -}}
+{{- $v := .Values -}}
+{{- $builtin := list
+  (dict "name" "jupyter" "on" $v.jupyter.enabled "component" "jupyter" "port" 8888 "longLived" true)
+  (dict "name" "trino" "on" $v.trino.enabled "component" "trino" "port" 8080)
+  (dict "name" "airflow" "on" $v.airflow.enabled "component" "airflow" "port" 8080)
+  (dict "name" "spark" "on" $v.spark.enabled "component" "spark-connect" "port" 4040)
+  (dict "name" "spark-history" "on" (and $v.spark.enabled $v.sparkHistory.enabled) "component" "spark-history" "port" 18080)
+  (dict "name" "phoenix" "on" $v.phoenix.enabled "component" "phoenix" "port" 6006)
+  (dict "name" "qdrant" "on" $v.qdrant.enabled "component" "qdrant" "port" 6333)
+  (dict "name" "ollama" "on" $v.ollama.enabled "component" "ollama" "port" 11434)
+  (dict "name" "s3" "on" $v.seaweedfs.enabled "component" "seaweedfs" "port" 8333) -}}
+{{- $routes := list -}}
+{{- range $builtin -}}
+{{- if .on -}}
+{{- $routes = append $routes (dict "name" .name "service" (include "datalab.componentName" (list $ .component)) "port" .port "longLived" (default false .longLived)) -}}
+{{- end -}}
+{{- end -}}
+{{- range $v.gateway.extraRoutes -}}
+{{- $routes = append $routes (dict "name" .name "service" .service "port" .port "longLived" (default false .longLived)) -}}
+{{- end -}}
+{{- $out := list -}}
+{{- range $routes -}}
+{{- $host := tpl $v.gateway.hostTemplate (dict "route" .name "release" $.Release.Name "domain" $v.gateway.domain "Template" $.Template) -}}
+{{- $out = append $out (merge (dict "host" $host) .) -}}
+{{- end -}}
+{{- toYaml $out -}}
 {{- end -}}

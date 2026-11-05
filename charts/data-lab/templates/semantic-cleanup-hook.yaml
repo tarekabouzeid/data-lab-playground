@@ -1,0 +1,129 @@
+{{- if .Values.semantic.enabled }}
+{{- /*
+The upstream manager puts the finalizer semantic.ossie.io/views-cleanup on every SemanticModel. helm uninstall
+deletes the manager together with the models, which can leave models stuck (and the namespace undeletable).
+This pre-delete hook deletes the release's models while the manager still runs; after 90 s it strips the
+finalizer so uninstall always completes. Stdlib Python in the Spark image (already pulled), namespaced RBAC only.
+*/ -}}
+{{- $name := include "datalab.componentName" (list . "semantic-cleanup") }}
+{{- $s := .Values.spark }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [semantic.ossie.io]
+    resources: [semanticmodels]
+    verbs: [get, list, delete, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "semantic-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 240
+  template:
+    metadata:
+      labels:
+        {{- include "datalab.componentLabels" (list . "semantic-cleanup") | nindent 8 }}
+    spec:
+      {{- include "datalab.podSpecCommon" (list . $s) | nindent 6 }}
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      enableServiceLinks: false
+      containers:
+        - name: cleanup
+          image: {{ include "datalab.image" (list . $s.image) }}
+          imagePullPolicy: {{ $s.image.pullPolicy }}
+          securityContext:
+            {{- include "datalab.containerSecurityContext" (list . $s) | nindent 12 }}
+          env:
+            - {name: NAMESPACE, value: {{ .Release.Namespace | quote }}}
+            - {name: SELECTOR, value: {{ printf "app.kubernetes.io/instance=%s" .Release.Name | quote }}}
+          command:
+            - /opt/conda/bin/python
+            - -c
+            - |
+              import json, os, ssl, time, urllib.error, urllib.parse, urllib.request
+              sa = "/var/run/secrets/kubernetes.io/serviceaccount"
+              token = open(f"{sa}/token").read()
+              ctx = ssl.create_default_context(cafile=f"{sa}/ca.crt")
+              base = (f"https://{os.environ['KUBERNETES_SERVICE_HOST']}:{os.environ['KUBERNETES_SERVICE_PORT']}"
+                      f"/apis/semantic.ossie.io/v1alpha1/namespaces/{os.environ['NAMESPACE']}/semanticmodels")
+
+              def call(method, url, body=None, ctype="application/json"):
+                  req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body else None,
+                                               headers={"Authorization": f"Bearer {token}", "Content-Type": ctype})
+                  try:
+                      with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                          return json.load(r)
+                  except urllib.error.HTTPError as e:
+                      if e.code == 404:   # already gone (or the CRD was removed first): nothing left to clean
+                          return {"items": []}
+                      raise
+
+              def models():
+                  q = urllib.parse.urlencode({"labelSelector": os.environ["SELECTOR"]})
+                  return [m["metadata"]["name"] for m in call("GET", f"{base}?{q}")["items"]]
+
+              for name in models():
+                  print("deleting", name, flush=True)
+                  call("DELETE", f"{base}/{name}")
+              deadline = time.time() + 90
+              while models() and time.time() < deadline:
+                  time.sleep(3)
+              for name in models():  # the manager did not finish in time: release the finalizer
+                  print("removing the finalizer of", name, flush=True)
+                  call("PATCH", f"{base}/{name}", {"metadata": {"finalizers": None}}, "application/merge-patch+json")
+              print("semantic models gone:", not models(), flush=True)
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {memory: 256Mi}
+{{- end }}

@@ -1,0 +1,591 @@
+# Vendored from https://github.com/kubeflow/semantic-operator/blob/4fd7057/charts/semantic-operator/crds/semantic.ossie.io_semanticmodels.yaml
+# (commit 4fd7057, 2026-10-23). Cluster-scoped: applied by hack/workstation/setup-minikube.sh, the kind e2e, or a platform
+# admin; never by charts/data-lab.
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: semanticmodels.semantic.ossie.io
+spec:
+  group: semantic.ossie.io
+  names:
+    kind: SemanticModel
+    listKind: SemanticModelList
+    plural: semanticmodels
+    shortNames:
+    - sm
+    singular: semanticmodel
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.modelVersion
+      name: Version
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Validated")].status
+      name: Validated
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Published")].status
+      name: Published
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="DriftDetected")].status
+      name: Drift
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SemanticModel is the Schema for the semanticmodels API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              SemanticModelSpec defines the desired state of SemanticModel.
+              The ossie block is an Apache Ossie semantic_model entry, structurally
+              unmodified so it round-trips as Ossie YAML. governance and views are
+              operator extensions kept outside the Ossie document.
+            properties:
+              connection:
+                description: Connection pins the Ossie model's dataset sources to
+                  a query-engine catalog.
+                properties:
+                  catalog:
+                    description: Catalog is the query-engine catalog name (e.g. "iceberg").
+                    type: string
+                  database:
+                    description: Database is the database/schema within the catalog
+                      (e.g. "osi_demo").
+                    type: string
+                  viewDatabase:
+                    description: |-
+                      ViewDatabase is the query-engine default-catalog database where governed
+                      views are created. Defaults to "semantic_views".
+                    type: string
+                required:
+                - catalog
+                - database
+                type: object
+              governance:
+                description: |-
+                  Governance defines built-in compile-time access policy and an optional
+                  external query-time authorization gate.
+                properties:
+                  defaultRole:
+                    description: DefaultRole applies when an adapter passes no identity.
+                    type: string
+                  external:
+                    description: |-
+                      External adds a fail-closed authorization decision before plan and result
+                      cache access. Provider connection details are server configuration, not
+                      model data.
+                    properties:
+                      providerRef:
+                        description: ProviderRef is the logical provider name from
+                          server.authorization.providers.
+                        maxLength: 63
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                        type: string
+                    required:
+                    - providerRef
+                    type: object
+                  roles:
+                    items:
+                      description: RolePolicy is the policy for one role.
+                      properties:
+                        allowMetrics:
+                          description: |-
+                            AllowMetrics is a list of metric-name globs (e.g. "*", "total_*").
+                            Empty means no metrics are allowed for this role.
+                          items:
+                            type: string
+                          type: array
+                        denyFields:
+                          description: |-
+                            DenyFields lists dataset.field references this role may never read,
+                            as a dimension, filter, or inside a metric expression.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          type: string
+                        rowFilters:
+                          description: RowFilters are predicates conjoined into WHERE
+                            at compile time.
+                          items:
+                            description: RowFilter is a row-level predicate over one
+                              dataset.
+                            properties:
+                              dataset:
+                                type: string
+                              predicate:
+                                description: |-
+                                  Predicate is a SQL boolean expression over the dataset's physical
+                                  columns, e.g. "s_state = 'TX'".
+                                type: string
+                            required:
+                            - dataset
+                            - predicate
+                            type: object
+                          type: array
+                      required:
+                      - name
+                      type: object
+                    type: array
+                required:
+                - roles
+                type: object
+              joins:
+                description: |-
+                  Joins overrides the join type per relationship (operator extension). A
+                  relationship not listed here uses INNER. Kept outside the ossie block so
+                  the Ossie document stays pure.
+                items:
+                  description: |-
+                    RelationshipJoin overrides the join type for one relationship. It is an
+                    operator extension kept outside the Ossie block, so the relationships in
+                    spec.ossie stay pure Ossie (the core spec does not define a join type).
+                  properties:
+                    relationship:
+                      description: Relationship is the name of an ossie.relationships
+                        entry.
+                      type: string
+                    type:
+                      description: Type is INNER or LEFT.
+                      enum:
+                      - INNER
+                      - LEFT
+                      type: string
+                  required:
+                  - relationship
+                  - type
+                  type: object
+                type: array
+              ossie:
+                description: Ossie is the semantic model definition, following the
+                  Ossie core spec.
+                properties:
+                  ai_context:
+                    x-kubernetes-preserve-unknown-fields: true
+                  custom_extensions:
+                    items:
+                      description: CustomExtension carries vendor-specific attributes
+                        as a JSON string.
+                      properties:
+                        data:
+                          type: string
+                        vendor_name:
+                          type: string
+                      required:
+                      - data
+                      - vendor_name
+                      type: object
+                    type: array
+                  datasets:
+                    items:
+                      description: Dataset is an Ossie logical dataset bound to a
+                        physical table.
+                      properties:
+                        ai_context:
+                          x-kubernetes-preserve-unknown-fields: true
+                        custom_extensions:
+                          items:
+                            description: CustomExtension carries vendor-specific attributes
+                              as a JSON string.
+                            properties:
+                              data:
+                                type: string
+                              vendor_name:
+                                type: string
+                            required:
+                            - data
+                            - vendor_name
+                            type: object
+                          type: array
+                        description:
+                          type: string
+                        fields:
+                          items:
+                            description: 'Field is a row-level attribute: a column
+                              reference or scalar expression.'
+                            properties:
+                              ai_context:
+                                x-kubernetes-preserve-unknown-fields: true
+                              custom_extensions:
+                                items:
+                                  description: CustomExtension carries vendor-specific
+                                    attributes as a JSON string.
+                                  properties:
+                                    data:
+                                      type: string
+                                    vendor_name:
+                                      type: string
+                                  required:
+                                  - data
+                                  - vendor_name
+                                  type: object
+                                type: array
+                              description:
+                                type: string
+                              dimension:
+                                description: Dimension marks a field's dimensional
+                                  metadata.
+                                properties:
+                                  is_time:
+                                    type: boolean
+                                type: object
+                              expression:
+                                description: Expression holds per-dialect scalar or
+                                  aggregate SQL expressions.
+                                properties:
+                                  dialects:
+                                    items:
+                                      description: DialectExpression is one dialect's
+                                        rendering of an expression.
+                                      properties:
+                                        dialect:
+                                          enum:
+                                          - ANSI_SQL
+                                          - SNOWFLAKE
+                                          - MDX
+                                          - TABLEAU
+                                          - DATABRICKS
+                                          - MAQL
+                                          - STARROCKS
+                                          type: string
+                                        expression:
+                                          type: string
+                                      required:
+                                      - dialect
+                                      - expression
+                                      type: object
+                                    type: array
+                                required:
+                                - dialects
+                                type: object
+                              label:
+                                type: string
+                              name:
+                                type: string
+                            required:
+                            - expression
+                            - name
+                            type: object
+                          type: array
+                        name:
+                          type: string
+                        primary_key:
+                          items:
+                            type: string
+                          type: array
+                        source:
+                          description: |-
+                            Source is the physical binding: bare table name (resolved against
+                            spec.connection) or fully qualified catalog.database.table.
+                          type: string
+                        unique_keys:
+                          items:
+                            items:
+                              type: string
+                            type: array
+                          type: array
+                      required:
+                      - name
+                      - source
+                      type: object
+                    type: array
+                  description:
+                    type: string
+                  metrics:
+                    items:
+                      description: Metric is a model-level aggregate measure.
+                      properties:
+                        ai_context:
+                          x-kubernetes-preserve-unknown-fields: true
+                        custom_extensions:
+                          items:
+                            description: CustomExtension carries vendor-specific attributes
+                              as a JSON string.
+                            properties:
+                              data:
+                                type: string
+                              vendor_name:
+                                type: string
+                            required:
+                            - data
+                            - vendor_name
+                            type: object
+                          type: array
+                        description:
+                          type: string
+                        expression:
+                          description: Expression holds per-dialect scalar or aggregate
+                            SQL expressions.
+                          properties:
+                            dialects:
+                              items:
+                                description: DialectExpression is one dialect's rendering
+                                  of an expression.
+                                properties:
+                                  dialect:
+                                    enum:
+                                    - ANSI_SQL
+                                    - SNOWFLAKE
+                                    - MDX
+                                    - TABLEAU
+                                    - DATABRICKS
+                                    - MAQL
+                                    - STARROCKS
+                                    type: string
+                                  expression:
+                                    type: string
+                                required:
+                                - dialect
+                                - expression
+                                type: object
+                              type: array
+                          required:
+                          - dialects
+                          type: object
+                        name:
+                          type: string
+                      required:
+                      - expression
+                      - name
+                      type: object
+                    type: array
+                  name:
+                    type: string
+                  relationships:
+                    items:
+                      description: 'Relationship is an edge in the join graph: many
+                        side (from) to one side (to).'
+                      properties:
+                        ai_context:
+                          x-kubernetes-preserve-unknown-fields: true
+                        custom_extensions:
+                          items:
+                            description: CustomExtension carries vendor-specific attributes
+                              as a JSON string.
+                            properties:
+                              data:
+                                type: string
+                              vendor_name:
+                                type: string
+                            required:
+                            - data
+                            - vendor_name
+                            type: object
+                          type: array
+                        from:
+                          type: string
+                        from_columns:
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          type: string
+                        to:
+                          type: string
+                        to_columns:
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - from
+                      - from_columns
+                      - name
+                      - to
+                      - to_columns
+                      type: object
+                    type: array
+                required:
+                - datasets
+                - name
+                type: object
+              views:
+                description: Views are governed metric views the operator creates
+                  in the configured query engine for BI tools.
+                items:
+                  description: ViewSpec declares a governed metric view materialized
+                    in the configured query engine.
+                  properties:
+                    dimensions:
+                      items:
+                        type: string
+                      type: array
+                    filters:
+                      items:
+                        description: ViewFilter is a static filter on a governed view.
+                        properties:
+                          field:
+                            type: string
+                          op:
+                            enum:
+                            - =
+                            - '!='
+                            - <
+                            - <=
+                            - '>'
+                            - '>='
+                            - IN
+                            - NOT IN
+                            - LIKE
+                            - BETWEEN
+                            type: string
+                          value:
+                            type: string
+                          valueType:
+                            description: 'ValueType forces literal rendering: auto
+                              (default), string, or number.'
+                            enum:
+                            - auto
+                            - string
+                            - number
+                            type: string
+                          values:
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - field
+                        - op
+                        type: object
+                      type: array
+                    metrics:
+                      items:
+                        type: string
+                      type: array
+                    name:
+                      type: string
+                    role:
+                      description: Role the view is compiled under. Defaults to governance.defaultRole.
+                      type: string
+                    timeGrain:
+                      description: TimeGrain is one of day, week, month, quarter,
+                        year.
+                      enum:
+                      - day
+                      - week
+                      - month
+                      - quarter
+                      - year
+                      type: string
+                  required:
+                  - metrics
+                  - name
+                  type: object
+                type: array
+            required:
+            - connection
+            - ossie
+            type: object
+          status:
+            description: SemanticModelStatus defines the observed state of SemanticModel.
+            properties:
+              bindings:
+                items:
+                  description: DatasetBinding reports the physical resolution of one
+                    dataset.
+                  properties:
+                    dataset:
+                      type: string
+                    drift:
+                      type: string
+                    table:
+                      type: string
+                  required:
+                  - dataset
+                  - table
+                  type: object
+                type: array
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              modelVersion:
+                description: ModelVersion is a content hash of the spec; it names
+                  the published artifact.
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              publishedConfigMap:
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -10,6 +10,14 @@
 {{- $env = append $env (dict "name" "SPARK_REMOTE" "value" (printf "sc://%s:15002" (include "datalab.host" (list . "spark-connect")))) -}}
 {{- end -}}
 {{- end -}}
+{{- if $v.trino.enabled -}}
+{{- $env = append $env (dict "name" "TRINO_HOST" "value" (include "datalab.host" (list . "trino"))) -}}
+{{- $env = append $env (dict "name" "TRINO_PORT" "value" "8080") -}}
+{{- end -}}
+{{- if or $v.seaweedfs.enabled $v.s3.endpoint -}}
+{{- $env = append $env (dict "name" "S3_ACCESS_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (include "datalab.s3SecretName" .) "key" $v.s3.auth.accessKeyKey))) -}}
+{{- $env = append $env (dict "name" "S3_SECRET_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (include "datalab.s3SecretName" .) "key" $v.s3.auth.secretKeyKey))) -}}
+{{- end -}}
 {{- if $v.qdrant.enabled -}}
 {{- $env = append $env (dict "name" "QDRANT_API_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (include "datalab.qdrantSecretName" .) "key" $v.qdrant.auth.apiKeyKey))) -}}
 {{- end -}}

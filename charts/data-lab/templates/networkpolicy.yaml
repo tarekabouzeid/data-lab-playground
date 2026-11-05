@@ -17,6 +17,13 @@ spec:
         - podSelector:
             matchLabels:
               {{- include "datalab.selectorLabels" . | nindent 14 }}
+        {{- if .Values.gateway.enabled }}
+        {{- range .Values.gateway.allowFromNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+        {{- end }}
         {{- with .Values.networkPolicy.extraIngressFrom }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

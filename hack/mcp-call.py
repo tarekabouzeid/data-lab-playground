@@ -1,15 +1,19 @@
 """Minimal MCP streamable-HTTP client (stdlib only), used by the kind e2e from inside the cluster.
 
 usage: python mcp-call.py <url> <tool> [json-arguments]
+Extra request headers (e.g. the semantic layer's X-Semantic-User / X-Semantic-Role) come from the
+MCP_HEADERS environment variable as a JSON object.
 Initializes a session, calls one tool and prints the tool's text result. Exit code 0 when the call
 returned a result (a tool-level error is still printed, so the caller can assert on it), 1 on protocol errors.
 """
 import json
+import os
 import sys
 import urllib.request
 
 URL = sys.argv[1]
-HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+           **json.loads(os.environ.get("MCP_HEADERS") or "{}")}
 session = None
 
 

@@ -4,6 +4,9 @@
 # Image tags are pinned to docs/VERSIONS.md (section 8, "Helm chart images").
 
 global:
+  # -- Fail rendering when a required API is missing (Gateway API for `gateway`, DRA for `ollama.gpu.dra`, the
+  # SemanticModel CRD for `semantic`). Set `false` only for offline linting: `helm lint` cannot pass `--api-versions`.
+  apiChecks: true
   # -- Registry that replaces every image's `registry` (for mirrors / air-gapped clusters). Empty keeps each image's own registry.
   imageRegistry: ""
   # -- Pull secrets (names of existing `kubernetes.io/dockerconfigjson` Secrets) added to every pod.
@@ -44,6 +47,31 @@ networkPolicy:
   enabled: true
   # -- Extra NetworkPolicyPeer entries allowed to reach every component (for example the consumer's namespace).
   extraIngressFrom: []
+
+# Browser access through Gateway API HTTPRoutes (needs a Gateway API implementation, e.g. Envoy Gateway).
+# Off by default; the chart never creates a GatewayClass (cluster-scoped).
+gateway:
+  # -- Create an HTTPRoute for each enabled UI (jupyter, trino, airflow, spark, spark-history, phoenix, qdrant, ollama, s3).
+  enabled: false
+  # -- Create a namespaced Gateway `<fullname>-gateway` on this existing GatewayClass. Set this or `parentRef`, not both.
+  gatewayClassName: ""
+  # -- Attach the routes to an existing Gateway instead (for example a shared one in another namespace).
+  parentRef:
+    # -- Name of the existing Gateway.
+    name: ""
+    # -- Namespace of the existing Gateway (empty = the release namespace).
+    namespace: ""
+    # -- Listener (section) name on the existing Gateway (empty = all listeners).
+    sectionName: ""
+  # -- Domain the route hostnames are built on.
+  domain: localhost
+  # -- Hostname template. `{{ .route }}`, `{{ .release }}` and `{{ .domain }}` are replaced; keep the release in it so
+  # parallel releases get distinct hostnames.
+  hostTemplate: "{{ .route }}.{{ .release }}.{{ .domain }}"
+  # -- Namespaces whose pods may reach the release (the gateway's proxy pods), added to the NetworkPolicy.
+  allowFromNamespaces: []
+  # -- Extra routes to Services the chart does not manage, e.g. `{name: headlamp, service: headlamp, port: 80, longLived: true}`.
+  extraRoutes: []
 
 # Object storage used by HMS, Spark and Trino. SeaweedFS (below) serves it unless `s3.endpoint` points elsewhere.
 s3:
@@ -260,6 +288,11 @@ spark:
   rbac:
     # -- Create a namespaced Role/RoleBinding letting the Connect server manage executor pods, ConfigMaps and PVCs.
     create: true
+  # Batch jobs as SparkApplications (Kubeflow Spark Operator, installed separately with this namespace in its
+  # `spark.jobNamespaces`). The chart only provides the driver's ServiceAccount and a namespaced Role.
+  applications:
+    # -- Create the ServiceAccount `<fullname>-spark-apps` (+ Role/RoleBinding) for SparkApplication drivers.
+    enabled: false
   # -- Pod securityContext (Connect server and executors).
   podSecurityContext:
     runAsNonRoot: true
@@ -538,6 +571,12 @@ airflow:
       storageClass: ""
       # -- PVC access modes.
       accessModes: ["ReadWriteOnce"]
+  labPipelines:
+    # -- Run lab pipelines such as `northwind_daily` (jupyter/notebooks/ops/dags): DAG tasks get `SPARK_REMOTE` (with the
+    # Spark Connect token) and `TRINO_HOST`/`TRINO_PORT`, and, with `semantic.enabled`, a ServiceAccount that may read
+    # this release's SemanticModels (`SEMANTIC_MODEL_RESOURCE`). Needs an image with the clients: `airflow/Dockerfile`
+    # (pyspark-client + dbt), e.g. `ghcr.io/tarekabouzeid/data-lab-playground/airflow:<appVersion>`.
+    enabled: false
   # -- Extra environment variables for every Airflow container (list of EnvVar).
   extraEnv: []
   # -- Resources of each Airflow container (api-server, scheduler, dag-processor, triggerer).
@@ -629,6 +668,119 @@ airflow:
     # -- Extra pod annotations.
     podAnnotations: {}
 
+# Kubeflow Semantic Operator: an Apache Ossie semantic layer on the release's Trino, served to agents over MCP
+# (`/mcp`) and to apps over REST (`/v1`). Needs the SemanticModel CRD (hack/crds/, cluster-scoped, installed
+# separately) and `trino.enabled`. At most one semantic-enabled release per namespace (the manager has no selector).
+semantic:
+  # -- Deploy the Semantic Operator manager and server.
+  enabled: false
+  manager:
+    image:
+      # -- Image registry.
+      registry: ghcr.io
+      # -- Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh).
+      repository: tarekabouzeid/data-lab-playground/semantic-operator-manager
+      # -- Image tag (= appVersion).
+      tag: "3.0.0"
+      # -- Image pull policy.
+      pullPolicy: IfNotPresent
+    # -- How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns
+    # Ready within this period once they do).
+    resyncPeriod: 30s
+    # -- Trino user the manager introspects metadata as.
+    engineUser: semantic-manager
+    # -- Container resources.
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 256Mi}
+    # -- Pod securityContext (the images are distroless, uid 65532).
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      seccompProfile: {type: RuntimeDefault}
+    # -- Extra container securityContext, merged over `global.containerSecurityContext`.
+    securityContext: {}
+    # -- RuntimeClass. Empty falls back to `global.runtimeClassName`.
+    runtimeClassName: ""
+    # -- Node selector. Empty falls back to `global.nodeSelector`.
+    nodeSelector: {}
+    # -- Tolerations. Empty falls back to `global.tolerations`.
+    tolerations: []
+    # -- Affinity.
+    affinity: {}
+    # -- Extra pod labels.
+    podLabels: {}
+    # -- Extra pod annotations.
+    podAnnotations: {}
+  server:
+    image:
+      # -- Image registry.
+      registry: ghcr.io
+      # -- Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh).
+      repository: tarekabouzeid/data-lab-playground/semantic-operator-server
+      # -- Image tag (= appVersion).
+      tag: "3.0.0"
+      # -- Image pull policy.
+      pullPolicy: IfNotPresent
+    # -- Server replicas.
+    replicas: 1
+    # -- Trino user queries run as (static identity).
+    engineUser: semantic-server
+    auth:
+      # -- `header`: X-Semantic-User/X-Semantic-Role are trusted as sent; safe here only because the release
+      # NetworkPolicy admits nothing but this release's pods. `jwt`: bearer tokens checked against `jwt.jwksURL`.
+      mode: header
+      jwt:
+        # -- JWKS URL of the identity provider (required for `jwt`).
+        jwksURL: ""
+        # -- Expected issuer (optional).
+        issuer: ""
+        # -- Expected audience (optional).
+        audience: ""
+        # -- Claim naming the principal.
+        principalClaim: sub
+        # -- Claim holding the governance role.
+        roleClaim: role
+        # -- Claim holding groups (optional).
+        groupsClaim: ""
+    # -- Extra keys merged into the server's config.yaml (e.g. `query: {maxRowLimit: 5000}`); see the upstream chart.
+    extraConfig: {}
+    # -- Container resources.
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 512Mi}
+    # -- Pod securityContext (the images are distroless, uid 65532).
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      seccompProfile: {type: RuntimeDefault}
+    # -- Extra container securityContext, merged over `global.containerSecurityContext`.
+    securityContext: {}
+    # -- RuntimeClass. Empty falls back to `global.runtimeClassName`.
+    runtimeClassName: ""
+    # -- Node selector. Empty falls back to `global.nodeSelector`.
+    nodeSelector: {}
+    # -- Tolerations. Empty falls back to `global.tolerations`.
+    tolerations: []
+    # -- Affinity.
+    affinity: {}
+    # -- Extra pod labels.
+    podLabels: {}
+    # -- Extra pod annotations.
+    podAnnotations: {}
+  models:
+    dbtDemo:
+      # -- Render the `dbt-demo` SemanticModel over the dbt demo tables (jupyter/notebooks/dbt/lakehouse_demo).
+      enabled: true
+      # -- Trino catalog of the dbt demo tables.
+      catalog: iceberg
+      # -- Schema of the dbt demo tables.
+      schema: dbt_demo
+    # -- Extra SemanticModel specs, each `{name: <suffix>, spec: <SemanticModel spec>}`.
+    extra: []
+
 jupyter:
   # -- Deploy JupyterLab (connects to Spark Connect, Trino and the GenAI services that are enabled).
   enabled: false
@@ -655,6 +807,8 @@ jupyter:
     storageClass: ""
     # -- PVC access modes.
     accessModes: ["ReadWriteOnce"]
+    # -- Use this existing PVC for `/home/jovyan/work` instead of creating one (e.g. the workstation's host-folder PV).
+    existingClaim: ""
   # -- Container resources.
   resources:
     requests: {cpu: 100m, memory: 512Mi}
@@ -702,6 +856,13 @@ ollama:
     resourceName: nvidia.com/gpu
     # -- Number of GPUs.
     count: 1
+    # Dynamic Resource Allocation instead of the extended resource (needs Kubernetes >= 1.34 and a DRA driver,
+    # e.g. the NVIDIA DRA driver). Renders a namespaced ResourceClaimTemplate.
+    dra:
+      # -- Claim the GPU through DRA (requires `ollama.gpu.enabled`).
+      enabled: false
+      # -- DeviceClass of the GPU.
+      deviceClassName: gpu.nvidia.com
   persistence:
     # -- Use a PVC for models. `false` uses an emptyDir.
     enabled: true
@@ -848,3 +1009,7 @@ tests:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
+  # The 19-check lakehouse e2e (tests/e2e/e2e_lakehouse.py) as a second `helm test` pod, through Spark Connect.
+  lakehouseE2e:
+    # -- Render the lakehouse e2e test pod. Needs `spark` and `trino`; takes a few minutes.
+    enabled: false
