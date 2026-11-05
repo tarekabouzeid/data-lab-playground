@@ -80,6 +80,22 @@ def test_gold_uses_the_semantic_refund_rate_and_the_run_date():
     assert re.search(r"refunded_amount, 0\) / nullif\(s.gross_sales, 0\)", ctas)   # SUM(refunds) / SUM(orders)
 
 
+def test_run_date_without_a_logical_date():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    after = datetime(2026, 11, 5, 9, 30, tzinfo=timezone.utc)
+    manual = SimpleNamespace(run_after=after, data_interval_end=None)   # `airflow dags trigger`: logical_date is None
+    assert dagmod.run_date(None, manual) == "2026-11-05"
+    scheduled = SimpleNamespace(run_after=after, data_interval_end=datetime(2026, 11, 4, tzinfo=timezone.utc))
+    assert dagmod.run_date(None, scheduled) == "2026-11-04"
+    assert dagmod.run_date(datetime(2026, 10, 30, tzinfo=timezone.utc), manual) == "2026-10-30"
+    fake = FakeTrino()
+    dagmod.publish_product_kpis(dagmod.run_date(None, manual), fake)
+    ctas = next(s for s in fake.sql if "CREATE OR REPLACE TABLE" in s)
+    assert "DATE '2026-11-05'" in ctas and "None" not in ctas
+
+
 def test_wait_for_published(monkeypatch):
     monkeypatch.delenv("SEMANTIC_MODEL_RESOURCE", raising=False)
     with pytest.raises(dagmod.Skip):

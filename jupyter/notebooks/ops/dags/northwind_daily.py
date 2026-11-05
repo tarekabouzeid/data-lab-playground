@@ -10,6 +10,7 @@
                         one row per order in the marts
 * publish_product_kpis  shop_gold.product_kpis: orders, gross sales, refunded amount and refund rate per product
                         (the semantic model's refund_rate definition), stamped with the run's logical date
+                        (or, for manual runs that have none, its run_after)
 * wait_for_published    the Kubeflow Semantic Operator re-checks the SemanticModel against the rebuilt tables; wait
                         until its Published condition is True (skipped where there is no semantic layer)
 
@@ -158,6 +159,13 @@ def quality_checks(run=trino_sql) -> dict:
     return results
 
 
+def run_date(logical_date=None, dag_run=None) -> str:
+    """The run's date as YYYY-MM-DD. Airflow 3 manual runs (`airflow dags trigger`, the UI) have no logical date, so
+    `ds` is None there: fall back to the dag run's data_interval_end, then its run_after (always set)."""
+    when = logical_date or getattr(dag_run, "data_interval_end", None) or dag_run.run_after
+    return when.strftime("%Y-%m-%d")
+
+
 def publish_product_kpis(ds: str, run=trino_sql) -> list:
     for sql in GOLD:
         run(sql.format(ds=ds))
@@ -214,8 +222,8 @@ if dag is not None:
             return quality_checks()
 
         @task
-        def gold(_checks, ds=None):
-            return publish_product_kpis(ds)
+        def gold(_checks, logical_date=None, dag_run=None):
+            return publish_product_kpis(run_date(logical_date, dag_run))
 
         @task
         def published(_built):
