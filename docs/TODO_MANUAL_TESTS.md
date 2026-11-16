@@ -12,18 +12,26 @@ criterion. Full checklist: [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).
   ```
   Pass: `workstation e2e passed`, including `northwind_daily run e2e-<n>: success` and
   `ok ops/01_pipeline_agent.ipynb`.
-- [ ] **`semantic/01` with `qwen3:4b-instruct`** (Qwen3-4B-Instruct-2507, the sandbox's stand-in; plain `qwen3:4b` is
+- [x] **`semantic/01` with `qwen3:4b-instruct`** (Qwen3-4B-Instruct-2507, the sandbox's stand-in; plain `qwen3:4b` is
   thinking-only and never reaches a tool call). Pass: the semantic layer scores 6/6, and the step-by-step cell runs `list_metrics → list_dimensions → query_metric`.
-- [ ] **`ops/01` with `qwen3:4b-instruct`.** Pass: it names the latest `northwind_daily` run and its task states, and
+- [x] **`ops/01` with `qwen3:4b-instruct`.** Pass: it names the latest `northwind_daily` run and its task states, and
   Spark application ids from the History Server.
-- [ ] **`rag_demo` on GPU.** Pass: `numbers from: semantic layer (certified metrics)`; the router answer names firmware
+- [x] **`rag_demo` on GPU.** Pass: `numbers from: semantic layer (certified metrics)`; the router answer names firmware
   2.4.1 and the SSD answer the dead-on-arrival drives.
-- [ ] **Airflow UI** (`http://airflow.datalab.localhost:8080`): `northwind_daily` is unpaused. The latest run shows
+- [x] **Airflow UI** (`http://airflow.datalab.localhost:8080`): `northwind_daily` is unpaused. The latest run shows
   `build` logging `Done. PASS=50` and `published` succeeding.
 - [ ] **Confirm CI on the PR head is green**, including the kind `parallel` job, which was still running at hand-off.
 - [ ] **Release:** pick the version/tag, then update `RELEASE_NOTES.md` (agents need your explicit yes).
 
 ## Already verified
+
+- 2026-11-16, workstation lab (minikube, RTX 5070 Ti, chart 0.3.1), each run from the browser:
+  - `semantic/01`: 6/6 (raw text-to-SQL 1/6), the step-by-step cell runs `list_metrics → list_dimensions → query_metric`, `marketing` is denied the e-mail filter, `dach_sales` sees only DACH.
+  - `ops/01`: it names the latest `northwind_daily` run, its task states and the Spark application id.
+  - `rag_demo`: the router answer names firmware 2.4.1, the SSD answer the dead-on-arrival drives.
+  - The tour notebook runs end to end.
+  - A UI-triggered `northwind_daily` run succeeded with all 5 tasks, and `build` logged `Done. PASS=50`. Before that, two catch-up runs started together and collided in `dbt seed`; that is fixed by `max_active_runs=1`.
+  - The lab peaked at 12.9 GiB.
 
 - CI: chart-lint and the kind minimal, default and semantic jobs passed on 4b494d3. The semantic job also runs the DAG's
   `wait_for_published` against the real Semantic Operator.
