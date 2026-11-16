@@ -23,6 +23,12 @@ criterion. Full checklist: [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).
 - [ ] **Confirm CI on the PR head is green**, including the kind `parallel` job, which was still running at hand-off.
 - [ ] **Release:** pick the version/tag, then update `RELEASE_NOTES.md` (agents need your explicit yes).
 
+## Next (development)
+
+- [ ] **`ops/02_spark_history_agent.ipynb`**, a notebook for the Spark History MCP server. It inspects the running Spark
+  Connect session (`live`) and finished applications (`history`) by hand, then lets the tool model diagnose a skewed join
+  and a missing partition filter. Plan: [2026-11-16-spark-history-agent-notebook.md](superpowers/plans/2026-11-16-spark-history-agent-notebook.md).
+
 ## Already verified
 
 - 2026-11-16, workstation lab (minikube, RTX 5070 Ti, chart 0.3.1), each run from the browser:
