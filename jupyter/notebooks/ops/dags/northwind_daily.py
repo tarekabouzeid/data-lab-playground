@@ -206,8 +206,10 @@ except ImportError:      # imported outside Airflow (unit tests, notebooks): the
     dag = None
 
 if dag is not None:
+    # max_active_runs=1: every run re-seeds and rebuilds the same tables, so two runs at once (e.g. the catch-up runs
+    # after the lab was stopped) collide in `dbt seed` with "Failed to drop table"
     @dag(dag_id="northwind_daily", schedule="@daily", start_date=datetime(2026, 9, 1), catchup=False,
-         is_paused_upon_creation=False, tags=["northwind", "lab"], doc_md=__doc__)
+         max_active_runs=1, is_paused_upon_creation=False, tags=["northwind", "lab"], doc_md=__doc__)
     def northwind_daily():
         @task
         def ingest():

@@ -37,6 +37,11 @@ def test_dag_id_and_trino_from_env():
     assert dagmod.NOTEBOOKS.name == "notebooks" and (dagmod.DBT_PROJECT / "dbt_project.yml").exists()
 
 
+def test_runs_never_overlap():
+    # every run re-seeds and rebuilds the same tables: two at once fail with "Failed to drop table" (catch-up runs)
+    assert "max_active_runs=1" in DAG_FILE.read_text()
+
+
 def test_one_replay_of_the_order_log():
     events = lab_data.order_events()
     rows = dagmod.order_event_rows(events, replay=3)
