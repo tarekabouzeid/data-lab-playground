@@ -835,6 +835,34 @@ jupyter:
   # -- Extra pod annotations.
   podAnnotations: {}
 
+llm:
+  # -- Where the notebooks' AI parts get their models. `""` picks `ollama` when `ollama.enabled`, else `none`.
+  # `ollama`: the chart's Ollama (OpenAI-compatible API at `/v1`). `openai`: any OpenAI-compatible endpoint
+  # (OpenRouter, a hosted API, ...; no GPU needed) set by `baseUrl`. `none`: AI is off and notebooks skip their AI sections.
+  provider: ""
+  # -- `openai` only: base URL of the chat endpoint, including the version path (for example `https://openrouter.ai/api/v1`).
+  baseUrl: ""
+  auth:
+    # -- `openai` only: existing Secret holding the API key (never put a key in values).
+    existingSecret: ""
+    # -- Key of the API key in that Secret.
+    apiKeyKey: api-key
+  # -- Chat model. Empty uses `gemma3:4b` with `ollama`; required with `openai`.
+  chatModel: ""
+  # -- Model for agents (must support tool calling). Empty uses `qwen3:4b-instruct` with `ollama`; required with `openai`.
+  toolModel: ""
+  # -- Embeddings model. Empty uses `mxbai-embed-large:latest` with `ollama`; with `openai` empty means no embeddings
+  # (the vector-search sections of `rag_demo` are skipped).
+  embeddingModel: ""
+  # -- Embeddings endpoint when it differs from the chat endpoint (for example chat on OpenRouter, embeddings on a local
+  # Ollama at `http://<release>-data-lab-ollama:11434/v1`). Empty uses the chat endpoint. Needs `embeddingModel`.
+  embeddingBaseUrl: ""
+  embeddingAuth:
+    # -- Existing Secret with the API key of the embeddings endpoint when it needs a different key than the chat endpoint.
+    # Empty uses `auth` (and no key at all when `auth` is empty too).
+    existingSecret: ""
+    # -- Key of the API key in that Secret.
+    apiKeyKey: api-key
 ollama:
   # -- Deploy Ollama (local LLM server, no authentication). Needs a GPU to be useful; CPU works but is slow.
   enabled: false
@@ -849,6 +877,8 @@ ollama:
     pullPolicy: IfNotPresent
   # -- Models pulled at startup (for example `llama3.2:3b`). Pod readiness waits for the pulls.
   models: []
+  # -- Context window (`OLLAMA_CONTEXT_LENGTH`, tokens). Ollama defaults to 4096, too small for agents with tool schemas.
+  contextLength: 16384
   gpu:
     # -- Request GPUs.
     enabled: false

@@ -44,6 +44,15 @@ Flat UPPER_CASE keys work with envFrom; ENDPOINTS_JSON has the same data structu
 {{- if $v.ollama.enabled -}}
 {{- $_ := set $e "ollama" (dict "url" (printf "http://%s:11434" (include "datalab.host" (list . "ollama"))) "auth" "none") -}}
 {{- end -}}
+{{- $cfg := include "datalab.llmConfig" . | fromYaml -}}
+{{- $llm := dict "provider" $cfg.LLM_PROVIDER -}}
+{{- range $k, $f := dict "LLM_BASE_URL" "baseUrl" "LLM_CHAT_MODEL" "chatModel" "LLM_TOOL_MODEL" "toolModel" "LLM_EMBED_MODEL" "embeddingModel" "LLM_EMBED_BASE_URL" "embeddingBaseUrl" -}}
+{{- if hasKey $cfg $k -}}{{- $_ := set $llm $f (get $cfg $k) -}}{{- end -}}
+{{- end -}}
+{{- range (include "datalab.llmSecretEnv" . | fromYamlArray) -}}
+{{- $_ := set $llm (ternary "credentials" "embeddingCredentials" (eq .name "LLM_API_KEY")) (dict "secret" .valueFrom.secretKeyRef.name "apiKeyKey" .valueFrom.secretKeyRef.key) -}}
+{{- end -}}
+{{- $_ := set $e "llm" $llm -}}
 {{- if $v.qdrant.enabled -}}
 {{- $_ := set $e "qdrant" (dict "url" (printf "http://%s:6333" (include "datalab.host" (list . "qdrant"))) "grpcUrl" (printf "http://%s:6334" (include "datalab.host" (list . "qdrant"))) "credentials" (dict "secret" (include "datalab.qdrantSecretName" .) "apiKeyKey" $v.qdrant.auth.apiKeyKey)) -}}
 {{- end -}}
@@ -66,6 +75,9 @@ data:
   DATALAB_RELEASE: {{ .Release.Name | quote }}
   DATALAB_NAMESPACE: {{ .Release.Namespace | quote }}
   DATALAB_VERSION: {{ .Chart.AppVersion | quote }}
+  {{- range $k, $val := (include "datalab.llmConfig" . | fromYaml) }}
+  {{ $k }}: {{ $val | quote }}
+  {{- end }}
   {{- with $e.s3 }}
   S3_ENDPOINT: {{ .endpoint | quote }}
   S3_BUCKET: {{ .bucket | quote }}

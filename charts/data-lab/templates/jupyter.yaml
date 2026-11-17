@@ -24,6 +24,9 @@
 {{- if $v.ollama.enabled -}}
 {{- $env = append $env (dict "name" "OLLAMA_HOST" "value" (printf "http://%s:11434" (include "datalab.host" (list . "ollama")))) -}}
 {{- end -}}
+{{- range (include "datalab.llmSecretEnv" . | fromYamlArray) -}}
+{{- $env = append $env . -}}
+{{- end -}}
 {{- if $v.phoenix.enabled -}}
 {{- $env = append $env (dict "name" "PHOENIX_COLLECTOR_ENDPOINT" "value" (printf "http://%s:6006" (include "datalab.host" (list . "phoenix")))) -}}
 {{- end -}}

@@ -1,6 +1,6 @@
 # data-lab Helm chart
 
-![Version: 0.3.1](https://img.shields.io/badge/Version-0.3.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
+![Version: 0.4.0](https://img.shields.io/badge/Version-0.4.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
 
 Ephemeral lakehouse lab: Hive Metastore (Thrift + Iceberg REST), SeaweedFS S3, Spark Connect, Trino and Airflow, with optional Jupyter and GenAI services (Ollama, Qdrant, Phoenix). Built for many parallel releases on one cluster.
 
@@ -14,11 +14,11 @@ Component versions are pinned in [docs/VERSIONS.md](../../docs/VERSIONS.md) (sec
 
 ```bash
 # from the OCI registry (published on every v* tag)
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.1 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.4.0 \
   --namespace lab1 --create-namespace --wait --timeout 10m
 
 # minimal lakehouse profile: hms + seaweedfs + spark + trino
-helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.3.1 \
+helm install lab1 oci://ghcr.io/tarekabouzeid/charts/data-lab --version 0.4.0 \
   -n lab1 --create-namespace -f https://raw.githubusercontent.com/tarekabouzeid/data-lab-playground/main/charts/data-lab/ci/minimal-values.yaml
 
 helm test lab1 -n lab1      # Spark writes an Iceberg table, Trino reads it, then it is dropped
@@ -595,12 +595,23 @@ Kubernetes: `>=1.29.0-0`
 | jupyter.affinity | object | `{}` | Affinity for the pod. |
 | jupyter.podLabels | object | `{}` | Extra pod labels. |
 | jupyter.podAnnotations | object | `{}` | Extra pod annotations. |
+| llm.provider | string | `""` | Where the notebooks' AI parts get their models. `""` picks `ollama` when `ollama.enabled`, else `none`. `ollama`: the chart's Ollama (OpenAI-compatible API at `/v1`). `openai`: any OpenAI-compatible endpoint (OpenRouter, a hosted API, ...; no GPU needed) set by `baseUrl`. `none`: AI is off and notebooks skip their AI sections. |
+| llm.baseUrl | string | `""` | `openai` only: base URL of the chat endpoint, including the version path (for example `https://openrouter.ai/api/v1`). |
+| llm.auth.existingSecret | string | `""` | `openai` only: existing Secret holding the API key (never put a key in values). |
+| llm.auth.apiKeyKey | string | `"api-key"` | Key of the API key in that Secret. |
+| llm.chatModel | string | `""` | Chat model. Empty uses `gemma3:4b` with `ollama`; required with `openai`. |
+| llm.toolModel | string | `""` | Model for agents (must support tool calling). Empty uses `qwen3:4b-instruct` with `ollama`; required with `openai`. |
+| llm.embeddingModel | string | `""` | Embeddings model. Empty uses `mxbai-embed-large:latest` with `ollama`; with `openai` empty means no embeddings (the vector-search sections of `rag_demo` are skipped). |
+| llm.embeddingBaseUrl | string | `""` | Embeddings endpoint when it differs from the chat endpoint (for example chat on OpenRouter, embeddings on a local Ollama at `http://<release>-data-lab-ollama:11434/v1`). Empty uses the chat endpoint. Needs `embeddingModel`. |
+| llm.embeddingAuth.existingSecret | string | `""` | Existing Secret with the API key of the embeddings endpoint when it needs a different key than the chat endpoint. Empty uses `auth` (and no key at all when `auth` is empty too). |
+| llm.embeddingAuth.apiKeyKey | string | `"api-key"` | Key of the API key in that Secret. |
 | ollama.enabled | bool | `false` | Deploy Ollama (local LLM server, no authentication). Needs a GPU to be useful; CPU works but is slow. |
 | ollama.image.registry | string | `"docker.io"` | Image registry. |
 | ollama.image.repository | string | `"ollama/ollama"` | Image repository. |
 | ollama.image.tag | string | `"0.40.3"` | Image tag. |
 | ollama.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | ollama.models | list | `[]` | Models pulled at startup (for example `llama3.2:3b`). Pod readiness waits for the pulls. |
+| ollama.contextLength | int | `16384` | Context window (`OLLAMA_CONTEXT_LENGTH`, tokens). Ollama defaults to 4096, too small for agents with tool schemas. |
 | ollama.gpu.enabled | bool | `false` | Request GPUs. |
 | ollama.gpu.resourceName | string | `"nvidia.com/gpu"` | Extended resource name of the GPU. |
 | ollama.gpu.count | int | `1` | Number of GPUs. |

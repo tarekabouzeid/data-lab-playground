@@ -19,6 +19,8 @@ env:
     value: /data/home
   - name: OLLAMA_MODELS
     value: /data/models
+  - name: OLLAMA_CONTEXT_LENGTH
+    value: %s
 startupProbe:
   exec: {command: ["test", "-f", "/tmp/models-ready"]}
   periodSeconds: 5
@@ -29,7 +31,7 @@ readinessProbe:
 livenessProbe:
   httpGet: {path: /api/version, port: http}
   periodSeconds: 20
-  failureThreshold: 6` $models -}}
+  failureThreshold: 6` $models ($c.contextLength | toString | quote) -}}
 {{- $gpu := dict -}}
 {{- $podExtra := "" -}}
 {{- if and $c.gpu.dra.enabled (not $c.gpu.enabled) -}}

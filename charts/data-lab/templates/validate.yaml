@@ -56,3 +56,26 @@
 {{- if and $v.airflowMcp.enabled (not $v.airflow.enabled) -}}
 {{- fail "data-lab: airflowMcp.enabled=true requires airflow.enabled=true" -}}
 {{- end -}}
+{{- $llmProvider := include "datalab.llmProvider" . -}}
+{{- if not (has $llmProvider (list "ollama" "openai" "none")) -}}
+{{- fail (printf "data-lab: llm.provider must be \"\", ollama, openai or none (got %q)" $llmProvider) -}}
+{{- end -}}
+{{- if and (eq $llmProvider "ollama") (not $v.ollama.enabled) -}}
+{{- fail "data-lab: llm.provider=ollama requires ollama.enabled=true" -}}
+{{- end -}}
+{{- if eq $llmProvider "openai" -}}
+{{- range (list "baseUrl" "chatModel" "toolModel") -}}
+{{- if not (get $v.llm .) -}}
+{{- fail (printf "data-lab: llm.provider=openai requires llm.%s" .) -}}
+{{- end -}}
+{{- end -}}
+{{- if not $v.llm.auth.existingSecret -}}
+{{- fail "data-lab: llm.provider=openai requires llm.auth.existingSecret (a Secret with the API key; never put a key in values)" -}}
+{{- end -}}
+{{- end -}}
+{{- if and $v.llm.embeddingBaseUrl (not (or $v.llm.embeddingModel (eq $llmProvider "ollama"))) -}}
+{{- fail "data-lab: llm.embeddingBaseUrl requires llm.embeddingModel" -}}
+{{- end -}}
+{{- if and $v.llm.embeddingAuth.existingSecret (not $v.llm.embeddingBaseUrl) -}}
+{{- fail "data-lab: llm.embeddingAuth.existingSecret requires llm.embeddingBaseUrl (otherwise the chat key is used)" -}}
+{{- end -}}

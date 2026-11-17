@@ -3,6 +3,27 @@
 Chart versions follow semver. `appVersion` is the lab release the chart deploys (see
 [RELEASE_NOTES.md](../../RELEASE_NOTES.md) and [docs/VERSIONS.md](../../docs/VERSIONS.md)).
 
+## 0.4.0 — unreleased (appVersion 3.0.0)
+
+An `llm` block for the notebooks' AI parts. Additive only: with default values every resource is unchanged (the
+endpoints ConfigMap gains `LLM_PROVIDER=none`, or the Ollama settings when `ollama.enabled`).
+
+### Added
+- `llm.provider` (`""` auto | `ollama` | `openai` | `none`), `llm.baseUrl`, `llm.chatModel`, `llm.toolModel`,
+  `llm.embeddingModel`, and the API key from `llm.auth.existingSecret` (key `llm.auth.apiKeyKey`). With `openai`, any
+  OpenAI-compatible endpoint (OpenRouter, a hosted API) replaces Ollama, so no GPU is needed; with `none` the
+  notebooks skip their AI sections.
+- `llm.embeddingBaseUrl` and `llm.embeddingAuth` let embeddings come from a different endpoint (and key) than chat,
+  for example chat on OpenRouter and embeddings on the chart's Ollama. The default is the chat endpoint.
+- The Jupyter pod gets `LLM_*` (non-secret ones from the endpoints ConfigMap, keys from Secrets) and ENDPOINTS_JSON
+  an `llm` entry. Render-time validation of the combinations.
+- `ollama.contextLength` (default 16384, `OLLAMA_CONTEXT_LENGTH`): Ollama's 4,096-token default cannot hold an
+  agent's tool schemas.
+
+### Removed (repository, not the chart)
+- Docker Compose (`docker-compose.yaml`, `start-platform.sh`, `trino/`, `seaweedfs/`, `tests/e2e/`,
+  `hack/check-compose-parity.py`). The e2e script is `charts/data-lab/files/e2e_lakehouse.py` only.
+
 ## 0.3.1 — unreleased (appVersion 3.0.0)
 
 Workstation profile fix. No change to `values.yaml` or the templates: default renders are identical to 0.3.0.

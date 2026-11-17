@@ -1,5 +1,47 @@
 {{/* ---------- names ---------- */}}
 
+{{- /* Resolved LLM provider: llm.provider, or ollama when the chart deploys Ollama, else none. */ -}}
+{{- define "datalab.llmProvider" -}}
+{{- if .Values.llm.provider -}}{{ .Values.llm.provider }}{{- else if .Values.ollama.enabled -}}ollama{{- else -}}none{{- end -}}
+{{- end }}
+
+{{- /* The non-secret LLM_* settings of the lab's Jupyter, as YAML. Keys come from `datalab.llmSecretEnv`. */ -}}
+{{- define "datalab.llmConfig" -}}
+{{- $l := .Values.llm -}}
+{{- $p := include "datalab.llmProvider" . -}}
+LLM_PROVIDER: {{ $p | quote }}
+{{- if eq $p "ollama" }}
+LLM_BASE_URL: {{ printf "http://%s:11434/v1" (include "datalab.host" (list . "ollama")) | quote }}
+LLM_CHAT_MODEL: {{ $l.chatModel | default "gemma3:4b" | quote }}
+LLM_TOOL_MODEL: {{ $l.toolModel | default "qwen3:4b-instruct" | quote }}
+LLM_EMBED_MODEL: {{ $l.embeddingModel | default "mxbai-embed-large:latest" | quote }}
+{{- else if eq $p "openai" }}
+LLM_BASE_URL: {{ $l.baseUrl | quote }}
+LLM_CHAT_MODEL: {{ $l.chatModel | quote }}
+LLM_TOOL_MODEL: {{ $l.toolModel | quote }}
+{{- if $l.embeddingModel }}
+LLM_EMBED_MODEL: {{ $l.embeddingModel | quote }}
+{{- end }}
+{{- end }}
+{{- if and (ne $p "none") $l.embeddingBaseUrl }}
+LLM_EMBED_BASE_URL: {{ $l.embeddingBaseUrl | quote }}
+{{- end }}
+{{- end }}
+
+{{- /* Secret-backed LLM env (name + secretKeyRef) as a list: the chat key, and the embeddings key when it differs. */ -}}
+{{- define "datalab.llmSecretEnv" -}}
+{{- $l := .Values.llm -}}
+{{- $p := include "datalab.llmProvider" . -}}
+{{- $env := list -}}
+{{- if and (ne $p "none") $l.auth.existingSecret -}}
+{{- $env = append $env (dict "name" "LLM_API_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" $l.auth.existingSecret "key" $l.auth.apiKeyKey))) -}}
+{{- end -}}
+{{- if and (ne $p "none") $l.embeddingAuth.existingSecret -}}
+{{- $env = append $env (dict "name" "LLM_EMBED_API_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" $l.embeddingAuth.existingSecret "key" $l.embeddingAuth.apiKeyKey))) -}}
+{{- end -}}
+{{- toYaml $env -}}
+{{- end }}
+
 {{- define "datalab.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
