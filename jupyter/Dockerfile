@@ -70,7 +70,8 @@ RUN pip install --no-cache-dir \
     seaborn \
     plotly \
     openai \
-    ollama \
+    "strands-agents[openai]==1.65.0" \
+    opentelemetry-exporter-otlp-proto-http \
     arize-phoenix \
     qdrant-client \
     sentence-transformers \
@@ -79,8 +80,6 @@ RUN pip install --no-cache-dir \
     langchain-community==0.4.1 \
     langchain-core==1.2.6 \
     langchain-experimental==0.4.1 \
-    langchain-ollama==1.0.1 \
-    ollama==0.6.3 \
     langchain-openai==1.1.6 \
     langchain-qdrant==1.1.0 \
     langchain-text-splitters==1.1.0 \

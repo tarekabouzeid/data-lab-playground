@@ -6,6 +6,9 @@ from conftest import REPO, by_kind, configmap, env_of, render, workload
 ON = {"jupyter": {"enabled": True}}
 # Every service the notebooks talk to, so every env var lab_utils reads has a source.
 ALL = {k: {"enabled": True} for k in ("jupyter", "ollama", "qdrant", "phoenix", "semantic")}
+# ... including the LLM key Secrets (chat, and a separate embeddings endpoint)
+ALL["llm"] = {"provider": "openai", "baseUrl": "https://x/v1", "chatModel": "a", "toolModel": "b", "embeddingModel": "e",
+              "embeddingBaseUrl": "https://y/v1", "auth": {"existingSecret": "k"}, "embeddingAuth": {"existingSecret": "k2"}}
 APIS = ["semantic.ossie.io/v1alpha1/SemanticModel"]
 LAB_UTILS = (REPO / "jupyter" / "notebooks" / "lab_utils.py").read_text()
 

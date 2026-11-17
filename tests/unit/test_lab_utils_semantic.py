@@ -12,36 +12,36 @@ QUERY_RESULT = {"columns": ["total_revenue"], "rows": [[40.0]], "rowCount": 1,
                 "sql": "SELECT SUM(CASE WHEN status <> 'returned' THEN amount ELSE 0 END) FROM fct_orders"}
 
 
-def test_mcp_schema_to_ollama():
+def test_mcp_schema_to_openai():
     tool = {"name": "query_metric", "description": "d", "inputSchema": {"type": "object", "properties": {"metrics": {"type": "array"}}}}
-    assert lab_utils.mcp_tool_to_ollama(tool) == {
+    assert lab_utils.mcp_tool_to_openai(tool) == {
         "type": "function",
         "function": {"name": "query_metric", "description": "d",
                      "parameters": {"type": "object", "properties": {"metrics": {"type": "array"}}}},
     }
 
 
-def test_mcp_schemas_are_normalized_for_ollama():
+def test_mcp_schemas_are_normalized_for_the_grammar():
     """Ollama 0.40 rejects valid JSON Schema it cannot compile into a grammar: an object without `properties`
     ("properties must be an object", e.g. list_models) and boolean sub-schemas. Nullable unions it accepts: kept."""
-    no_args = lab_utils.mcp_tool_to_ollama({"name": "list_models", "inputSchema": {"type": "object", "additionalProperties": False}})
+    no_args = lab_utils.mcp_tool_to_openai({"name": "list_models", "inputSchema": {"type": "object", "additionalProperties": False}})
     assert no_args["function"]["parameters"] == {"type": "object", "properties": {}, "additionalProperties": False}
-    assert lab_utils.mcp_tool_to_ollama({"name": "x"})["function"]["parameters"] == {"type": "object", "properties": {}}
+    assert lab_utils.mcp_tool_to_openai({"name": "x"})["function"]["parameters"] == {"type": "object", "properties": {}}
     schema = {"type": "object", "properties": {
         "metrics": {"type": ["null", "array"], "items": {"type": "string"}},
         "filters": {"type": ["null", "array"], "items": {"type": "object", "properties": {"op": {"type": "string"}}}},
         "limit": {"type": ["integer", "null"]},
         "nested": {"type": "object"}}}
-    props = lab_utils.mcp_tool_to_ollama({"name": "q", "inputSchema": schema})["function"]["parameters"]["properties"]
+    props = lab_utils.mcp_tool_to_openai({"name": "q", "inputSchema": schema})["function"]["parameters"]["properties"]
     assert props["metrics"] == {"type": ["null", "array"], "items": {"type": "string"}}
     assert props["filters"]["items"]["properties"] == {"op": {"type": "string"}}
     assert props["limit"] == {"type": ["integer", "null"]}
     assert props["nested"] == {"type": "object", "properties": {}}
     assert schema["properties"]["metrics"]["type"] == ["null", "array"]      # the server's schema is not modified
     # boolean schemas ("items": true) must be objects for Ollama; keyword booleans stay booleans
-    values = lab_utils._ollama_schema({"type": "array", "items": True})
+    values = lab_utils._tool_schema({"type": "array", "items": True})
     assert values == {"type": "array", "items": {}}
-    assert lab_utils._ollama_schema({"type": "object", "additionalProperties": False}) == \
+    assert lab_utils._tool_schema({"type": "object", "additionalProperties": False}) == \
         {"type": "object", "additionalProperties": False, "properties": {}}
 
 
@@ -78,7 +78,7 @@ class Frame:
 
 
 def fake_chat(script):
-    """A fake Ollama chat that answers from a list of messages, recording what it was sent."""
+    """A fake chat that answers from a list of messages, recording what it was sent."""
     sent = []
 
     def chat(model, messages, tools=None):
@@ -86,39 +86,6 @@ def fake_chat(script):
         return {"message": script[min(len(sent), len(script)) - 1]}
     chat.sent = sent
     return chat
-
-
-def call(name, args):
-    return {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": name, "arguments": args}}]}
-
-
-def test_ask_semantic_loop(monkeypatch):
-    chat = fake_chat([call("list_metrics", {}), call("query_metric", {"metrics": ["total_revenue"]}),
-                      {"role": "assistant", "content": "Total revenue is 40."}])
-    calls = []
-
-    def mcp(name, args, role="analyst"):
-        calls.append((name, args, role))
-        return QUERY_RESULT if name == "query_metric" else {"metrics": [{"name": "total_revenue"}]}
-    monkeypatch.setattr(lab_utils, "_chat", chat)
-    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
-    monkeypatch.setattr(lab_utils, "mcp_call", mcp)
-    out = lab_utils.ask_semantic("What is total revenue?", role="marketing")
-    assert out["tool_calls"] == ["list_metrics", "query_metric"]
-    assert out["sql"] == QUERY_RESULT["sql"]
-    assert out["rows"] == [[40.0]]
-    assert out["answer"] == "Total revenue is 40."
-    assert {r for _, _, r in calls} == {"marketing"}
-    assert chat.sent[-1][-1]["role"] == "tool"
-
-
-def test_ask_semantic_turn_cap(monkeypatch):
-    monkeypatch.setattr(lab_utils, "_chat", fake_chat([call("list_metrics", {})]))
-    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
-    monkeypatch.setattr(lab_utils, "mcp_call", lambda name, args, role="analyst": {"metrics": []})
-    out = lab_utils.ask_semantic("loop forever", max_turns=3)
-    assert out["tool_calls"] == ["list_metrics"] * 3
-    assert "3 turns" in out["answer"]
 
 
 def test_ask_raw_sql_runs_the_generated_sql(monkeypatch):
@@ -144,14 +111,6 @@ def test_ask_raw_sql_reports_sql_errors(monkeypatch):
     monkeypatch.setattr(lab_utils, "trino", trino)
     out = lab_utils.ask_raw_sql("?", tables=["fct_orders"])
     assert out["rows"] == [] and "cannot be resolved" in out["error"]
-
-
-def test_require_tool_model(monkeypatch):
-    monkeypatch.setattr(lab_utils, "_ollama_show", lambda model: {"capabilities": ["completion"]})
-    with pytest.raises(RuntimeError, match="gemma3:4b"):
-        lab_utils.require_tool_model("gemma3:4b")
-    monkeypatch.setattr(lab_utils, "_ollama_show", lambda model: {"capabilities": ["completion", "tools"]})
-    lab_utils.require_tool_model("qwen3:4b-instruct")
 
 
 def test_mcp_call_parses_tool_result(monkeypatch):
@@ -185,20 +144,6 @@ def test_rows_match_detects_wrong_answers():
     assert not lab_utils.rows_match([["DE", 45.0], ["FR", 10.0]], truth)  # returns not excluded
     assert not lab_utils.rows_match([["DE", 35.0]], truth)
     assert not lab_utils.rows_match([], truth)
-
-
-def test_ask_semantic_records_each_step(monkeypatch):
-    chat = fake_chat([call("list_metrics", {}), call("query_metric", {"metrics": ["total_revenue"]}),
-                      {"role": "assistant", "content": "Total revenue is 40."}])
-    results = {"list_metrics": {"metrics": [{"name": "total_revenue"}]}, "query_metric": QUERY_RESULT,
-               "list_models": {"models": [{"name": "dbt_demo"}]}, "list_dimensions": {"dimensions": []}}
-    monkeypatch.setattr(lab_utils, "_chat", chat)
-    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
-    monkeypatch.setattr(lab_utils, "mcp_call", lambda name, args, role="analyst": results[name])
-    steps = lab_utils.ask_semantic("What is total revenue?")["steps"]
-    assert [s["tool"] for s in steps] == ["list_metrics", "query_metric"]
-    assert steps[1]["args"] == {"metrics": ["total_revenue"]}
-    assert steps[1]["result"] == QUERY_RESULT
 
 
 def test_rows_match_dates_from_either_side():
@@ -243,33 +188,6 @@ def test_require_semantic_explains_jwt(monkeypatch):
     lab_utils.require_semantic()
 
 
-def test_ops_agent_routes_prefixed_tools_to_their_server(monkeypatch):
-    monkeypatch.setenv("AIRFLOW_MCP_URL", "http://airflow-mcp:8000/mcp")
-    monkeypatch.setenv("SPARK_HISTORY_MCP_URL", "http://spark-history-mcp:18888/mcp")
-    tools = {"http://airflow-mcp:8000/mcp": [{"name": "list_dag_runs", "inputSchema": {"type": "object"}}],
-             "http://spark-history-mcp:18888/mcp": [{"name": "list_applications", "inputSchema": {"type": "object"}}]}
-    called = []
-
-    def fake_session(url, method, params, extra_headers=None):
-        if method == "tools/list":
-            return {"tools": tools[url]}
-        called.append((url, params["name"], params["arguments"]))
-        return {"content": [{"type": "text", "text": '{"dag_runs": [{"state": "success"}]}'}]}
-
-    monkeypatch.setattr(lab_utils, "_mcp_session", fake_session)
-    answers = iter([{"message": {"tool_calls": [{"function": {"name": "airflow__list_dag_runs",
-                                                              "arguments": {"dag_id": "northwind_daily"}}}]}},
-                    {"message": {"content": "The last northwind_daily run succeeded."}}])
-    seen_tools = []
-    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None, **kw: (seen_tools.append((tools, kw)), next(answers))[1])
-    out = lab_utils.ask_ops("How did the last run go?")
-    assert out["answer"] == "The last northwind_daily run succeeded."
-    assert called == [("http://airflow-mcp:8000/mcp", "list_dag_runs", {"dag_id": "northwind_daily"})]
-    assert {t["function"]["name"] for t in seen_tools[0][0]} == {"airflow__list_dag_runs", "spark_history__list_applications"}
-    assert seen_tools[0][1]["num_ctx"] >= 16384
-    assert out["steps"][0]["tool"] == "airflow__list_dag_runs"
-
-
 def test_require_ops_explains_where_it_runs(monkeypatch):
     monkeypatch.delenv("AIRFLOW_MCP_URL", raising=False)
     monkeypatch.delenv("SPARK_HISTORY_MCP_URL", raising=False)
@@ -277,132 +195,3 @@ def test_require_ops_explains_where_it_runs(monkeypatch):
         lab_utils.require_ops()
 
 
-def test_chat_turns_thinking_off(monkeypatch):
-    """Tool-calling helpers need tool calls and short answers, not qwen3's reasoning trace (slow, and it leaks)."""
-    seen = {}
-
-    class Client:
-        def chat(self, **kw):
-            seen.update(kw)
-            return {"message": {"content": "ok"}}
-
-    monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
-    assert lab_utils._chat("qwen3:4b-instruct", [{"role": "user", "content": "hi"}])["message"]["content"] == "ok"
-    assert seen["think"] is False
-    assert seen["options"] == {"temperature": 0, "num_predict": lab_utils.CHAT_MAX_TOKENS}
-
-
-def test_chat_caps_generation(monkeypatch):
-    """Ollama's default num_predict=-1 plus context shift generated forever with a thinking model (runner OOM-killed):
-    every turn sends a positive cap, also when num_ctx is set."""
-    seen = {}
-
-    class Client:
-        def chat(self, **kw):
-            seen.update(kw)
-            return {"message": {"content": "ok"}}
-
-    monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
-    lab_utils._chat(lab_utils.TOOL_MODEL, [{"role": "user", "content": "hi"}], num_ctx=8192)
-    assert 0 < seen["options"]["num_predict"] == lab_utils.CHAT_MAX_TOKENS <= 4096
-    assert seen["options"]["num_ctx"] == 8192
-
-
-def test_tool_model_is_the_instruct_tag():
-    """Plain `qwen3:4b` is Qwen3-4B-Thinking-2507 (thinking-only): think=False cannot stop its reasoning."""
-    assert lab_utils.TOOL_MODEL == "qwen3:4b-instruct"
-
-
-def test_ask_semantic_names_the_published_model(monkeypatch):
-    """A real qwen3 run guessed model="sales" for list_metrics: the prompt names the published model, and with exactly
-    one published model an unknown name in a tool call is replaced by it (the server treats `model` as optional then)."""
-    chat = fake_chat([call("list_metrics", {"model": "sales"}),
-                      call("query_metric", {"model": "sales", "metrics": ["total_revenue"]}),
-                      {"role": "assistant", "content": "Total revenue is 40."}])
-    sent = []
-
-    def mcp(name, args, role="analyst"):
-        sent.append((name, dict(args)))
-        return {"list_models": {"models": [{"name": "dbt_demo"}]}, "list_metrics": {"metrics": []},
-                "list_dimensions": {"dimensions": []}, "query_metric": QUERY_RESULT}[name]
-
-    monkeypatch.setattr(lab_utils, "_chat", chat)
-    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
-    monkeypatch.setattr(lab_utils, "mcp_call", mcp)
-    out = lab_utils.ask_semantic("What is total revenue?")
-    assert sent == [("list_models", {}), ("list_dimensions", {"model": "dbt_demo"}), ("list_metrics", {"model": "dbt_demo"}),
-                    ("query_metric", {"model": "dbt_demo", "metrics": ["total_revenue"]})]
-    assert out["tool_calls"] == ["list_metrics", "query_metric"]          # the pre-fetch is not an LLM tool call
-    assert "dbt_demo" in chat.sent[0][0]["content"]                      # the system prompt names the model
-
-
-def test_ask_semantic_drops_a_grain_without_time_dimension(monkeypatch):
-    """The server's contract: `grain` requires a time dimension. A real qwen3 run kept sending grain="day" with only
-    dim_products.category; the helper drops it (and says so in the step) instead of looping on the error."""
-    chat = fake_chat([call("query_metric", {"metrics": ["gross_margin"], "dimensions": ["dim_products.category"],
-                                            "grain": "day"}),
-                      call("query_metric", {"metrics": ["gross_margin"], "dimensions": ["fct_orders.order_date"],
-                                            "grain": "week"}),
-                      {"role": "assistant", "content": "done"}])
-    sent = []
-
-    def mcp(name, args, role="analyst"):
-        sent.append((name, dict(args)))
-        return {"list_models": {"models": [{"name": "dbt_demo"}]},
-                "list_dimensions": {"dimensions": [{"name": "fct_orders.order_date", "isTime": True},
-                                                   {"name": "dim_products.category"}]},
-                "query_metric": QUERY_RESULT}[name]
-
-    monkeypatch.setattr(lab_utils, "_chat", chat)
-    monkeypatch.setattr(lab_utils, "mcp_tools", lambda role="analyst": [])
-    monkeypatch.setattr(lab_utils, "mcp_call", mcp)
-    out = lab_utils.ask_semantic("Gross margin per category?")
-    queries = [a for n, a in sent if n == "query_metric"]
-    assert "grain" not in queries[0] and queries[1]["grain"] == "week"     # kept with a time dimension
-    assert "grain dropped" in out["steps"][0]["note"] and "note" not in out["steps"][1]
-
-
-def test_ops_agent_offers_a_curated_read_only_tool_set(monkeypatch):
-    """A real run handed all 51 tools of both servers to the model: 15,464 tokens against Ollama's default 4,096-token
-    context. The agent offers only the read-only tools its questions need (no trigger/pause/clear/delete)."""
-    monkeypatch.setenv("AIRFLOW_MCP_URL", "http://a/mcp")
-    monkeypatch.delenv("SPARK_HISTORY_MCP_URL", raising=False)
-    names = ["list_dags", "list_dag_runs", "get_task_logs", "trigger_dag", "pause_dag", "clear_dag_run",
-             "delete_dag_run", "list_variables", "get_airflow_config"]
-    monkeypatch.setattr(lab_utils, "_mcp_session", lambda url, method, params, extra_headers=None:
-                        {"tools": [{"name": n, "inputSchema": {"type": "object"}} for n in names]})
-    seen = []
-    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None, **kw:
-                        (seen.append(tools), {"message": {"content": "ok"}})[1])
-    lab_utils.ask_ops("status?")
-    offered = {t["function"]["name"] for t in seen[0]}
-    assert offered == {"airflow__list_dags", "airflow__list_dag_runs", "airflow__get_task_logs"}
-
-
-def test_chat_passes_num_ctx_only_when_asked(monkeypatch):
-    seen = []
-
-    class Client:
-        def chat(self, **kw):
-            seen.append(kw)
-            return {"message": {"content": "ok"}}
-
-    monkeypatch.setattr(lab_utils, "_ollama_client", lambda: Client())
-    lab_utils._chat("m", [])
-    lab_utils._chat("m", [], num_ctx=16384)
-    assert "num_ctx" not in seen[0]["options"] and seen[1]["options"]["num_ctx"] == 16384
-
-
-def test_ops_agent_knows_today(monkeypatch):
-    """A real run answered "which apps ran most recently?" with max_date=2023-10-..., the model's training-era guess at
-    today, and found nothing. The system prompt carries the current UTC date."""
-    import datetime
-    monkeypatch.setenv("AIRFLOW_MCP_URL", "http://a/mcp")
-    monkeypatch.delenv("SPARK_HISTORY_MCP_URL", raising=False)
-    monkeypatch.setattr(lab_utils, "_mcp_session", lambda url, method, params, extra_headers=None: {"tools": []})
-    sent = []
-    monkeypatch.setattr(lab_utils, "_chat", lambda model, messages, tools=None, **kw:
-                        (sent.append(messages), {"message": {"content": "ok"}})[1])
-    lab_utils.ask_ops("what ran recently?")
-    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-    assert today in sent[0][0]["content"]

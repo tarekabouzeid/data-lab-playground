@@ -11,7 +11,6 @@ clear error (run the notebook in the lab's Jupyter) instead of connecting to a m
 
 Imports of optional packages (boto3, trino, pyarrow) are lazy so the module imports anywhere.
 """
-import datetime
 import json
 import os
 import re
@@ -41,6 +40,8 @@ def endpoint(name: str) -> str:
 def __getattr__(const: str):                    # `from lab_utils import TRINO_HOST` and `lab_utils.REST_URI`
     if const in _ENDPOINTS:
         return endpoint(_ENDPOINTS[const])
+    if const in ("TOOL_MODEL", "CHAT_MODEL", "EMBED_MODEL"):           # read from the environment on every access
+        return {"TOOL_MODEL": tool_model, "CHAT_MODEL": chat_model, "EMBED_MODEL": embed_model}[const]()
     raise AttributeError(f"module {__name__!r} has no attribute {const!r}")
 
 
@@ -160,12 +161,9 @@ def reset_dbt_demo():
 # Chat with your data: the Kubeflow Semantic Operator (Helm chart only, semantic.enabled=true)
 # ---------------------------------------------------------------------------------------------------------------
 SEMANTIC_USER = "lab"
-# Tool calling in Ollama (gemma3 has none). Not plain `qwen3:4b`: that tag is now Qwen3-4B-Thinking-2507, which is
-# thinking-only (think=False is ignored), so its reasoning leaks into the reply and it never reaches a tool call.
-TOOL_MODEL = "qwen3:4b-instruct"
-# Generation cap per chat turn. Ollama's default num_predict=-1 plus context shift never ends when a model keeps
-# reasoning (a real run grew the runner to 7 GB and got OOM-killed); a tool call or SQL answer needs far less.
-CHAT_MAX_TOKENS = 2048
+# Generation cap per chat turn (a model that keeps reasoning otherwise never stops: a real run grew an Ollama runner to
+# 7 GB and got OOM-killed); a tool call or a SQL answer needs far less.
+MAX_TOKENS = 1024
 
 
 def semantic_available() -> bool:
@@ -227,28 +225,28 @@ def mcp_call(name: str, args: dict, role: str = "analyst") -> dict:
 _SUBSCHEMA_KEYS = ("items", "additionalItems", "contains", "not")   # where `true` means "any value" (a schema)
 
 
-def _ollama_schema(schema):
+def _tool_schema(schema):
     """A copy of a JSON Schema that Ollama can compile into a tool-call grammar: every object gets `properties`
     (Ollama 0.40: "properties must be an object") and boolean sub-schemas (`"items": true`) become `{}`. Everything
     else (nullable unions such as ["null", "array"] included, which Ollama accepts) is kept as the server sent it."""
     if isinstance(schema, list):
-        return [_ollama_schema(s) for s in schema]
+        return [_tool_schema(s) for s in schema]
     if not isinstance(schema, dict):
         return schema
-    out = {k: ({} if v is True and k in _SUBSCHEMA_KEYS else _ollama_schema(v)) for k, v in schema.items() if k != "properties"}
+    out = {k: ({} if v is True and k in _SUBSCHEMA_KEYS else _tool_schema(v)) for k, v in schema.items() if k != "properties"}
     if out.get("type") == "object":
-        out["properties"] = {k: _ollama_schema(v) for k, v in (schema.get("properties") or {}).items()}
+        out["properties"] = {k: _tool_schema(v) for k, v in (schema.get("properties") or {}).items()}
     return out
 
 
-def mcp_tool_to_ollama(tool: dict) -> dict:
+def mcp_tool_to_openai(tool: dict) -> dict:
     return {"type": "function", "function": {"name": tool["name"], "description": tool.get("description", ""),
-                                             "parameters": _ollama_schema(tool.get("inputSchema") or {"type": "object"})}}
+                                             "parameters": _tool_schema(tool.get("inputSchema") or {"type": "object"})}}
 
 
 def mcp_tools(role: str = "analyst") -> list:
     """The semantic layer's MCP tools as Ollama tool schemas."""
-    return [mcp_tool_to_ollama(t) for t in _mcp("tools/list", {}, role)["tools"]]
+    return [mcp_tool_to_openai(t) for t in _mcp("tools/list", {}, role)["tools"]]
 
 
 def wait_for_model(model_id: str, timeout_s: int = 180) -> None:
@@ -263,30 +261,122 @@ def wait_for_model(model_id: str, timeout_s: int = 180) -> None:
         time.sleep(5)
 
 
-def _ollama_client():
-    import ollama
-
-    return ollama.Client(host=endpoint("OLLAMA_URL"))
-
-
-def _as_dict(obj):
-    return obj.model_dump(exclude_none=True) if hasattr(obj, "model_dump") else obj
+# ---------------------------------------------------------------------------------------------------------------
+# LLM access: one OpenAI-compatible API (a hosted endpoint such as OpenRouter, or the chart's Ollama at /v1), or none.
+# The chart sets LLM_PROVIDER (ollama | openai | none), LLM_BASE_URL, LLM_CHAT_MODEL, LLM_TOOL_MODEL, LLM_EMBED_MODEL
+# and, from a Secret, LLM_API_KEY. Embeddings may live elsewhere: LLM_EMBED_BASE_URL / LLM_EMBED_API_KEY.
+# ---------------------------------------------------------------------------------------------------------------
+OLLAMA_TOOL_MODEL = "qwen3:4b-instruct"     # not plain `qwen3:4b`: that tag is now the thinking-only 2507 model
 
 
-def _chat(model: str, messages: list, tools=None, num_ctx: int | None = None) -> dict:
-    # think=False: the helpers want tool calls and short answers, so models that can switch reasoning off do
-    # (thinking-only models ignore it). num_predict bounds every turn, see CHAT_MAX_TOKENS.
-    options = {"temperature": 0, "num_predict": CHAT_MAX_TOKENS, **({"num_ctx": num_ctx} if num_ctx else {})}
-    return _as_dict(_ollama_client().chat(model=model, messages=messages, tools=tools, think=False, options=options))
+def llm_provider() -> str:
+    return os.environ.get("LLM_PROVIDER", "").strip().lower() or "none"
 
 
-def _ollama_show(model: str) -> dict:
-    return _as_dict(_ollama_client().show(model))
+def llm_available() -> bool:
+    return llm_provider() in ("ollama", "openai")
 
 
-def require_tool_model(model: str = TOOL_MODEL) -> None:
-    if "tools" not in (_ollama_show(model).get("capabilities") or []):
-        raise RuntimeError(f"Ollama model {model} has no tool calling; pull one that has (e.g. ollama pull {TOOL_MODEL})")
+def chat_model() -> str:
+    return os.environ.get("LLM_CHAT_MODEL", "")
+
+
+def tool_model() -> str:
+    return os.environ.get("LLM_TOOL_MODEL", "") or (OLLAMA_TOOL_MODEL if llm_provider() == "ollama" else "")
+
+
+def embed_model() -> str:
+    return os.environ.get("LLM_EMBED_MODEL", "")
+
+
+def embeddings_available() -> bool:
+    return llm_available() and bool(embed_model())
+
+
+def require_llm() -> None:
+    if not llm_available():
+        raise RuntimeError("No LLM is configured (LLM_PROVIDER=" + llm_provider() + "): set the chart's llm values "
+                           "(llm.provider=openai with a base URL, models and key Secret, or ollama.enabled=true).")
+
+
+def skip_unless_llm(section: str) -> bool:
+    """For the AI-off path: prints one `skipped (no LLM configured): <section>` line and returns False when no LLM is set."""
+    if llm_available():
+        return True
+    print(f"skipped (no LLM configured): {section}. Set the chart's llm values to run it.")
+    return False
+
+
+def openai_client():
+    import openai
+
+    return openai.OpenAI(base_url=endpoint("LLM_BASE_URL"), api_key=os.environ.get("LLM_API_KEY") or "unused",
+                         max_retries=1, timeout=300)
+
+
+def embeddings_config() -> dict:
+    """Endpoint, key and model of the embeddings. Same endpoint and key as chat unless LLM_EMBED_BASE_URL is set; the
+    chat key is never sent to a different endpoint."""
+    base = os.environ.get("LLM_EMBED_BASE_URL") or ""
+    if base and base != os.environ.get("LLM_BASE_URL"):
+        key = os.environ.get("LLM_EMBED_API_KEY") or "unused"
+    else:
+        base = endpoint("LLM_BASE_URL")
+        key = os.environ.get("LLM_EMBED_API_KEY") or os.environ.get("LLM_API_KEY") or "unused"
+    return {"base_url": base, "api_key": key, "model": embed_model()}
+
+
+def embeddings_client():
+    import openai
+
+    c = embeddings_config()
+    return openai.OpenAI(base_url=c["base_url"], api_key=c["api_key"], max_retries=1, timeout=300)
+
+
+def embed(texts: list) -> list:
+    """Vectors for `texts`, in order."""
+    out = embeddings_client().embeddings.create(model=embed_model(), input=list(texts))
+    return [d.embedding for d in out.data]
+
+
+def _llm_error(e: Exception, model: str) -> RuntimeError:
+    import openai
+
+    where = f"LLM_BASE_URL={os.environ.get('LLM_BASE_URL', '?')}, model {model}"
+    if isinstance(e, openai.APIStatusError):
+        return RuntimeError(f"LLM request failed with HTTP {e.status_code} ({where}): {str(e.message)[:300]}")
+    return RuntimeError(f"LLM request failed ({where}): {type(e).__name__}: {str(e)[:300]}")
+
+
+def _chat(model: str, messages: list, tools=None, max_tokens: int = MAX_TOKENS) -> dict:
+    """One chat turn. Returns {"message": {"content", "tool_calls": [{"function": {"name", "arguments": dict}}]}}."""
+    import openai
+
+    kwargs = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0}
+    if tools:
+        kwargs["tools"] = tools
+    try:
+        reply = openai_client().chat.completions.create(**kwargs).choices[0].message
+    except openai.OpenAIError as e:
+        raise _llm_error(e, model) from None
+    calls = [{"id": tc.id, "function": {"name": tc.function.name, "arguments": json.loads(tc.function.arguments or "{}")}}
+             for tc in (reply.tool_calls or [])]
+    return {"message": {"content": reply.content or "", "tool_calls": calls}}
+
+
+def require_tool_model(model: str | None = None) -> None:
+    """Stop early, with the model's name, when the endpoint rejects tool calling for it (one tiny probe request)."""
+    import openai
+
+    model = model or tool_model()
+    probe = [{"type": "function", "function": {"name": "ping", "description": "probe",
+                                               "parameters": {"type": "object", "properties": {}}}}]
+    try:
+        openai_client().chat.completions.create(model=model, messages=[{"role": "user", "content": "ping"}],
+                                                tools=probe, max_tokens=16)
+    except openai.OpenAIError as e:
+        raise RuntimeError(f"model {model} does not support tool calling at this endpoint (set llm.toolModel to one "
+                           f"that does): {_llm_error(e, model)}") from None
 
 
 SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tools only. Find certified metrics with "
@@ -294,46 +384,6 @@ SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tool
                    "arguments the question needs: `grain` only together with a time dimension, no `limit` unless "
                    "asked. If a tool returns an error, fix the arguments and call it again. Never invent numbers and "
                    "never write SQL. Reply in one or two sentences with the numbers from the result.")
-
-
-def ask_semantic(question: str, model: str = TOOL_MODEL, role: str = "analyst", max_turns: int = 6) -> dict:
-    """Answer through the semantic layer: the LLM picks certified metrics/dimensions, the server compiles the SQL.
-
-    Returns the answer, the tool names called, the compiled SQL and rows of the last query_metric, and `steps`:
-    every tool call with its arguments and the server's result, in order (the notebook walks through them)."""
-    # Name the published model up front: a small model otherwise guesses the optional `model` argument (a real run
-    # sent model="sales"). With exactly one published model, an unknown name in a tool call is replaced by it.
-    published = [m["name"] for m in mcp_call("list_models", {}, role).get("models", [])]
-    time_dims = set()            # the server's contract: `grain` needs one of these among the requested dimensions
-    if len(published) == 1:
-        dims = mcp_call("list_dimensions", {"model": published[0]}, role).get("dimensions", [])
-        time_dims = {d["name"] for d in dims if d.get("isTime")}
-    prompt = SEMANTIC_PROMPT
-    if published:
-        prompt += f" Published semantic model(s): {', '.join(published)}; pass that name as `model` to every tool."
-    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": question}]
-    tools, calls, steps, sql, rows = mcp_tools(role), [], [], None, []
-    for _ in range(max_turns):
-        msg = _chat(model, messages, tools)["message"]
-        messages.append(msg)
-        if not msg.get("tool_calls"):
-            return {"answer": msg.get("content", ""), "tool_calls": calls, "steps": steps, "sql": sql, "rows": rows}
-        for tc in msg["tool_calls"]:
-            name, args = tc["function"]["name"], dict(tc["function"].get("arguments") or {})
-            if len(published) == 1 and args.get("model") not in (None, published[0]):
-                args["model"] = published[0]
-            calls.append(name)
-            step = {"tool": name, "args": args}
-            if name == "query_metric" and args.get("grain") and time_dims and \
-                    not time_dims & set(args.get("dimensions") or []):
-                step["note"] = f"grain dropped: {args.pop('grain')!r} needs a time dimension ({', '.join(sorted(time_dims))})"
-            out = mcp_call(name, args, role)
-            steps.append({**step, "result": out})
-            if name == "query_metric" and "sql" in out:
-                sql, rows = out["sql"], out.get("rows", [])
-            messages.append({"role": "tool", "tool_name": name, "content": json.dumps(out)[:8000]})
-    return {"answer": f"(stopped after {max_turns} turns without a final answer)", "tool_calls": calls,
-            "steps": steps, "sql": sql, "rows": rows}
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -348,7 +398,6 @@ OPS_TOOLS = {
     "spark_history": {"list_applications", "list_jobs", "list_stages", "get_stage", "get_job_bottlenecks",
                       "list_sql_executions", "get_executor_summary"},
 }
-OPS_NUM_CTX = 16384     # tool schemas + a few tool results (each capped at 8,000 characters)
 
 
 def ops_servers() -> dict:
@@ -386,40 +435,6 @@ OPS_PROMPT = ("You are the on-call data engineer for Northwind Gear's lakehouse.
               "does not ask for. Reply in at most five sentences with the facts you found.")
 
 
-def ask_ops(question: str, model: str = TOOL_MODEL, max_turns: int = 8) -> dict:
-    """Let the LLM investigate with the tools of every operations MCP server. Tool names are prefixed with the server
-    (`airflow__list_dags`). Returns the answer and `steps` (every tool call, its arguments and a result excerpt)."""
-    servers = ops_servers()
-    tools, owner = [], {}
-    for server in servers:
-        for t in ops_tools(server):
-            if t["name"] not in OPS_TOOLS.get(server, ()):
-                continue
-            name = f"{server}__{t['name']}"
-            owner[name] = (server, t["name"])
-            tools.append(mcp_tool_to_ollama({**t, "name": name}))
-    # The model does not know today's date: asked what ran "recently", it filtered on a training-era date.
-    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-    messages = [{"role": "system", "content": f"{OPS_PROMPT} Today is {today} (UTC)."},
-                {"role": "user", "content": question}]
-    steps = []
-    for _ in range(max_turns):
-        msg = _chat(model, messages, tools, num_ctx=OPS_NUM_CTX)["message"]
-        messages.append(msg)
-        if not msg.get("tool_calls"):
-            return {"answer": msg.get("content", ""), "steps": steps}
-        for tc in msg["tool_calls"]:
-            name, args = tc["function"]["name"], tc["function"].get("arguments") or {}
-            if name in owner:
-                out = ops_call(*owner[name], args)
-            else:
-                out = {"error": f"unknown tool {name}"}
-            text = out if isinstance(out, str) else json.dumps(out, default=str)
-            steps.append({"tool": name, "args": args, "result": text[:300]})
-            messages.append({"role": "tool", "tool_name": name, "content": text[:8000]})
-    return {"answer": f"(stopped after {max_turns} turns without a final answer)", "steps": steps}
-
-
 RAW_PROMPT = ("You write one Trino SQL query that answers the question over the tables below (catalog {catalog}, "
               "schema {schema}). Reply with the query only, in a ```sql block.\n\n{ddl}")
 
@@ -436,10 +451,10 @@ def _table_ddl(tables: list, schema: str) -> str:
                        for t in tables)
 
 
-def ask_raw_sql(question: str, tables: list, model: str = TOOL_MODEL, schema: str = "dbt_demo") -> dict:
+def ask_raw_sql(question: str, tables: list, model: str | None = None, schema: str = "dbt_demo") -> dict:
     """The baseline: the LLM sees the tables' columns and writes Trino SQL itself."""
     prompt = RAW_PROMPT.format(catalog=TRINO_CATALOG, schema=schema, ddl=_table_ddl(tables, schema))
-    reply = _chat(model, [{"role": "system", "content": prompt}, {"role": "user", "content": question}])["message"]
+    reply = _chat(model or tool_model(), [{"role": "system", "content": prompt}, {"role": "user", "content": question}])["message"]
     text = re.sub(r"<think>.*?</think>", "", reply.get("content", ""), flags=re.S)   # thinking models may reason inline
     m = re.search(r"```(?:sql)?\s*(.*?)```", text, re.S | re.I)
     sql = (m.group(1) if m else text).strip().rstrip(";")
