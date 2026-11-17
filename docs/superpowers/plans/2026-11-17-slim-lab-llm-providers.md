@@ -1,26 +1,26 @@
-# Slimmer lab (no Compose, any LLM, semantic traces, Strands agents) Implementation Plan
+# Slimmer lab (no Compose, any LLM, Strands agents traced in Phoenix) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:**
 - Remove Docker Compose.
 - Let the lab run its AI parts against any OpenAI-compatible endpoint (or with AI off), so no GPU is needed.
-- Send the semantic layer's traces to Phoenix.
-- Build the ops agents on AWS Strands.
+- Rebuild chat with your data (`semantic/01`) and the ops agents on AWS Strands.
+- Send the chat-with-your-data agent's traces to Phoenix.
 
 **Architecture:**
 - The Helm chart is the only way to run the lab.
 - One new `llm` values block becomes `LLM_*` env in Jupyter. Keys come only from an existing Secret.
 - `lab_utils` talks to every model through the `openai` SDK (local Ollama serves the same API at `/v1`).
-- The semantic server's own OTLP exporter is pointed at Phoenix.
-- The notebooks trace their LLM and tool calls with OpenInference.
-- `ops/01` and the new `ops/02` run Strands agents over the MCP servers.
+- `lab_agents.py` builds Strands agents over the MCP servers: `semantic/01`'s chat agent and the agents of `ops/01` and
+  the new `ops/02`.
+- Strands' built-in OpenTelemetry tracer sends the chat-with-your-data agent's traces to Phoenix. Nothing else is newly
+  traced.
 
 **Tech Stack:**
 - Helm 3.19 (`--kube-version 1.34.0`), pytest
 - `openai` SDK, `langchain-openai`
-- `strands-agents[openai]==1.65.0`
-- `openinference-instrumentation-openai`
+- `strands-agents[openai]==1.65.0` (with its OpenTelemetry tracer)
 - Ollama 0.40.3
 - Phoenix (OTLP over HTTP on :6006)
 
@@ -34,7 +34,8 @@
   or inert, by default.
 - Chart version: `0.3.1` → `0.4.0`, with a `charts/data-lab/CHANGELOG.md` entry. `appVersion` stays `3.0.0` (the release
   decision is the maintainer's, D8).
-- No key in values, ConfigMaps, notebooks or logs. LLM keys come from `llm.auth.existingSecret` / `llm.embeddings.auth.existingSecret` (key name `api-key` by default).
+- No key in values, ConfigMaps, notebooks or logs. The LLM key comes from `llm.auth.existingSecret` (key name `api-key`
+  by default), and chat and embeddings share it.
 - `LLM_PROVIDER` values are exactly `ollama`, `openai`, `none`. Chart default `llm.provider: ""` means auto (`ollama` when `ollama.enabled`, else `none`).
 - Ollama defaults (D2): chat `gemma3:4b`, tool `qwen3:4b-instruct`, embeddings `mxbai-embed-large:latest`, `ollama.contextLength: 16384`.
 - Notebook rules:
@@ -43,10 +44,12 @@
   - no `DROP SCHEMA`;
   - no module named `dbt_*`.
 - AI-off notebooks must run to the end headless. A skipped section prints a line starting `skipped (no LLM configured):`.
-- Keep `lab_utils` guards: schema normalizer, model-name guard, grain guard, curated ops tool set, today's date in the
-  ops prompt, `max_tokens` capped on every chat call (`MAX_TOKENS = 1024`).
-- Phoenix projects: notebook LLM spans `semantic-layer` (semantic/01), `ops-agents` (ops/01, ops/02), `northwind-rag`
-  (rag_demo). Server spans land in `default` (upstream sets only `service.name`).
+- Keep every guard learned in real runs: schema normalizer, model-name guard, grain guard (both become Strands hooks),
+  curated read-only tool sets, today's date in the ops prompt, `max_tokens` capped on every model call
+  (`MAX_TOKENS = 1024`).
+- Phoenix: only `semantic/01`'s Strands agent sends new traces (project `semantic-layer`). No server-side export, no ops
+  agent traces (pending Q1 in the spec), and `rag_demo`'s and the playground's existing tracing are unchanged.
+- Ask, don't assume (AGENTS.md): when an implementer is unsure about a fact the task depends on, ask the maintainer.
 - Post-Change Rule: README, AGENTS, CLAUDE, VERSIONS, WORKSTATION_TESTING, TODO_MANUAL_TESTS updated in the task that
   changes the behavior. Commit per task and push to `claude/upgrade-iceberg-spark-hive-trino-yc0p1s`. No
   `RELEASE_NOTES.md`.
@@ -57,14 +60,13 @@
 
 1. **`openai` mode with a missing or wrong Secret**: expect a clear render-time `fail` when `existingSecret` is empty,
    and at runtime a one-line error naming `LLM_BASE_URL` and the HTTP status, not a stack trace. Tests: Task 2
-   `test_openai_requires_secret`; Task 4 `test_chat_error_names_endpoint`.
+   `test_openai_requires_secret`; Task 3 `test_chat_error_names_endpoint`.
 2. **A tool model without tool calling** (e.g. a chat-only OpenRouter model): expect `require_tool_model()` to say so
-   once, and the agent cells to skip instead of looping. Test: Task 4 `test_require_tool_model_probe_rejects_no_tools`.
+   once, and the agent cells to skip instead of looping. Test: Task 3 `test_require_tool_model_probe_rejects_no_tools`.
 3. **Embeddings unset while chat is set** (OpenRouter): expect `rag_demo` section 1 to run and sections 2–3 to print the
-   reason. Tests: Task 4 `test_embeddings_available_false_without_model`; Task 6 notebook check.
-4. **Phoenix disabled, or auth on without a headers Secret**: expect no `otlpEndpoint` in the server config and a
-   NOTES.txt line. Notebook tracing must never fail a cell. Tests: Task 3 `test_no_tracing_when_phoenix_off`,
-   `test_auth_without_headers_secret_disables_tracing`; Task 4 `test_tracing_setup_never_raises`.
+   reason. Tests: Task 3 `test_embeddings_available_false_without_model`; Task 5 notebook check.
+4. **Phoenix disabled, unreachable, or auth on without `PHOENIX_API_KEY`**: expect the chat agent to answer anyway and
+   print why it is not traced. Tracing must never fail a cell. Test: Task 6 `test_tracing_never_raises`.
 5. **Notebook opened outside the chart** (no endpoint env): expect one clear message to run it in the lab's Jupyter, not
    a connection to a Compose host name. Test: Task 1 `test_missing_endpoint_env_raises_clear_error`.
 
@@ -133,13 +135,11 @@
 
 **Interfaces:**
 - Produces Jupyter env (Task 4 reads these):
-  - plain values: `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_CHAT_MODEL`, `LLM_TOOL_MODEL`, `LLM_EMBED_BASE_URL`,
-    `LLM_EMBED_MODEL`;
-  - from `secretKeyRef`: `LLM_API_KEY`, `LLM_EMBED_API_KEY`, only when a Secret is set.
+  - plain values: `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_CHAT_MODEL`, `LLM_TOOL_MODEL`, `LLM_EMBED_MODEL`;
+  - from `secretKeyRef`: `LLM_API_KEY`, only when `llm.auth.existingSecret` is set.
 - With `provider` resolving to `ollama`:
   - `LLM_BASE_URL` = `http://<fullname>-ollama:11434/v1`;
-  - models default as in Global Constraints;
-  - the embed URL equals the base URL.
+  - models default as in Global Constraints.
 - With `none`: only `LLM_PROVIDER=none`.
 
 - [ ] **Step 1: Write the failing tests** in `tests/chart/test_llm.py` (use `render` and `env_of` from `conftest`):
@@ -151,7 +151,7 @@
     - `LLM_EMBED_MODEL == "mxbai-embed-large:latest"`
   - `test_openai_mode`: with `llm: {provider: openai, baseUrl: https://openrouter.ai/api/v1, chatModel: a, toolModel: b, auth: {existingSecret: k}}`:
     - `LLM_API_KEY.valueFrom.secretKeyRef == {name: k, key: api-key}`
-    - `LLM_EMBED_MODEL` is absent
+    - `LLM_EMBED_MODEL` is absent (set `llm.embeddingModel` to enable rag_demo's sections 2–3)
   - `test_openai_requires_secret`: `provider: openai` without `auth.existingSecret` raises a `RenderError` matching
     `llm.auth.existingSecret`.
   - `test_openai_requires_models` and `test_ollama_mode_requires_ollama_enabled`: each raises a `RenderError`.
@@ -163,37 +163,7 @@
 - [ ] **Step 4: Run all tests and lint.** Run `python3 -m pytest tests/chart tests/unit -q` and lint on each profile. Expected: all pass; golden default unchanged except the new `LLM_PROVIDER=none` env (update the golden env assertion if one exists, not the resource list).
 - [ ] **Step 5: Commit** `chart 0.4.0: llm block (ollama | openai | none) for Jupyter, Ollama context length`
 
-### Task 3: Semantic server traces to Phoenix
-
-**Files:**
-- Modify:
-  - `charts/data-lab/values.yaml` (`semantic.server.tracing.enabled: true`, `semantic.server.tracing.headersSecret: ""`)
-  - `charts/data-lab/templates/_semantic.tpl` (`datalab.semanticServerConfig`: `observability.otlpEndpoint`)
-  - `charts/data-lab/templates/semantic.yaml` (env `OTEL_EXPORTER_OTLP_HEADERS` from the headers Secret, key `otlp-headers`)
-  - `charts/data-lab/templates/NOTES.txt`
-  - schema, helm-docs, CHANGELOG (same 0.4.0 entry)
-- Test: `tests/chart/test_semantic_tracing.py`
-
-**Interfaces:**
-- Produces the server config key `observability.otlpEndpoint: http://<fullname>-phoenix:6006/v1/traces` when
-  semantic, Phoenix and `tracing.enabled` are on, and either `phoenix.auth.enabled` is false or a headers Secret is set.
-
-- [ ] **Step 1: Write the failing tests:**
-  - `test_tracing_to_phoenix`: with semantic + phoenix on (`api_versions=API` as in `test_semantic.py`),
-    `server_config(docs)["observability"]["otlpEndpoint"] == "http://r-data-lab-phoenix:6006/v1/traces"`.
-  - `test_no_tracing_when_phoenix_off`: semantic on, phoenix off → no `observability` key.
-  - `test_auth_without_headers_secret_disables_tracing`: `phoenix.auth.enabled=true` and no headers Secret → no
-    `observability` key, and NOTES contains `semantic.server.tracing.headersSecret`.
-  - `test_headers_secret_env`: with `headersSecret: ph` → the server container env `OTEL_EXPORTER_OTLP_HEADERS`
-    secretKeyRef `{name: ph, key: otlp-headers}`.
-- [ ] **Step 2: Run them to see them fail.** Run `python3 -m pytest tests/chart/test_semantic_tracing.py -q`. Expected: 4 failures.
-- [ ] **Step 3: Implement the template changes.** Regenerate the schema and helm-docs.
-- [ ] **Step 4: Run all tests, lint the semantic profile, and push.** The kind `semantic` CI scenario must stay green
-  (the server starts with an OTLP endpoint, and failed exports must not crash it). Run the tests and lint, push, and
-  check the CI run.
-- [ ] **Step 5: Commit** `chart: semantic server exports OTLP traces to Phoenix`
-
-### Task 4: `lab_utils` on the OpenAI-compatible API
+### Task 3: `lab_utils` on the OpenAI-compatible API
 
 **Files:**
 - Modify: `jupyter/notebooks/lab_utils.py`
@@ -215,12 +185,7 @@
     existing loops consume. Arguments are JSON-decoded.
   - `mcp_tool_to_openai(tool) -> dict` (the renamed `mcp_tool_to_ollama`, same normalizer)
   - `require_tool_model(model=TOOL_MODEL) -> None`
-  - `setup_tracing(project: str) -> bool`: registers Phoenix OTLP with the OpenInference OpenAI instrumentation, never
-    raises, and returns whether it is on
-  - `traced_tool_call(server: str, name: str, args: dict, call: Callable[[], dict]) -> dict`: wraps one MCP call in a
-    span with `tool.name`, `tool.server`, `tool.arguments`, and for `query_metric` results `semantic.request_hash` and
-    `semantic.sql`
-- `ask_semantic` and `ask_raw_sql` keep their signatures and return shapes. `ask_ops` is removed in Task 7.
+- `ask_raw_sql` keeps its signature and return shape. `ask_semantic` and `ask_ops` are removed in Task 6 (Strands).
 
 - [ ] **Step 1: Write the failing tests** in `test_lab_utils_llm.py` (with a fake `openai_client` via monkeypatch):
   - `test_chat_decodes_tool_call_arguments`: a fake returns a tool call with arguments `'{"model":"dbt_demo"}'` →
@@ -233,16 +198,13 @@
   - `test_embeddings_available_false_without_model`: `openai` with no `LLM_EMBED_MODEL` → False.
   - `test_require_tool_model_probe_rejects_no_tools`: `openai`; the fake raises
     `BadRequestError("tools not supported")` on a probe with one dummy tool → `RuntimeError` naming the model.
-  - `test_tracing_setup_never_raises`: `phoenix.otel.register` raises → `setup_tracing("x") is False`.
-  - `test_traced_tool_call_tags_request_hash`: an in-memory span exporter shows `semantic.request_hash` from a fake
-    `query_metric` result.
 - [ ] **Step 2: Run them to see them fail.** Run `python3 -m pytest tests/unit/test_lab_utils_llm.py -q`.
-- [ ] **Step 3: Implement.** Port `ask_semantic` and `ask_raw_sql` onto `_chat`, and route `ask_semantic`'s MCP calls
-  through `traced_tool_call`. Adapt the existing semantic tests' fakes; their assertions stay.
+- [ ] **Step 3: Implement.** Port `ask_raw_sql` onto `_chat`. Leave `ask_semantic`/`ask_ops` until Task 6 replaces them,
+  adapting their tests' fakes to the OpenAI shape so they keep passing meanwhile.
 - [ ] **Step 4: Run the tests.** Run `python3 -m pytest tests/chart tests/unit -q`. Expected: all pass.
-- [ ] **Step 5: Commit** `lab_utils: one OpenAI-compatible client (ollama | openai | none), AI-off helpers, tool spans`
+- [ ] **Step 5: Commit** `lab_utils: one OpenAI-compatible client (ollama | openai | none), AI-off helpers`
 
-### Task 5: Jupyter image dependencies
+### Task 4: Jupyter image dependencies
 
 **Files:**
 - Modify: `jupyter/Dockerfile` (pip pins); docs/VERSIONS.md §8
@@ -250,7 +212,7 @@
 
 - [ ] **Step 1: Write the failing test.** `test_ai_packages_pinned` parses `jupyter/Dockerfile` and asserts it contains:
   - `strands-agents[openai]==1.65.0`
-  - `openinference-instrumentation-openai==`
+  - `opentelemetry-exporter-otlp-proto-http==` (unless already a Strands dependency: check, and assert accordingly)
   - `langchain-openai==`
   - `openai==`
   - and no unpinned `ollama` line (the `ollama` package is no longer imported by `lab_utils`)
@@ -260,22 +222,21 @@
   them. Run `grep -r "import ollama\|langchain_ollama" jupyter/` to check.
 - [ ] **Step 4: Build the image** with `docker build -t datalab-playground/jupyter:test jupyter` (or CI's build step).
   Expected: it builds, and `python -c "import strands, openai, langchain_openai"` passes inside it.
-- [ ] **Step 5: Commit** `jupyter: openai, langchain-openai, Strands and OpenInference packages`
+- [ ] **Step 5: Commit** `jupyter: openai, langchain-openai and Strands packages`
 
-### Task 6: Notebooks on the new client, with AI-off paths and Phoenix sections
+### Task 5: Notebooks on the new client, with AI-off paths (playground, rag_demo)
 
 **Files:**
 - Modify (regenerate from percent sources with the notebook builder used earlier, or edit the cells directly):
   - `data_lab_playground.ipynb` (Ollama, LangChain and AI-summary cells → `openai_client()` / `ChatOpenAI`, each
     gated by `skip_unless_llm`)
-  - `rag_demo.ipynb` (`OpenAIEmbeddings(base_url=LLM_EMBED_BASE_URL, model=EMBED_MODEL, check_embedding_ctx_length=False)`,
+  - `rag_demo.ipynb` (`OpenAIEmbeddings(base_url=LLM_BASE_URL, model=EMBED_MODEL, check_embedding_ctx_length=False)`,
     `ChatOpenAI`; sections 2–3 gated by `embeddings_available()` / `llm_available()`)
-  - `semantic/01_chat_with_your_data.ipynb` (`setup_tracing("semantic-layer")`; the chat and score cells gated; a new
-    "See it in Phoenix" markdown cell plus a code cell printing the request hashes of the last answer's tool calls)
+  - (`semantic/01` is rebuilt in Task 6, on Strands)
 - Test: `tests/unit/test_notebooks_ai_off.py`
 
 - [ ] **Step 1: Write the failing test.** `test_ai_cells_are_gated` scans these notebooks' code cells. Every cell that
-  calls `ChatOpenAI(`, `OpenAIEmbeddings(`, `ask_semantic(`, `ask_raw_sql(` or `openai_client(` must also contain
+  calls `ChatOpenAI(`, `OpenAIEmbeddings(`, `ask_raw_sql(` or `openai_client(` must also contain
   `skip_unless_llm(`, `llm_available()` or `embeddings_available()`, or follow a `require_llm()` cell. Also:
   `test_no_ollama_imports` asserts no notebook imports `ollama` or `langchain_ollama`.
 - [ ] **Step 2: Run it to see it fail.**
@@ -283,11 +244,11 @@
 - [ ] **Step 4: Run the tests.** Then, in the sandbox, run the stack headless twice. That is the earlier smoke-stack
   approach: Spark Connect + HMS + Trino + SeaweedFS, with a CPU Ollama serving `/v1`:
   - with `LLM_PROVIDER=none`: every notebook finishes, and skipped sections print the line;
-  - with `LLM_PROVIDER=ollama`: the answers match the earlier verified runs (semantic 6/6, the RAG answers name
-    firmware 2.4.1 and the dead-on-arrival SSDs).
-- [ ] **Step 5: Commit** `notebooks: OpenAI-compatible client, AI-off paths, semantic traces in Phoenix`
+  - with `LLM_PROVIDER=ollama`: the RAG answers name firmware 2.4.1 and the dead-on-arrival SSDs, as in the earlier
+    verified runs.
+- [ ] **Step 5: Commit** `notebooks: OpenAI-compatible client and AI-off paths (playground, rag_demo)`
 
-### Task 7: Strands agents for `ops/01` and `ops/02`
+### Task 6: Strands agents: chat with your data (traced in Phoenix), `ops/01`, `ops/02`
 
 **Files:**
 - Create:
@@ -295,50 +256,93 @@
   - `jupyter/notebooks/ops/02_spark_history_agent.ipynb` (workload and tools-by-hand per
     `docs/superpowers/plans/2026-11-16-spark-history-agent-notebook.md`; agent via `lab_agents`)
 - Modify:
-  - `jupyter/notebooks/ops/01_pipeline_agent.ipynb` (agent cells → `lab_agents.ops_agent(...)`)
-  - `jupyter/notebooks/lab_utils.py` (remove `ask_ops`, `OPS_NUM_CTX`; keep `OPS_TOOLS`, `ops_servers`, `ops_call`,
-    `require_ops`)
+  - `jupyter/notebooks/semantic/01_chat_with_your_data.ipynb` (the step-by-step chat, the score table and the role cells
+    → `lab_agents.semantic_agent`; the tools-by-hand and governance cells unchanged; new "See it in Phoenix" section)
+  - `jupyter/notebooks/ops/01_pipeline_agent.ipynb` (agent cells → `lab_agents.ops_agent`)
+  - `jupyter/notebooks/lab_utils.py`:
+    - remove `ask_semantic`, `ask_ops` and `OPS_NUM_CTX`;
+    - move `SEMANTIC_PROMPT` and `OPS_PROMPT` to `lab_agents`;
+    - keep `mcp_call`, `ops_call`, `OPS_TOOLS`, `ops_servers`, `require_ops` and `ask_raw_sql`.
   - `hack/workstation/e2e.sh` (add `ops/02`)
-- Test: `tests/unit/test_lab_agents.py`
+  - `.github/workflows/chart-lint.yaml` (add pip `strands-agents[openai]==1.65.0`)
+- Test:
+  - `tests/unit/test_lab_agents.py`
+  - remove the `ask_semantic`/`ask_ops` tests from `test_lab_utils_semantic.py` (`test_lab_agents.py` re-asserts their
+    behaviors)
 
 **Interfaces:**
-- Consumes: `lab_utils.OPS_TOOLS`, `ops_servers()`, `TOOL_MODEL`, `MAX_TOKENS`, `LLM_*` env, `setup_tracing`.
+- Consumes: `lab_utils.OPS_TOOLS`, `ops_servers()`, `TOOL_MODEL`, `MAX_TOKENS`, `llm_available()`, `LLM_*` env,
+  `SEMANTIC_MCP_URL`, `SEMANTIC_USER`, `PHOENIX_OTLP_HTTP_ENDPOINT`, `PHOENIX_API_KEY` (optional).
 - Produces:
-  - `lab_agents.strands_model() -> strands.models.openai.OpenAIModel`, built with
+  - `strands_model() -> strands.models.openai.OpenAIModel`, built with
     `client_args={"base_url": LLM_BASE_URL, "api_key": LLM_API_KEY or "ollama"}`, `model_id=TOOL_MODEL` and
     `params={"max_tokens": MAX_TOKENS, "temperature": 0}`.
-  - `lab_agents.mcp_clients(servers: list[str]) -> list[strands.tools.mcp.MCPClient]`, over streamable HTTP to
-    `ops_servers()[s]`.
-  - `lab_agents.ops_agent(servers: list[str] = ["airflow", "spark_history"]) -> contextmanager[strands.Agent]`. Its
-    tools are each client's tools filtered to `OPS_TOOLS[server]`. The system prompt is the former `OPS_PROMPT` with
-    today's date. Strands telemetry goes to Phoenix project `ops-agents`.
-  - `lab_agents.ask(agent, question) -> dict` returns `{"answer": str, "steps": [{"tool", "args", "result"}]}`, with
-    steps taken from the agent's message history.
+  - `trace_to_phoenix(project: str = "semantic-layer") -> bool`:
+    - sets up Strands telemetry with an OTLP/HTTP exporter to `PHOENIX_OTLP_HTTP_ENDPOINT`;
+    - resource attribute `openinference.project.name=<project>`;
+    - header `authorization: Bearer $PHOENIX_API_KEY` when that variable is set;
+    - never raises: when tracing is off it prints why, and it returns whether tracing is on;
+    - only `semantic/01` calls it.
+  - `semantic_agent(role: str = "analyst") -> contextmanager[strands.Agent]`:
+    - its MCP client sends `X-Semantic-User`/`X-Semantic-Role`;
+    - the system prompt is `SEMANTIC_PROMPT` plus the published model name, from one `list_models` call;
+    - a `BeforeToolCallEvent` hook applies the model-name guard and the grain guard (time dimensions from one
+      `list_dimensions` call) and records a `note` on the step.
+  - `ops_agent(servers: list[str] = ["airflow", "spark_history"]) -> contextmanager[strands.Agent]`: tools filtered to
+    `OPS_TOOLS[server]`, the ops prompt with today's date, no tracing.
+  - `ask(agent, question) -> dict` returns
+    `{"answer": str, "steps": [{"tool", "args", "result", "note"?}], "sql": str | None, "rows": list}`:
+    - `sql` and `rows` come from the last `query_metric` result;
+    - this is the same shape the notebook's step-by-step and score cells read from `ask_semantic`.
 
-- [ ] **Step 1: Write the failing tests** (Strands imported, MCP and model faked):
-  - `test_strands_model_uses_llm_env`: env `LLM_BASE_URL=http://x/v1`, `LLM_TOOL_MODEL=m` → the model config has
-    `model_id == "m"` and `client_args["base_url"] == "http://x/v1"`, plus `params["max_tokens"] == 1024`.
-  - `test_ops_agent_offers_only_allowlisted_tools`: a fake MCP client lists `trigger_dag`, `list_dag_runs` and
-    `get_task_logs` → the agent tool names are `{"list_dag_runs", "get_task_logs"}`.
-  - `test_ops_agent_prompt_has_today`: today's ISO date is in `agent.system_prompt`.
-  - `test_ask_collects_steps`: a scripted fake model (Strands' test pattern: a model yielding a tool use, then text) →
-    `ask(...)["steps"][0]["tool"] == "list_dag_runs"`.
-  - `test_ops_agent_skips_without_llm`: `LLM_PROVIDER=none` → `ops_agent` raises `RuntimeError` naming the provider
-    (the notebook cell catches it with `skip_unless_llm`).
-- [ ] **Step 2: Run them to see them fail.** Run `python3 -m pytest tests/unit/test_lab_agents.py -q` (install `strands-agents[openai]==1.65.0` in the test env; add it to chart-lint's pip line).
-- [ ] **Step 3: Implement `lab_agents.py`, rewrite the `ops/01` agent cells and build `ops/02`.** `ops/02` agent
-  questions:
-  - "Why was my last query slow?"
-  - "Which stage had the most skew?"
-  - "How much less data did the filtered query read?"
-- [ ] **Step 4: Run the tests, then run ops/01 and ops/02 headless in the sandbox** (Airflow + both MCP servers + CPU
-  Ollama `/v1`, as in the earlier runs). Expected:
-  - ops/01 names the failed or successful `northwind_daily` run and the longest Spark application;
-  - ops/02's agent cites the skewed stage;
-  - traces appear in Phoenix project `ops-agents`.
-- [ ] **Step 5: Commit** `ops: Strands agents for ops/01 and the new ops/02 Spark History notebook`
+- [ ] **Step 1: Write the failing tests.** Import Strands and fake the MCP server and the model; the scripted model
+  yields a tool use, then text.
+  - `test_strands_model_uses_llm_env`: env `LLM_BASE_URL=http://x/v1`, `LLM_TOOL_MODEL=m` → `model_id == "m"`,
+    `client_args["base_url"] == "http://x/v1"`, `params["max_tokens"] == 1024`.
+  - `test_semantic_agent_sends_identity_headers`: the fake MCP transport records headers →
+    `X-Semantic-Role == "dach_sales"` for `semantic_agent("dach_sales")`.
+  - `test_semantic_agent_prompt_names_published_model`: a fake `list_models` returns `dbt_demo` → `"dbt_demo"` is in
+    the system prompt.
+  - `test_model_guard_hook`: a scripted tool use with `{"model": "sales", "metrics": ["total_revenue"]}` → the MCP
+    receives `model == "dbt_demo"`, and the step's `note` mentions `model`.
+  - `test_grain_guard_hook`:
+    - `query_metric` with `grain: "day"` and only `dim_products.category` → `grain` is absent at the MCP, and the note
+      starts `grain dropped`;
+    - with `fct_orders.order_date`, `grain` is kept.
+  - `test_ask_collects_steps_sql_rows`: `ask(...)["sql"]` and `["rows"]` equal the fake `query_metric` result's.
+  - `test_ops_agent_offers_only_allowlisted_tools`: a fake MCP lists `trigger_dag`, `list_dag_runs` and
+    `get_task_logs` → the agent's tools are `{"list_dag_runs", "get_task_logs"}`.
+  - `test_ops_agent_prompt_has_today`: today's ISO date is in the ops agent's system prompt.
+  - `test_agents_raise_without_llm`: `LLM_PROVIDER=none` → `RuntimeError` naming the provider.
+  - `test_tracing_never_raises`: the OTLP exporter set-up raises → `trace_to_phoenix() is False`, and `semantic_agent`
+    still works.
+  - `test_only_semantic_notebook_traces`: a scan of all notebooks shows `trace_to_phoenix(` appears only in
+    `semantic/01_chat_with_your_data.ipynb`.
+- [ ] **Step 2: Run them to see them fail.** Run `python3 -m pytest tests/unit/test_lab_agents.py -q` with
+  `strands-agents[openai]==1.65.0` installed.
+- [ ] **Step 3: Implement `lab_agents.py`, then rebuild the notebooks.**
+  - `semantic/01`:
+    - rebuild its agent cells on `semantic_agent`;
+    - keep showing each step (tool, arguments, compiled SQL, rows, notes) from `ask(...)["steps"]`;
+    - its "See it in Phoenix" section tells the reader to open project `semantic-layer` and find the trace for the last
+      question.
+  - `ops/01`: rebuild its agent cells on `ops_agent`.
+  - `ops/02`: build it. Its agent asks:
+    - "Why was my last query slow?"
+    - "Which stage had the most skew?"
+    - "How much less data did the filtered query read?"
+- [ ] **Step 4: Run all tests, then run the notebooks headless in the sandbox.** Use the same stack as the earlier runs:
+  the Semantic Operator against k3s plus Trino, Airflow plus both MCP servers, Phoenix, and CPU Ollama `/v1`. Expected:
+  - `semantic/01`:
+    - the semantic layer scores 6/6;
+    - `dach_sales` sees only DACH;
+    - Phoenix project `semantic-layer` shows one trace per question, with tool spans.
+  - `ops/01` names the `northwind_daily` run and the longest Spark application.
+  - `ops/02` cites the skewed stage.
+  - Phoenix has no new `ops` project.
+- [ ] **Step 5: Commit** `agents on Strands: chat with your data (traced in Phoenix), ops/01, new ops/02`
 
-### Task 8: No-GPU workstation profile and docs
+### Task 7: No-GPU workstation profile and docs
 
 **Files:**
 - Create: `charts/data-lab/ci/workstation-nogpu-values.yaml` (workstation profile minus Ollama/GPU, `llm.provider: none`)
@@ -359,6 +363,6 @@
   - GPU `e2e.sh`;
   - a no-GPU deploy with an OpenRouter key: all notebooks run, with real answers;
   - a no-GPU deploy with AI off: all notebooks finish with skip lines;
-  - Phoenix shows `semantic.query` spans in `default`, and notebook spans in `semantic-layer` / `ops-agents`.
+  - Phoenix project `semantic-layer` shows chat-with-your-data traces (and nothing new elsewhere).
 - [ ] **Step 4: Run all tests and lint on every profile, push, and check CI (chart-lint plus the four kind scenarios).**
 - [ ] **Step 5: Commit** `workstation: no-GPU profile (bring your own OpenAI-compatible endpoint or AI off)`

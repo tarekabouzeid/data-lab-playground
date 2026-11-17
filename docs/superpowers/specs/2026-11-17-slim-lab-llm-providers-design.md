@@ -1,6 +1,6 @@
-# Slimmer lab: no Compose, LLMs from anywhere, semantic traces, Strands agents
+# Slimmer lab: no Compose, LLMs from anywhere, Strands agents traced in Phoenix
 
-Status: **draft for review** (2026-11-17). Nothing is built until the maintainer approves this document and the plan
+Status: **draft for review** (2026-11-17, revised after the maintainer's first review). Nothing is built until the maintainer approves this document and the plan
 (`docs/superpowers/plans/2026-11-17-slim-lab-llm-providers.md`).
 
 ## Intent and why
@@ -13,13 +13,15 @@ maintainer wants it smaller and easier for others to run:
 2. **No GPU required.** Users either bring any OpenAI-compatible endpoint (OpenRouter, a vLLM box, a hosted provider)
    with a base URL, model names and a key, or turn the AI parts off entirely. With AI off, every notebook still runs
    and says plainly which sections it skipped.
-3. **Semantic layer traces in Phoenix.** Phoenix is deployed but only the RAG notebook uses it. The semantic layer's
-   own spans and the LLM calls that drive it should be visible there.
-4. **Spark agent on AWS Strands.** The planned `ops/02` Spark History agent notebook is built with the Strands Agents SDK
-   instead of the hand-written tool loop.
+3. **Chat with your data on AWS Strands, traced in Phoenix.** `semantic/01`'s chat-with-your-data agent (the LLM using
+   the Semantic Operator's MCP tools) is rebuilt with the Strands Agents SDK, and that agent's traces are what goes to
+   Phoenix. Nothing else is added to Phoenix (maintainer, 2026-11-17).
+4. **Spark agent on AWS Strands.** The planned `ops/02` Spark History agent notebook is built with Strands instead of
+   the hand-written tool loop.
 
 Success: a user without a GPU installs the chart, points it at OpenRouter (or sets AI off), and every notebook runs to
-the end. The repository has no Compose files, and Phoenix shows the semantic layer's queries.
+the end. The repository has no Compose files, and Phoenix shows each chat-with-your-data question as one trace: the
+model's turns, the semantic-layer tool calls and the answer.
 
 ## Goals
 
@@ -29,16 +31,16 @@ the end. The repository has no Compose files, and Phoenix shows the semantic lay
   - `openai`: any OpenAI-compatible endpoint plus a key from a Secret.
   - `none`: AI off.
 - Notebooks branch on one helper (`lab_utils.llm_available()`) and print what they skip.
-- The semantic server exports OTLP traces to Phoenix. The notebooks' LLM and tool calls are traced too, tagged with the
-  server's `request_hash` so the two can be matched.
-- `ops/02_spark_history_agent.ipynb` uses Strands, with the same model settings and Phoenix tracing.
+- `semantic/01`'s chat agent runs on Strands, and its traces (Strands' built-in OpenTelemetry) go to Phoenix project
+  `semantic-layer`. Nothing else is newly sent to Phoenix.
+- `ops/02_spark_history_agent.ipynb` uses Strands, with the same model settings.
 
 ## Non-goals
 
 - No new services: no LiteLLM proxy, no OpenTelemetry collector, no Bedrock.
 - No change to the Sandpiper defaults (the golden default render stays the 0.1.0 resource set).
-- No upstream change to the Semantic Operator. Its server does not continue the caller's trace (no `traceparent`
-  extraction); we do not patch it.
+- No upstream change to the Semantic Operator, and no server-side tracing: the server's own OTLP exporter stays off
+  (maintainer: only the Strands chat agent goes to Phoenix).
 - `RELEASE_NOTES.md` stays untouched until the maintainer decides the release.
 
 ## Anti-goals (failure even if it "works")
@@ -66,11 +68,10 @@ the end. The repository has no Compose files, and Phoenix shows the semantic lay
   - Cap output tokens on every call.
 - Jupyter image: Python 3.12. Strands 1.65.0 needs Python ≥ 3.10 and supports OpenAI-compatible models (`openai`
   extra) and MCP servers over streamable HTTP.
-- Semantic server (kubeflow/semantic-operator@4fd7057):
-  - config key `observability.otlpEndpoint` (OTLP/HTTP, empty means off);
-  - spans named `semantic.query` with the model, model version, adapter and request hash;
-  - service name `semantic-server`;
-  - no trace-context propagation.
+- Semantic server (kubeflow/semantic-operator@4fd7057): MCP tools `list_models`, `list_metrics`, `list_dimensions`,
+  `query_metric`; identity headers `X-Semantic-User` / `X-Semantic-Role` (header auth). It has its own OTLP exporter
+  (`observability.otlpEndpoint`), which this design leaves off.
+- OpenRouter serves embeddings as well as chat (maintainer, 2026-11-17), through the same OpenAI-compatible API.
 
 ## Decisions
 
@@ -108,21 +109,15 @@ llm:
     apiKeyKey: api-key
   chatModel: ""         # default: gemma3:4b with ollama; required with openai
   toolModel: ""         # default: qwen3:4b-instruct with ollama; required with openai (must support tool calling)
-  embeddings:
-    baseUrl: ""         # default: same as baseUrl (ollama: the chart's Ollama)
-    model: ""           # default: mxbai-embed-large:latest with ollama; required for rag_demo with openai
-    auth:
-      existingSecret: ""   # default: llm.auth
-      apiKeyKey: api-key
+  embeddingModel: ""    # default: mxbai-embed-large:latest with ollama; required for rag_demo with openai
 ```
 
-- Jupyter gets `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_CHAT_MODEL`, `LLM_TOOL_MODEL`, `LLM_EMBED_BASE_URL`,
-  `LLM_EMBED_MODEL`, and `LLM_API_KEY` / `LLM_EMBED_API_KEY` from `secretKeyRef`. The endpoints ConfigMap carries the
-  non-secret keys.
+- Jupyter gets `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_CHAT_MODEL`, `LLM_TOOL_MODEL`, `LLM_EMBED_MODEL`, and
+  `LLM_API_KEY` from `secretKeyRef`. The endpoints ConfigMap carries the non-secret keys.
 - Validation (`validate.yaml`): `provider: openai` requires `baseUrl`, `auth.existingSecret`, `chatModel` and
   `toolModel`. `provider: ollama` requires `ollama.enabled`.
-- Embeddings are separate because not every chat provider serves embeddings (OpenRouter is chat-first). Without an
-  embedding model, `rag_demo` stops early with that reason.
+- Embeddings use the same endpoint and key as chat: OpenRouter, Ollama and most OpenAI-compatible providers serve both.
+  Only the model name is separate. Without an embedding model set, `rag_demo` sections 2–3 print the reason and skip.
 - `ollama.contextLength` (new, default 16384) sets `OLLAMA_CONTEXT_LENGTH`. The OpenAI-compatible API has no
   per-request `num_ctx`, so the context must be raised server-side for the ops agents (15k tokens of tool schemas
   measured).
@@ -133,8 +128,9 @@ llm:
   `chat.completions.create(..., tools=..., max_tokens=...)`. The `ollama` package is no longer used.
 - These stay:
   - `mcp_tool_to_ollama` → renamed `mcp_tool_to_openai`, with the schema normalizer kept (harmless elsewhere);
-  - the model-name guard and the grain guard;
-  - the curated ops tool set and today's date in the ops prompt.
+  - the curated ops tool set and today's date in the ops prompt (moved into the Strands agents, D7).
+- `ask_semantic` and `ask_ops` (the hand-written tool loops) are retired; the agents move to Strands (D7).
+  `ask_raw_sql` (one plain chat call, no tools) stays on `_chat`.
 - Dropped: `think=False` and `num_ctx` (Ollama-only options). The instruct tool model does not think; the context is
   set server-side (D2).
 - `require_tool_model()`:
@@ -142,7 +138,9 @@ llm:
   - with `openai`, cannot ask, so it does one tiny tool-call probe and reports a clear error if tools are unsupported.
 - `llm_available()` returns False for `none`. `require_llm()` raises a clear message for whole-notebook AI pages.
 - LangChain cells (`rag_demo`, the playground) move from `langchain_ollama` to `langchain_openai`.
-  `OpenAIEmbeddings(check_embedding_ctx_length=False)` is needed for non-OpenAI servers.
+  `OpenAIEmbeddings(check_embedding_ctx_length=False)` is needed for non-OpenAI servers. Their existing Phoenix
+  instrumentation (`rag_demo`'s `northwind-rag` project, the playground's `ai-platform-demo`) is left as it is: see
+  open question Q1.
 
 ### D4. AI-off behavior per notebook
 
@@ -167,48 +165,54 @@ llm:
 - Running Ollama on CPU stays possible (`ollama.gpu.enabled=false`) but is not a profile. It was measured at minutes per
   agent turn, too slow to recommend.
 
-### D6. Semantic layer traces in Phoenix
+### D6. Chat with your data on Strands, traced in Phoenix
 
-- **Server side.** When `semantic.enabled` and `phoenix.enabled`, the chart renders `observability.otlpEndpoint:
-  http://<phoenix>:6006/v1/traces` into the semantic server config, behind a new value `semantic.server.tracing.enabled`
-  (default true; inert unless semantic is on, so the default render is unchanged).
-  - Phoenix with auth on needs an API key, which Phoenix issues in its UI; the chart's Phoenix Secret only holds the
-    signing secret and admin password. So `semantic.server.tracing.headersSecret` (new, empty by default) names a Secret
-    whose key `otlp-headers` (e.g. `authorization=Bearer <key>`) becomes `OTEL_EXPORTER_OTLP_HEADERS`, which
-    `otlptracehttp` honours. With `phoenix.auth.enabled` and no headers Secret, tracing stays off and NOTES.txt says why.
-  - Server spans land in Phoenix's `default` project: the server's resource only sets `service.name`, and we do not
-    patch upstream.
-- **Notebook side.**
-  - `lab_utils` registers Phoenix tracing (project `semantic-layer`) with the OpenInference OpenAI instrumentation, so
-    every `_chat` call is a traced LLM span.
-  - Each MCP tool call gets its own span with `tool.name`, arguments and, for `query_metric`, `semantic.request_hash` and
-    the compiled SQL.
-- **Linking.** The notebook and server spans are separate traces. They are matched by `semantic.request_hash`, which is
-  on both. `semantic/01` gets a short "See it in Phoenix" section that shows how.
+- `semantic/01`'s agent is a Strands `Agent`:
+  - model: the shared `OpenAIModel` (D7);
+  - tools: an `MCPClient` over streamable HTTP to `SEMANTIC_MCP_URL`, sending `X-Semantic-User` / `X-Semantic-Role` for
+    the chosen role (analyst, marketing, dach_sales);
+  - system prompt: today's `SEMANTIC_PROMPT`, plus the published model's name, fetched once before the agent starts.
+- The two guards from real runs become Strands hooks:
+  - a `BeforeToolCallEvent` hook replaces an unknown `model` argument with the published model when exactly one is
+    published;
+  - the same hook drops `grain` when no requested dimension is a time dimension.
+  Each correction is recorded on the step, so the notebook still shows it.
+- The notebook keeps its step-by-step teaching. After each question it prints every tool call, its arguments and the
+  server's result (compiled SQL and rows), read from the agent's message history. The score table (semantic vs raw
+  text-to-SQL) stays.
+- **Phoenix:** Strands' built-in OpenTelemetry tracer is exported over OTLP/HTTP to Phoenix
+  (`PHOENIX_OTLP_HTTP_ENDPOINT`, project `semantic-layer`). One question becomes one trace: an agent span, model-call
+  spans and a span per tool call. Nothing else is added: no server-side export, no extra spans in `lab_utils`, no other
+  notebook's tracing changes.
+  - With Phoenix auth on, Phoenix needs an API key, issued in its UI. The notebook reads it from `PHOENIX_API_KEY` if
+    set and otherwise traces nothing, printing why. Tracing must never fail a cell.
+- `semantic/01` adds a short "See it in Phoenix" section: open the `semantic-layer` project and find the trace whose
+  tool span carries the compiled SQL shown above.
 
-### D7. Strands for the ops agents
+### D7. Strands everywhere an agent calls tools
 
+- One helper module, `jupyter/notebooks/lab_agents.py`, builds:
+  - the model: `strands.models.openai.OpenAIModel(client_args={base_url: LLM_BASE_URL, api_key}, model_id=LLM_TOOL_MODEL,
+    params={max_tokens, temperature: 0})`;
+  - MCP clients for the semantic, Airflow and Spark History servers (streamable HTTP), with tools filtered to read-only
+    allowlists;
+  - the agents: `semantic_agent(role)` (D6), `ops_agent(servers)` (`ops/01` with Airflow + Spark History, `ops/02` with
+    Spark History only);
+  - `ask(agent, question) -> {answer, steps}`.
 - `ops/02_spark_history_agent.ipynb` follows the existing plan
   (`docs/superpowers/plans/2026-11-16-spark-history-agent-notebook.md`) for the workload and the tools-by-hand part.
-  Its agent is a Strands `Agent`:
-  - model: `strands.models.openai.OpenAIModel(client_args={base_url, api_key}, model_id=LLM_TOOL_MODEL, params={max_tokens})`;
-  - tools: an `MCPClient` over streamable HTTP to the Spark History MCP, filtered to the read-only allowlist.
-- Tracing: Strands' built-in OpenTelemetry, exported to Phoenix (project `ops-agents`).
-- **My call, open for review:** `ops/01` moves to Strands too, with Airflow plus Spark History MCP clients, so both ops
-  agents share one framework and `lab_utils.ask_ops` is retired.
-  - `semantic/01` keeps its explicit loop, because that notebook's purpose is to show each step (prompt → tool call →
-    compiled SQL → answer), and its guards (model name, grain) live in that loop.
-  - The alternative is Strands everywhere, at the cost of rewriting those guards as Strands hooks and hiding the loop
-    the notebook teaches.
+- `ops/01` moves to Strands too, so every tool-calling agent in the lab uses one framework.
+- Tracing for the ops agents: see open question Q1. The design sends them **no** traces until the maintainer answers.
 - Pinned packages in the Jupyter image:
   - `strands-agents[openai]==1.65.0`
-  - `openinference-instrumentation-openai`
   - `langchain-openai`
-  - Strands' own OTel export needs no extra package.
+  - the OTLP exporter `opentelemetry-exporter-otlp-proto-http` (Strands' tracer exports through it; check whether it is
+    already a dependency).
+  - `openinference-instrumentation-openai` is not needed.
 
 ### D8. Versions
 
-- Chart `0.4.0`: new values (`llm`, `ollama.contextLength`, `semantic.server.tracing`) plus the no-GPU profile. Additive.
+- Chart `0.4.0`: new values (`llm`, `ollama.contextLength`) plus the no-GPU profile. Additive.
 - The Jupyter image changes (new packages, no Spark config file). Custom image tags equal `appVersion`; whether this is
   `3.0.0` → `3.1.0` or `4.0.0` (Compose removal is breaking for Compose users) is **the maintainer's release decision**.
   The plan keeps `3.0.0` until then.
@@ -223,12 +227,12 @@ llm:
 3. **A LiteLLM proxy in the chart.** Uniform API with provider routing, but it adds a service, the opposite of making the
    lab smaller.
 
-For the agent framework, Strands was the maintainer's choice. The open part is its scope (D7).
+For the agent framework, Strands was the maintainer's choice, for the chat-with-your-data agent and the ops agents.
 
 ## Left to the builder
 
 - Exact skip messages and cell layout in the notebooks.
-- How the tool allowlist is shared between `lab_utils` and the Strands notebooks (one constant).
+- How the tool allowlists are shared between `lab_utils` (tools by hand) and `lab_agents` (one constant per server).
 - Whether the `require_tool_model` probe for `openai` caches its result per session.
 
 ## Verification
@@ -237,7 +241,7 @@ For the agent framework, Strands was the maintainer's choice. The open part is i
   - LLM modes (render, env, validation);
   - the `_chat` contract with a fake OpenAI client;
   - skip helpers;
-  - the server tracing config;
+  - the Strands guard hooks (model name, grain) and the step extraction;
   - Compose files gone;
   - one e2e script copy.
 - kind CI (the four scenarios, unchanged).
@@ -245,3 +249,10 @@ For the agent framework, Strands was the maintainer's choice. The open part is i
   key, so it goes to the maintainer.
 - Maintainer (TODO): GPU workstation `e2e.sh`, a no-GPU profile with an OpenRouter key, and Phoenix traces checked in the
   UI.
+
+## Open questions for the maintainer
+
+- **Q1. Phoenix scope.** "Only the Strands chat-with-your-data agent goes to Phoenix": should the ops agents (`ops/01`,
+  `ops/02`, also Strands) send **no** traces, and should `rag_demo` and the playground keep their **existing** Phoenix
+  tracing (projects `northwind-rag`, `ai-platform-demo`), or drop it too? This design assumes: ops agents untraced,
+  existing tracing kept.

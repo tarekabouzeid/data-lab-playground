@@ -18,6 +18,13 @@ Do not leave these files stale after a change.
 
 ---
 
+## Ask, don't assume
+
+When you are not sure about a fact the work depends on (what a provider or tool supports, what the maintainer means, which
+of two readings is intended), ask the maintainer instead of building on an assumption. Check what you can yourself
+(docs, the code, a quick probe); ask about the rest, one question at a time. A wrong assumption written into a design
+or plan costs a review round; a question costs one message.
+
 ## Release Notes Policy
 
 [RELEASE_NOTES.md](RELEASE_NOTES.md) is the versioned changelog for this project. It is **not** updated automatically after every change.
