@@ -407,11 +407,6 @@ def require_tool_model(model: str | None = None) -> None:
                            f"that does): {_llm_error(e, model)}") from None
 
 
-SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tools only. Find certified metrics with "
-                   "list_metrics and group-by dimensions with list_dimensions, then call query_metric. Pass only the "
-                   "arguments the question needs: `grain` only together with a time dimension, no `limit` unless "
-                   "asked. If a tool returns an error, fix the arguments and call it again. Never invent numbers and "
-                   "never write SQL. Reply in one or two sentences with the numbers from the result.")
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -424,7 +419,8 @@ OPS_TOOLS = {
     "airflow": {"list_dags", "get_dag_details", "list_dag_runs", "get_dag_run", "diagnose_dag_run", "list_tasks",
                 "get_task_instance", "get_task_logs", "list_import_errors", "get_system_health"},
     "spark_history": {"list_applications", "list_jobs", "list_stages", "get_stage", "get_job_bottlenecks",
-                      "list_sql_executions", "get_executor_summary"},
+                      "list_sql_executions", "get_executor_summary", "get_sql_execution", "compare_sql_executions",
+                      "compare_job_performance", "compare_job_environments"},
 }
 
 
@@ -455,12 +451,6 @@ def ops_call(server: str, name: str, args: dict):
         return json.loads(text)
     except ValueError:
         return text
-
-
-OPS_PROMPT = ("You are the on-call data engineer for Northwind Gear's lakehouse. Answer with the tools: the Airflow "
-              "tools for DAGs, runs and task logs; the Spark History tools for Spark applications, jobs and stages. "
-              "Never guess ids: list first, then drill down. Do not add filters (dates, states, limits) the question "
-              "does not ask for. Reply in at most five sentences with the facts you found.")
 
 
 RAW_PROMPT = ("You write one Trino SQL query that answers the question over the tables below (catalog {catalog}, "

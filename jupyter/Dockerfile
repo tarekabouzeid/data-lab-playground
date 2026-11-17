@@ -72,6 +72,7 @@ RUN pip install --no-cache-dir \
     openai \
     "strands-agents[openai]==1.65.0" \
     opentelemetry-exporter-otlp-proto-http \
+    openinference-instrumentation-strands-agents==0.1.20 \
     arize-phoenix \
     qdrant-client \
     sentence-transformers \

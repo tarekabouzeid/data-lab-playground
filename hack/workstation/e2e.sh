@@ -142,6 +142,8 @@ if ! skip dag; then
     fi
     if [[ -n $(endpoint AIRFLOW_MCP_URL) ]]; then run_notebook ops/01_pipeline_agent.ipynb
     else warn "airflowMcp.enabled is off; skipping ops/01_pipeline_agent.ipynb"; fi
+    if [[ -n $(endpoint SPARK_HISTORY_MCP_URL) ]]; then run_notebook ops/02_spark_history_agent.ipynb
+    else warn "sparkHistoryMcp.enabled is off; skipping ops/02_spark_history_agent.ipynb"; fi
   fi
 fi
 
