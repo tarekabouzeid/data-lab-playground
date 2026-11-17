@@ -20,7 +20,8 @@ criterion. Full checklist: [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).
   2.4.1 and the SSD answer the dead-on-arrival drives.
 - [x] **Airflow UI** (`http://airflow.datalab.localhost:8080`): `northwind_daily` is unpaused. The latest run shows
   `build` logging `Done. PASS=50` and `published` succeeding.
-- [ ] **Confirm CI on the PR head is green**, including the kind `parallel` job, which was still running at hand-off.
+- [x] **Confirm CI on the PR head is green**, including the kind `parallel` job: chart-lint and chart-e2e (all four kind
+  scenarios) passed on 0de20f5 (runs 43975253629, 43975253647).
 - [ ] **Release:** pick the version/tag, then update `RELEASE_NOTES.md` (agents need your explicit yes).
 
 ## Next (development)
