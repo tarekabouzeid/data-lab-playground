@@ -50,8 +50,7 @@ def test_require_semantic_message(monkeypatch):
     assert not lab_utils.semantic_available()
     with pytest.raises(RuntimeError) as e:
         lab_utils.require_semantic()
-    assert str(e.value) == ("The semantic layer runs only on the Helm chart with semantic.enabled=true "
-                            "(Docker Compose is frozen and does not include it).")
+    assert str(e.value) == ("The semantic layer is off in this deployment: set semantic.enabled=true in the chart values.")
 
 
 def test_wait_for_model_timeout(monkeypatch):

@@ -1,4 +1,4 @@
-"""Notebooks run on Compose and on the chart, so service URLs live only in lab_utils.py (env with Compose default)."""
+"""Service URLs live only in lab_utils.py (environment set by the chart)."""
 import json
 import re
 from pathlib import Path
@@ -22,7 +22,7 @@ def test_no_hardcoded_service_hosts_in_notebooks():
 
 
 def test_e2e_script_takes_endpoints_from_env():
-    src = (NB.parents[1] / "tests" / "e2e" / "e2e_lakehouse.py").read_text()
+    src = (NB.parents[1] / "charts" / "data-lab" / "files" / "e2e_lakehouse.py").read_text()
     hard = [ln.strip() for ln in src.splitlines()
             if re.search(r"(thrift|https?)://(hive-metastore|trino|seaweedfs)[:/]", ln) and "os.environ.get(" not in ln]
-    assert not hard, "e2e_lakehouse.py must read service URLs from env (Compose host only as the default):\n" + "\n".join(hard)
+    assert not hard, "e2e_lakehouse.py must read service URLs from env (the host names are only defaults for the kind e2e):\n" + "\n".join(hard)

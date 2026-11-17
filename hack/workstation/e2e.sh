@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end checks of the deployed workstation lab (hack/workstation/deploy.sh first). No GPU needed except for
 # the GenAI notebooks.
-#   1. helm test: Iceberg round trip + the 19-check lakehouse e2e (tests/e2e/e2e_lakehouse.py) over Spark Connect
+#   1. helm test: Iceberg round trip + the 19-check lakehouse e2e (charts/data-lab/files/e2e_lakehouse.py) over Spark Connect
 #   2. the same 19 checks as a SparkApplication (Kubeflow Spark Operator spark-submits it with our Spark image)
 #   3. every notebook, headless, inside the Jupyter pod (dbt before semantic/01 and rag_demo)
 #   4. the Airflow DAG northwind_daily (triggered, must succeed), then ops/01_pipeline_agent.ipynb
@@ -37,7 +37,7 @@ if ! skip spark-app; then
   [[ -n $sa ]] || die "spark.applications.enabled is off in this release"
   s3_key=$($K get secret "$FULLNAME-s3" -o jsonpath='{.data.access-key}' | base64 -d)
   s3_secret=$($K get secret "$FULLNAME-s3" -o jsonpath='{.data.secret-key}' | base64 -d)
-  $K create configmap "$FULLNAME-e2e-script" --from-file="$ROOT/tests/e2e/e2e_lakehouse.py" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  $K create configmap "$FULLNAME-e2e-script" --from-file="$ROOT/charts/data-lab/files/e2e_lakehouse.py" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   $K delete sparkapplication "$FULLNAME-e2e" --ignore-not-found --wait >/dev/null
   image="ghcr.io/tarekabouzeid/data-lab-playground/spark:$APP_VERSION"
   env_block="

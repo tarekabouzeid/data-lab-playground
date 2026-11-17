@@ -1,6 +1,6 @@
 # The dbt demo shop as an Apache Ossie semantic model: the `spec` of the chart's SemanticModel `<release>-data-lab-dbt-demo`
 # (semantic.models.dbtDemo; charts/data-lab/templates/semantic-models.yaml sets connection.catalog/database from values).
-# A copy lives next to the notebook (jupyter/notebooks/semantic/dbt_demo_model.yaml); hack/check-compose-parity.py
+# A copy lives next to the notebook (jupyter/notebooks/semantic/dbt_demo_model.yaml); tests/unit/test_semantic_model_copy.py
 # keeps them identical. Expressions are ANSI_SQL: TRINO is not an Ossie dialect yet (apache/ossie#607).
 connection:
   catalog: iceberg

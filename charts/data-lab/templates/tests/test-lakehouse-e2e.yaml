@@ -1,5 +1,5 @@
 {{- if and .Values.tests.lakehouseE2e.enabled .Values.spark.enabled .Values.trino.enabled }}
-# Copy of tests/e2e/e2e_lakehouse.py (hack/check-compose-parity.py keeps them identical).
+# The e2e script is charts/data-lab/files/e2e_lakehouse.py (the single copy; hack/workstation/e2e.sh reuses it).
 apiVersion: v1
 kind: ConfigMap
 metadata:

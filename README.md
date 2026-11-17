@@ -1,6 +1,6 @@
 # DataLab Playground
 
-A simple Docker-based environment for exploring data analytics and AI tools. Includes basic data processing, storage, and LLM capabilities - all containerized for easy experimentation.
+A Kubernetes lakehouse for exploring data analytics and AI tools, shipped as one Helm chart (`charts/data-lab`): Spark, Iceberg, Trino, Hive Metastore, S3 storage, Airflow, and an optional AI stack (any OpenAI-compatible LLM or a local Ollama, Qdrant, Phoenix, MCP servers, a semantic layer). (Compose removed in chart 0.4.0.)
 
 ## Architecture Overview
 
@@ -33,14 +33,14 @@ A simple Docker-based environment for exploring data analytics and AI tools. Inc
 - **Trino**: SQL query interface
 
 ### AI & ML Tools
-- **Ollama**: Local LLM server (gemma3:4b model)
+- **LLM**: any OpenAI-compatible endpoint (OpenRouter, a hosted API, ...) or a local Ollama (needs a GPU); or none, and the notebooks skip their AI parts
 - **Phoenix**: Basic AI monitoring 
 - **Qdrant**: Vector database for AI experiments
 - **Jupyter**: Notebook environment with common libraries
 
 ### Infrastructure
 - **PostgreSQL**: Database backend 
-- **NVIDIA Docker**: GPU support for AI tools
+- **Kubernetes**: kind, minikube or any cluster ≥ 1.29; a GPU only for the local Ollama
 
 ### Component Versions
 
@@ -58,7 +58,7 @@ Full matrix (runtimes, bundled libraries, access paths, upgrade blockers): **[do
 | Hadoop / `hadoop-aws` | 3.4.2 (Spark) · 3.4.1 (HMS) | | each matches its runtime's bundled Hadoop |
 | AWS SDK v2 bundle | 2.41.1 (Spark) · 2.24.6 (HMS) | | |
 | Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` (no `[spark]` extra) |
-| Phoenix · Ollama · Qdrant | `version-20.20.0` · `0.40.2` · `v1.19.2` | pinned | Compose; the chart pins its own (non-root) tags, see docs/VERSIONS.md §8 |
+| Phoenix · Ollama · Qdrant | non-root tags pinned by the chart | pinned | see docs/VERSIONS.md §8 |
 | Helm chart `charts/data-lab` | 0.3.1 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator (`4fd7057`, built from source) | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
 | Workstation lab (`hack/workstation/`) | K8s 1.37 · minikube 1.39 · Helm 4.x · Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 | | §9 |
 
@@ -68,45 +68,11 @@ See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Docker with Docker Compose
-- **NVIDIA GPU (Required)**:
-  - **NVIDIA GPU with 4GB+ VRAM** for gemma3:4b (current default)
-  - **Lower VRAM options available**: gemma3:1b
-  - NVIDIA Container Runtime pre-configured for Docker GPU access
-  - Platform is optimized for GPU acceleration and requires NVIDIA hardware
-- **Minimum System Requirements**:
-  - 8GB+ RAM recommended (12GB+ for optimal performance)
-  - 50GB+ free disk space for models and data
-
-### One-Command Setup
-```bash
-# This script will:
-# 1. Build all custom Docker images (if not already built)
-# 2. Start all services
-# 3. Create the SeaweedFS `warehouse` bucket
-# 4. Pull the gemma3:4b LLM model
-./start-platform.sh
-```
-
-### Manual Setup (Alternative)
-```bash
-# 1. Build custom Docker images
-docker build -t datalab-playground/jupyter ./jupyter
-docker build -t datalab-playground/spark ./spark
-docker build -t datalab-playground/trino ./trino
-docker build -t datalab-playground/hive-metastore ./hive-metastore
-
-# 2. Start all services
-docker-compose up -d
-
-# 3. Pull LLM model
-docker exec ollama ollama pull gemma3:4b
-```
+- A Kubernetes cluster ≥ 1.29 (kind or minikube locally) and Helm 3.19+ (or 4.x)
+- 8GB+ RAM for the default profile, 12GB+ for the workstation profile; 50GB+ free disk
+- For AI: either an OpenAI-compatible endpoint and key (no GPU needed), or an NVIDIA GPU for a local Ollama, or neither
 
 ## ☸️ Kubernetes (Helm)
-
-> **Docker Compose is frozen**: it keeps its current services and only gets version alignment. New features
-> (Airflow, Spark History Server, MCP servers, the semantic layer) are Kubernetes-only.
 
 The lakehouse ships as one Helm chart, [`charts/data-lab`](charts/data-lab/README.md). Its defaults suit many
 short-lived, isolated installs side by side (one per user or agent; Sandpiper); a profile turns it into a workstation lab.
@@ -145,38 +111,36 @@ semantic). The audit behind the chart is in [docs/HELM_GAP_REPORT.md](docs/HELM_
 
 ## 🎯 Getting Started
 
-Simple steps to explore the tools:
-
-1. **Start**: Run `./start-platform.sh` 
-2. **Open Jupyter**: Go to http://localhost:8888 (password: 123456)
-3. **Try the demos**: Open `data_lab_playground.ipynb`, the tour of Northwind Gear (the one shop every notebook uses) and its pipeline
-4. **Experiment with RAG**: Try `rag_vector_demo.ipynb` for vector database examples
-5. **Explore UIs**: Check out Qdrant dashboard, Phoenix monitoring, etc.
+1. **Deploy**: `hack/workstation/deploy.sh` (see above) and `hack/workstation/gateway-forward.sh`
+2. **Open Jupyter**: http://jupyter.datalab.localhost:8080 (token: see Workstation lab)
+3. **Try the demos**: open `data_lab_playground.ipynb`, the tour of Northwind Gear (the one shop every notebook uses) and its pipeline
+4. **Experiment with RAG**: `rag_demo.ipynb`
+5. **Explore UIs**: Trino, Airflow, Spark History, Phoenix, Qdrant, Headlamp on `*.datalab.localhost:8080`
 
 ## 🌐 Service Access Points
 
-| Service | URL | Credentials | Description |
-|---------|-----|-------------|-------------|
-| **Jupyter Notebook** | http://localhost:8888 | password: 123456 | Interactive AI/ML environment |
-| **Phoenix AI Observability** | http://localhost:6006 | None | AI model monitoring & traces |
-| **Ollama LLM API** | http://localhost:11434 | None | Local LLM inference endpoint |
-| **Qdrant Vector Database** | http://localhost:6333 | None | Vector storage & similarity search |
-| **Qdrant Web Dashboard** | http://localhost:6333/dashboard | None | Vector database management UI |
-| **Trino Web UI** | http://localhost:8080/ui | None | SQL query interface (legacy UI disabled since Trino 483) |
-| **Spark Master UI** | http://localhost:8081 | None | Spark cluster monitoring |
-| **Hive Metastore (Thrift)** | thrift://localhost:9083 | None | Trino `hive` / `lakehouse` catalogs |
-| **HMS Iceberg REST catalog** | http://localhost:9084/iceberg | None | Spark + Trino `iceberg` catalog |
-| **SeaweedFS S3 API** | http://localhost:8333 | seaweedadmin/seaweedadmin123 | S3-compatible object storage |
-| **SeaweedFS Filer UI** | http://localhost:8889/buckets/warehouse/ | None | Browse buckets/files |
-| **SeaweedFS Master UI** | http://localhost:9333 | None | Cluster/volume status |
+Everything is routed through the Gateway on `*.datalab.localhost:8080` (workstation profile). Ports that are not HTTP
+(HMS Thrift 9083, Spark Connect 15002, OTLP 4317) come from `hack/workstation/port-forward.sh`. Every endpoint and the
+Secret that holds its credential is listed in the `<release>-data-lab-endpoints` ConfigMap.
+
+| Service | Host | Notes |
+|---------|------|-------|
+| JupyterLab | `jupyter.datalab.localhost` | token from the `<release>-data-lab-jupyter` Secret |
+| Trino UI | `trino.datalab.localhost` | no authentication |
+| Airflow | `airflow.datalab.localhost` | DAG `northwind_daily` |
+| Spark History | `spark-history.datalab.localhost` | |
+| Phoenix | `phoenix.datalab.localhost` | AI traces |
+| Qdrant | `qdrant.datalab.localhost` | `/dashboard` |
+| Ollama | `ollama.datalab.localhost` | only with `ollama.enabled` |
+| S3 (SeaweedFS) | `s3.datalab.localhost` | keys in the `<release>-data-lab-s3` Secret |
 
 ## 🤖 AI Tools
 
-### LLM Server (Ollama)
-- **Default Model**: gemma3:4b (~4GB VRAM)
-- **Any Ollama Model**: Different sizes available for various GPU capabilities from [Ollama Library](https://ollama.com/library)
-- **Requirements**: NVIDIA GPU with Docker runtime
-- **API**: `http://localhost:11434`
+### LLM (Ollama, or any OpenAI-compatible endpoint, or none)
+The notebooks talk to one OpenAI-compatible API through `lab_utils`. Pick one with the chart's `llm` values:
+- **Local Ollama** (`ollama.enabled=true`, GPU): defaults `gemma3:4b` (chat), `qwen3:4b-instruct` (tools) and `mxbai-embed-large` (embeddings).
+- **Your own endpoint** (OpenRouter or any OpenAI-compatible server, no GPU): `llm.provider=openai`, `llm.baseUrl`, models, and the key in an existing Secret. Embeddings can use a different endpoint (`llm.embeddingBaseUrl`).
+- **No AI** (`llm.provider=none`): every AI section of a notebook prints `skipped (no LLM configured): ...` and the rest runs.
 
 ### Vector Database (Qdrant)  
 - **Purpose**: Store embeddings for RAG experiments
@@ -203,198 +167,48 @@ Simple steps to explore the tools:
   - `jupyter/notebooks/lab_data.py` — Northwind Gear, the one shop the notebooks share: clickstream, deliveries, order stream and product documents derived deterministically from the dbt seeds
   - `jupyter/notebooks/data_lab_playground.ipynb` (the tour: pipeline map, bronze snapshot, cross-catalog Trino join, rows per layer) and `rag_demo.ipynb` (why customers send products back: refund rate per product from the semantic layer, Trino or the seeds, plus support tickets retrieved from Qdrant)
   - [`jupyter/notebooks/ops/`](jupyter/notebooks/ops/) — the Airflow DAG `dags/northwind_daily.py` (Spark Connect ingest of the day's order events into `shop_bronze.order_events` → `dbt build` on Trino → quality checks → `shop_gold.product_kpis`, and a wait for the SemanticModel's `Published` condition; runs on the lab Airflow image `airflow/Dockerfile` with `airflow.labPipelines.enabled`) and `01_pipeline_agent.ipynb`, an LLM agent over the Airflow and Spark History MCP servers (Helm chart only; the workstation profile turns all of it on and mounts `ops/dags` as the DAG folder)
-  - `jupyter/notebooks/lab_utils.py` — shared helper: every service endpoint (env set by the chart, Compose host as default), `get_spark()` (Compose and Spark Connect), `trino()`, `dbt()`, `reset_dbt_demo()`, the semantic-layer chat helpers
+  - `jupyter/notebooks/lab_utils.py` — shared helper: every service endpoint (env set by the chart), `get_spark()` (Spark Connect), `trino()`, `dbt()`, `reset_dbt_demo()`, the semantic-layer chat helpers
 - **Default Kernel**: GenAI Analytics (Python 3.12)
 - **Access**: `http://localhost:8888` (password: 123456)
 
 ## 📊 Usage Examples
 
-### Using Ollama LLM in Jupyter
+All notebooks run in the lab's Jupyter, where the chart sets every endpoint as an environment variable. Read them from
+`lab_utils` instead of hardcoding hosts:
+
 ```python
-import requests
-import json
+import lab_utils as lu
 
-# Chat with the local LLM
-def chat_with_ollama(prompt, model="gemma3:4b"):
-    response = requests.post('http://ollama:11434/api/generate',
-                           json={
-                               "model": model,
-                               "prompt": prompt,
-                               "stream": False
-                           })
-    return response.json()['response']
-
-# Example usage
-result = chat_with_ollama("Explain data analytics in simple terms")
-print(result)
+spark = lu.get_spark()                       # Spark Connect; the server has the Iceberg catalog (type=rest)
+lu.trino("SELECT * FROM iceberg.shop_bronze.order_events LIMIT 5")
+lu.QDRANT_URL                                # also OLLAMA_URL, PHOENIX_URL, S3_ENDPOINT, ...
 ```
 
-### Building RAG Systems with Qdrant
-```python
-from qdrant_client import QdrantClient
-import ollama
-
-# Connect to vector database
-qdrant = QdrantClient(host="qdrant", port=6333)
-
-# Generate embeddings using Ollama
-def get_embedding(text):
-    response = ollama.embeddings(
-        model="nomic-embed-text",
-        prompt=text
-    )
-    return response["embedding"]
-
-# Store document chunks in vector database
-def store_document(text_chunks, collection_name="knowledge_base"):
-    for i, chunk in enumerate(text_chunks):
-        embedding = get_embedding(chunk)
-        qdrant.upsert(
-            collection_name=collection_name,
-            points=[{
-                "id": i,
-                "vector": embedding,
-                "payload": {"text": chunk}
-            }]
-        )
-
-# Retrieve relevant context for questions
-def rag_query(question, collection_name="knowledge_base"):
-    question_embedding = get_embedding(question)
-    results = qdrant.search(
-        collection_name=collection_name,
-        query_vector=question_embedding,
-        limit=3
-    )
-    context = "\n".join([hit.payload["text"] for hit in results])
-    
-    # Use context with LLM
-    prompt = f"Context: {context}\n\nQuestion: {question}\nAnswer:"
-    return chat_with_ollama(prompt)
-```
-
-### Phoenix AI Observability
-```python
-import phoenix as px
-from openinference.instrumentation.langchain import LangChainInstrumentor
-from phoenix.otel import register
-
-# Configure Phoenix tracing (in GenAI DEV kernel)
-tracer_provider = register(
-    project_name="data-analytics",
-    endpoint="http://phoenix:4317",
-    auto_instrument=True,
-)
-
-```
-
-### Spark with Iceberg (via the HMS Iceberg REST catalog)
-```python
-spark = SparkSession.builder \
-    .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
-    .config("spark.sql.catalog.iceberg_catalog", "org.apache.iceberg.spark.SparkCatalog") \
-    .config("spark.sql.catalog.iceberg_catalog.type", "rest") \
-    .config("spark.sql.catalog.iceberg_catalog.uri", "http://hive-metastore:9084/iceberg") \
-    .config("spark.sql.catalog.iceberg_catalog.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO") \
-    .getOrCreate()
-# Do NOT use type=hive (Thrift): HMS 4.2.1 removed the get_table call it relies on.
-```
-
-### Spark with S3 Integration
-```python
-from pyspark.sql import SparkSession
-
-spark = SparkSession.builder \
-    .appName("DataLab-Playground") \
-    .master("spark://spark-master:7077") \
-    .config("spark.hadoop.fs.s3a.endpoint", "http://seaweedfs:8333") \
-    .config("spark.hadoop.fs.s3a.access.key", "seaweedadmin") \
-    .config("spark.hadoop.fs.s3a.secret.key", "seaweedadmin123") \
-    .getOrCreate()
-
-# Process data and prepare for AI workloads
-df = spark.read.parquet("s3a://warehouse/data/")
-df.write.mode("overwrite").parquet("s3a://warehouse/processed/ai_training_data")
-```
+`type=hive` for the Iceberg catalog does not work with HMS 4.2.1 (it removed the Thrift `get_table` call), so every
+client uses the HMS Iceberg REST catalog.
 
 ## 🛠️ Basic Configuration
 
-### Default Settings
-- **SeaweedFS (S3)**: seaweedadmin/seaweedadmin123, endpoint `http://seaweedfs:8333` (inside Docker)
-- **Spark**: spark://spark-master:7077  
-- **Ollama Models**: Stored in persistent volume
+- Credentials are never in values: each comes from an `existingSecret` or is generated once per release.
+- Spark is Spark Connect on Kubernetes; executors are pods.
+- Models of a local Ollama live on its persistent volume.
 
 ## 🔧 Platform Management
 
-### Service Health Monitoring
 ```bash
-# Check all services status
-docker-compose ps
-
-# View specific service logs
-docker logs phoenix
-docker logs ollama
-
-# Restart services
-docker-compose restart ollama phoenix
-```
-
-### Available Models
-```bash
-# List available Ollama models
-docker exec ollama ollama list
-
-# Pull additional LLM models
-docker exec ollama ollama pull llama3.2
-
-# Pull additional embedding models
-docker exec ollama ollama pull all-MiniLM-L6-v2
+kubectl -n datalab get pods
+kubectl -n datalab logs deploy/datalab-data-lab-trino
+helm test datalab -n datalab                  # Spark writes an Iceberg table, Trino reads it back (+ the 19-check e2e)
+hack/workstation/e2e.sh                       # the full workstation check
 ```
 
 ## 🧪 End-to-End Lakehouse Test
 
-A GPU-free test of the lakehouse core (SeaweedFS + Hive Metastore + Trino + Spark + Iceberg):
-
-```bash
-tests/e2e/run-e2e.sh --build   # build HMS/Trino/Spark images, start core services, run the test
-tests/e2e/run-e2e.sh --down    # re-run against existing images, then stop the services
-```
-
-It checks 19 things: Spark → Iceberg via HMS (create, insert, schema evolution, snapshots, time travel),
-Trino `iceberg` reads and writes (incl. `$snapshots` and `FOR VERSION AS OF`), Spark reading Trino's writes,
-Spark Parquet → Trino `hive` external table, Trino `hive` CTAS, the `lakehouse` catalog over both
-table types, a cross-catalog `hive` ⋈ `iceberg` JOIN, and that the objects on SeaweedFS are plain Parquet
-(`PAR1` magic; Spark reads Trino-written Hive files and Iceberg data files directly by path, with no catalog).
-
-## 🚦 Startup Order
-
-Services start automatically in the right order:
-1. Storage & databases (PostgreSQL, SeaweedFS)
-2. Data processing (Spark, Trino, Hive)  
-3. AI services (Ollama, Phoenix)
-4. Jupyter notebooks
-
-## 🐛 Common Issues
-
-### GPU Problems
-```bash
-# Check if GPU is detected
-docker exec ollama nvidia-smi
-
-# Verify Docker GPU support  
-docker info | grep nvidia
-```
-
-### Service Problems
-```bash
-# Check if services are running
-docker-compose ps
-
-# View service logs
-docker logs ollama
-docker logs phoenix
-```
-
+`helm test` and `hack/workstation/e2e.sh` run `charts/data-lab/files/e2e_lakehouse.py`: 19 checks of Spark → Iceberg via
+HMS (create, insert, schema evolution, snapshots, time travel), Trino `iceberg` reads and writes (incl. `$snapshots` and
+`FOR VERSION AS OF`), Spark reading Trino's writes, Spark Parquet → Trino `hive` external table, Trino `hive` CTAS, the
+`lakehouse` catalog over both table types, a cross-catalog `hive` ⋈ `iceberg` JOIN, and that the objects on SeaweedFS
+are plain Parquet (`PAR1` magic). No GPU needed. CI runs the same on kind (`hack/chart-e2e-kind.sh`).
 
 ## 🤝 Contributing
 

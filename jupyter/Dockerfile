@@ -96,9 +96,6 @@ RUN pip install --no-cache-dir \
     && echo "c.ServerApp.token = ''" >> /home/jovyan/.jupyter/jupyter_server_config.py \
     && rm /tmp/jupyter_password
 
-# Copy Spark configuration (should be last to avoid cache invalidation on config changes)
-COPY --chown=$NB_UID:$NB_GID spark-defaults.conf $SPARK_HOME/conf/
-
 # Set PySpark environment variables
 ENV PYSPARK_PYTHON=/opt/conda/bin/python
 ENV PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python

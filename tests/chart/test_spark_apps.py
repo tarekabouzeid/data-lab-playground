@@ -1,5 +1,5 @@
 """SparkApplication service account (Spark Operator, optional) and the 19-check lakehouse helm test."""
-from conftest import REPO, by_kind, configmap, render
+from conftest import CHART, REPO, by_kind, configmap, render
 
 APPS = {"spark": {"applications": {"enabled": True}}}
 
@@ -41,7 +41,7 @@ def test_lakehouse_test_pod():
     pod = lakehouse_pod(docs)
     assert pod["metadata"]["annotations"]["helm.sh/hook"] == "test"
     script = configmap(docs, "r-data-lab-test-lakehouse")["e2e_lakehouse.py"]
-    assert script == (REPO / "tests" / "e2e" / "e2e_lakehouse.py").read_text()
+    assert script == (CHART / "files" / "e2e_lakehouse.py").read_text()
     env = {e["name"]: e for e in pod["spec"]["containers"][0]["env"]}
     assert env["TRINO_URL"]["value"] == "http://r-data-lab-trino.ns.svc:8080"
     assert ";authorization=Bearer $(SPARK_CONNECT_TOKEN)" in env["SPARK_REMOTE"]["value"]

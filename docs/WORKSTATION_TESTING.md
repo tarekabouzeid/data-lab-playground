@@ -11,28 +11,15 @@ Prerequisites: Docker, kind, minikube 1.39, Helm 4.x (3.19+ works for the chart)
 
 ```bash
 python3 -m pytest tests/chart tests/unit -q
-hack/check-compose-parity.py
 for f in charts/data-lab/ci/*-values.yaml; do helm lint --strict charts/data-lab --kube-version 1.34.0 -f "$f" --set global.apiChecks=false; done
 ```
 
-Pass: every test passes, `compose parity: 0 problem(s)`, and every profile lints.
+Pass: every test passes and every profile lints.
 If it fails, paste back the pytest summary or the failing lint output.
 
-## 2. Docker Compose (frozen)
+## 2. (removed)
 
-```bash
-tests/e2e/run-e2e.sh --build --down
-```
-
-Pass: `E2E SUMMARY: 19/19 checks passed`.
-
-Then run `./start-platform.sh`, open `semantic/01_chat_with_your_data.ipynb` in Jupyter (http://localhost:8888) and run the
-first code cell. Pass: it stops with *"The semantic layer runs only on the Helm chart with semantic.enabled=true (Docker
-Compose is frozen and does not include it)."* Run `data_lab_playground.ipynb` and `rag_demo.ipynb` too. Both now work on the Northwind shop (`lab_data.py`); on
-Compose `rag_demo` takes its numbers from Trino over the dbt marts (after `dbt/01`) or from the seeds. Their service
-URLs come from `lab_utils.py`, with the Compose hosts as defaults. `ops/01_pipeline_agent.ipynb` stops with *"The Airflow and
-Spark History MCP servers run only on the Helm chart ..."*.
-If it fails, paste back the e2e summary or the failing cell's traceback.
+Compose removed in chart 0.4.0. Every check below runs on Kubernetes.
 
 ## 3. kind (the Sandpiper-style installs)
 

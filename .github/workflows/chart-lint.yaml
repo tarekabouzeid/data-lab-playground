@@ -36,9 +36,6 @@ jobs:
       - name: Render tests (tests/chart) and unit tests (tests/unit)
         run: python -m pytest tests/chart tests/unit -q
 
-      - name: Compose parity (Spark conf, e2e script copy)
-        run: hack/check-compose-parity.py
-
       - name: values.schema.json is generated from values.yaml
         run: hack/gen-chart-schema.py --check
 

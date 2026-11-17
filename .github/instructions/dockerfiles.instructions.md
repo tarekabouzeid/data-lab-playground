@@ -10,10 +10,9 @@ applyTo: "**/Dockerfile*"
 `hive-metastore/Dockerfile` — Hive Metastore **4.2.1**, based on `apache/hive:standalone-metastore-4.2.1` (Java 21, Hadoop 3.4.1).
 
 - Spark reaches Iceberg tables through the HMS **built-in Iceberg REST catalog** on `:9084/iceberg`, because HMS ≥ 4.0.1 removed the Thrift `get_table` call that Iceberg's Hive 2.3.10 client (`type=hive`) needs. Never configure Spark Iceberg catalogs with `type=hive` against this HMS.
-- Config lives in `metastore-site.xml.template` / `core-site.xml.template`. The image entrypoint regenerates the real files from these on every start, so a copied `hive-site.xml` is silently overwritten. `hive-site.xml` and `entrypoint.sh` in that folder are legacy and unused.
+- Config lives in `metastore-site.xml.template` / `core-site.xml.template`. The image entrypoint regenerates the real files from these on every start, so a copied `hive-site.xml` is silently overwritten.
 - The image adds the Postgres JDBC driver and AWS SDK v2 `bundle-2.24.6` (matching the bundled `hadoop-aws-3.4.1`), and symlinks `hadoop-aws` from `tools/lib` into `/opt/hive/lib`. Keep the SDK version matched to the image's `hadoop-aws`.
-- The `build:` block in `docker-compose.yaml` is **commented out**.
-- The compose service uses the pre-built image `datalab-playground/hive-metastore:latest`.
+- The chart pulls the pre-built image `datalab-playground/hive-metastore` (build it with the command below).
 - After editing, rebuild: `docker build -t datalab-playground/hive-metastore ./hive-metastore`
 
 ## `jupyter/Dockerfile-org` Is Superseded

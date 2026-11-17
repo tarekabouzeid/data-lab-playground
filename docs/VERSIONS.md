@@ -15,9 +15,9 @@ Background research and rejected options: [UPGRADE_PLAN.md](UPGRADE_PLAN.md).
 | Apache Iceberg (Spark) | **1.12.0** | `iceberg-spark-runtime-4.1_2.13-1.12.0.jar`, `iceberg-aws-bundle-1.12.0.jar` | `spark/Dockerfile`, `jupyter/Dockerfile` | 1.12.0 | ✅ Latest |
 | Hive Metastore | **4.2.1** | `apache/hive:standalone-metastore-4.2.1` | `hive-metastore/Dockerfile` | 4.2.1 | ✅ Latest (Iceberg via the built-in REST catalog) |
 | dbt-core / dbt-trino | **1.12.5 / 1.10.6** | pip in `jupyter/Dockerfile` | `jupyter/Dockerfile` | — | ✅ used by `jupyter/notebooks/dbt/` against Trino catalog `iceberg` |
-| Trino | **483** | `trinodb/trino:483` | `trino/Dockerfile` | 483 | ✅ Latest |
-| SeaweedFS (S3 storage) | **4.48** | `chrislusf/seaweedfs:4.48` | `docker-compose.yaml` | 4.48 | ✅ Latest (replaced MinIO; `minio/minio` is gone from Docker Hub) |
-| PostgreSQL (HMS backend) | **13** (Compose) / **17.11** (Helm) | `postgres:13` / `postgres:17.11` | `docker-compose.yaml` (`metastore-db`), `charts/data-lab/values.yaml` | 18.6 | ⚠️ 13 is EOL. Compose keeps it because a 17 server cannot open a 13 data dir; the chart starts fresh on 17 |
+| Trino | **483** | `trinodb/trino:483` | chart (`values.yaml`) | 483 | ✅ Latest |
+| SeaweedFS (S3 storage) | **4.48** | `chrislusf/seaweedfs:4.48` | `charts/data-lab/values.yaml` | 4.48 | ✅ Latest (replaced MinIO; `minio/minio` is gone from Docker Hub) |
+| PostgreSQL (HMS backend) | **17.11** | `postgres:17.11` | `charts/data-lab/values.yaml` | 18.6 | ✅ chart starts fresh on 17 |
 
 ## 2. Runtimes and bundled libraries per container
 
@@ -105,35 +105,36 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | 2026-10-03 (v3.0.0, unreleased) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 |
 | 2026-10-10 (`helm/datalab` minikube chart) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Spark Operator 2.5.2, Envoy Gateway 1.9.2, Headlamp 0.45.0) |
 | 2026-10-12 (`charts/data-lab` 0.1.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Airflow 3.3.2, Postgres 17.11 in the chart) |
-| 2026-10-30 (`charts/data-lab` 0.2.0, `helm/datalab` merged in and removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Kubeflow Semantic Operator built from source at 4fd7057; Compose frozen) |
+| 2026-10-30 (`charts/data-lab` 0.2.0, `helm/datalab` merged in and removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Kubeflow Semantic Operator built from source at 4fd7057) |
 | 2026-10-31 (`charts/data-lab` 0.3.0, `airflow.labPipelines`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ lab Airflow image: pyspark-client 4.1.3, dbt-core 1.12.5 + dbt-trino 1.10.6) |
 | 2026-11-05 (`charts/data-lab` 0.3.1, workstation tool model `qwen3:4b-instruct`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (plain `qwen3:4b` became the thinking-only Qwen3-4B-Thinking-2507) |
+| 2026-11-17 (`charts/data-lab` 0.4.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (Compose removed in chart 0.4.0; `llm` values: Ollama, any OpenAI-compatible endpoint or none; Strands agents) |
 
 ## 8. Helm chart images (`charts/data-lab`)
 
-Chart `0.3.1`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+Chart `0.4.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
 `charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
 
-| Component | Image | Tag | Same as Compose? |
-|---|---|---|---|
-| Hive Metastore | `ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore` (built from `hive-metastore/Dockerfile`) | `3.0.0` (= appVersion; HMS 4.2.1) | ✅ same Dockerfile |
-| Spark Connect + executors + `helm test` | `ghcr.io/tarekabouzeid/data-lab-playground/spark` (built from `spark/Dockerfile`) | `3.0.0` (Spark 4.1.3, Iceberg 1.12.0, Python 3.12) | ✅ same Dockerfile |
-| JupyterLab | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` (built from `jupyter/Dockerfile`) | `3.0.0` | ✅ same Dockerfile |
-| Trino | `trinodb/trino` | `483` | ✅ (Compose builds `trino/Dockerfile` FROM it) |
-| SeaweedFS | `chrislusf/seaweedfs` | `4.48` | ✅ |
-| Postgres (HMS, Airflow) | `postgres` | `17.11` | ❌ Compose HMS uses 13 (see §1) |
-| Airflow | `apache/airflow` | `3.3.2-python3.12` | chart only |
-| Airflow, lab pipelines (`airflow.labPipelines`, workstation profile) | `ghcr.io/tarekabouzeid/data-lab-playground/airflow` (built from `airflow/Dockerfile`: `apache/airflow:3.3.2-python3.12` + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`) | `3.0.0` | chart only |
-| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` | chart only |
-| Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` | chart only |
-| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` | chart only |
-| git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` | chart only |
-| Ollama | `ollama/ollama` | `0.40.3` | Compose: `0.40.2` (chart one patch ahead) |
-| Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` | ✅ same version (non-root variant) |
-| Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` | Compose: `version-20.20.0` (chart one minor ahead) |
-| Semantic Operator manager | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-manager` (built from `kubeflow/semantic-operator@4fd7057` by `hack/build-semantic-operator.sh`) | `3.0.0` (= appVersion) | chart only (`semantic.enabled`) |
-| Semantic Operator server | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-server` (same) | `3.0.0` | chart only |
-| SemanticModel CRD | `hack/crds/semantic.ossie.io_semanticmodels.yaml` (vendored from `kubeflow/semantic-operator@4fd7057`, `semantic.ossie.io/v1alpha1`) | commit `4fd7057` (2026-10-23) | installed separately (cluster-scoped) |
+| Component | Image | Tag |
+|---|---|---|
+| Hive Metastore | `ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore` (built from `hive-metastore/Dockerfile`) | `3.0.0` (= appVersion; HMS 4.2.1) |
+| Spark Connect + executors + `helm test` | `ghcr.io/tarekabouzeid/data-lab-playground/spark` (built from `spark/Dockerfile`) | `3.0.0` (Spark 4.1.3, Iceberg 1.12.0, Python 3.12) |
+| JupyterLab | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` (built from `jupyter/Dockerfile`) | `3.0.0` |
+| Trino | `trinodb/trino` | `483` |
+| SeaweedFS | `chrislusf/seaweedfs` | `4.48` |
+| Postgres (HMS, Airflow) | `postgres` | `17.11` |
+| Airflow | `apache/airflow` | `3.3.2-python3.12` |
+| Airflow, lab pipelines (`airflow.labPipelines`, workstation profile) | `ghcr.io/tarekabouzeid/data-lab-playground/airflow` (built from `airflow/Dockerfile`: `apache/airflow:3.3.2-python3.12` + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`) | `3.0.0` |
+| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` |
+| Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` |
+| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` |
+| git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` |
+| Ollama | `ollama/ollama` | `0.40.3` |
+| Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` |
+| Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` |
+| Semantic Operator manager | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-manager` (built from `kubeflow/semantic-operator@4fd7057` by `hack/build-semantic-operator.sh`) | `3.0.0` (= appVersion) |
+| Semantic Operator server | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-server` (same) | `3.0.0` |
+| SemanticModel CRD | `hack/crds/semantic.ossie.io_semanticmodels.yaml` (vendored from `kubeflow/semantic-operator@4fd7057`, `semantic.ossie.io/v1alpha1`) | commit `4fd7057` (2026-10-23) |
 
 Semantic layer notes: no upstream GitHub release exists yet (chart 0.1.0 in the repo). The public
 `public.ecr.aws/data-on-eks/semantic-operator/*:v0.1.1` images predate the config-file layout of `4fd7057` (env-based

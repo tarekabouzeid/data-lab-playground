@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # kubectl port-forward for the ports that are NOT routed through the Gateway (HMS, Spark Connect gRPC, OTLP) and,
-# with --all, the HTTP UIs too, on the localhost ports docker compose publishes. Ctrl-C stops everything.
+# with --all, the HTTP UIs too, on the usual localhost ports (8080, 8888, 6006, ...). Ctrl-C stops everything.
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 require kubectl
 ALL=false; [[ ${1:-} == --all ]] && ALL=true

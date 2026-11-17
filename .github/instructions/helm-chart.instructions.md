@@ -26,5 +26,5 @@ applyTo: "charts/**"
 - Cluster-scoped prerequisites (CRDs, GatewayClass, PVs, operators) belong in `hack/workstation/` or `hack/crds/`, never in
   the chart.
 - Check before pushing:
-  `python3 -m pytest tests/chart tests/unit -q && hack/check-compose-parity.py`
+  `python3 -m pytest tests/chart tests/unit -q`
   `for f in charts/data-lab/ci/*-values.yaml; do helm lint --strict charts/data-lab --kube-version 1.34.0 -f $f --set global.apiChecks=false; helm template r charts/data-lab -n ns -f $f --api-versions gateway.networking.k8s.io/v1/Gateway --api-versions semantic.ossie.io/v1alpha1/SemanticModel --api-versions resource.k8s.io/v1/ResourceClaimTemplate | hack/check-chart-render.py r-data-lab ns; done`

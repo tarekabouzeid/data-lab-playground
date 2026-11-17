@@ -1,14 +1,13 @@
 """Helpers shared by the technique notebooks (iceberg/, dbt/).
 
-Works unchanged on both deployments of the lab:
-  * Docker Compose: classic Spark. The session is created here with the Iceberg REST catalog; the master and the S3A
-    settings come from $SPARK_HOME/conf/spark-defaults.conf in the Jupyter image.
-  * Kubernetes (charts/data-lab): Spark Connect (SPARK_REMOTE is set). The Spark Connect server already has the catalog,
-    the Iceberg SQL extensions and the S3A settings (charts/data-lab/templates/spark-configmap.yaml). Do not call .master() here:
-    pyspark 4.1 rejects it together with SPARK_REMOTE, and static confs cannot be set by a Connect client.
+Runs in the lab's Jupyter (Helm chart charts/data-lab), where Spark is Spark Connect (SPARK_REMOTE is set). The Spark
+Connect server already has the catalog, the Iceberg SQL extensions and the S3A settings
+(charts/data-lab/templates/spark-configmap.yaml). Do not call .master() here: pyspark 4.1 rejects it together with
+SPARK_REMOTE, and static confs cannot be set by a Connect client.
 
-Every service endpoint lives here: an environment variable set by the Helm chart, with the Docker Compose host as the
-default. Notebooks import these constants instead of hardcoding hosts (tests/unit/test_notebook_endpoints.py).
+Every service endpoint lives here as an environment variable set by the chart. Notebooks import these constants
+instead of hardcoding hosts (tests/unit/test_notebook_endpoints.py). A constant whose variable is missing raises one
+clear error (run the notebook in the lab's Jupyter) instead of connecting to a made-up host name.
 
 Imports of optional packages (boto3, trino, pyarrow) are lazy so the module imports anywhere.
 """
@@ -21,17 +20,28 @@ from pathlib import Path
 
 CATALOG = "iceberg_catalog"                 # Spark name of the HMS Iceberg REST catalog
 TRINO_CATALOG = "iceberg"                   # the same catalog as seen by Trino
-REST_URI = os.environ.get("ICEBERG_REST_URI", "http://hive-metastore:9084/iceberg")
-S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://seaweedfs:8333")
-S3_KEY = os.environ.get("S3_ACCESS_KEY", "seaweedadmin")
-S3_SECRET = os.environ.get("S3_SECRET_KEY", "seaweedadmin123")
-TRINO_HOST = os.environ.get("TRINO_HOST", "trino")
 TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
-OLLAMA_URL = os.environ.get("OLLAMA_URL", os.environ.get("OLLAMA_HOST", "http://ollama:11434"))
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://qdrant:6333")
-QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY") or None   # the chart enables Qdrant API keys; Compose does not
-PHOENIX_URL = os.environ.get("PHOENIX_URL", "http://phoenix:6006")
-PHOENIX_OTLP_ENDPOINT = os.environ.get("PHOENIX_OTLP_GRPC_ENDPOINT", "http://phoenix:4317")
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY") or None   # set when the chart enables Qdrant API keys
+
+_ENDPOINTS = {                                  # module constant -> environment variable set by the chart
+    "REST_URI": "ICEBERG_REST_URI", "S3_ENDPOINT": "S3_ENDPOINT", "S3_KEY": "S3_ACCESS_KEY", "S3_SECRET": "S3_SECRET_KEY",
+    "TRINO_HOST": "TRINO_HOST", "OLLAMA_URL": "OLLAMA_URL", "QDRANT_URL": "QDRANT_URL", "PHOENIX_URL": "PHOENIX_URL",
+    "PHOENIX_OTLP_ENDPOINT": "PHOENIX_OTLP_GRPC_ENDPOINT",
+}
+
+
+def endpoint(name: str) -> str:
+    """The value of environment variable `name`, or a clear error when the notebook runs outside the lab."""
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"{name} is not set: run this notebook in the lab's Jupyter (Helm chart charts/data-lab)")
+    return value
+
+
+def __getattr__(const: str):                    # `from lab_utils import TRINO_HOST` and `lab_utils.REST_URI`
+    if const in _ENDPOINTS:
+        return endpoint(_ENDPOINTS[const])
+    raise AttributeError(f"module {__name__!r} has no attribute {const!r}")
 
 
 def on_spark_connect() -> bool:
@@ -39,19 +49,11 @@ def on_spark_connect() -> bool:
 
 
 def get_spark(app_name: str = "lab-notebook"):
-    """A Spark session wired to the Iceberg catalog, on either deployment."""
+    """A Spark Connect session on the lab's Spark (the server has the Iceberg catalog)."""
     from pyspark.sql import SparkSession
 
-    builder = SparkSession.builder.appName(app_name)
-    if not on_spark_connect():
-        builder = (
-            builder.config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-            .config(f"spark.sql.catalog.{CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
-            .config(f"spark.sql.catalog.{CATALOG}.type", "rest")
-            .config(f"spark.sql.catalog.{CATALOG}.uri", REST_URI)
-            .config(f"spark.sql.catalog.{CATALOG}.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO")
-        )
-    return builder.getOrCreate()
+    endpoint("SPARK_REMOTE")
+    return SparkSession.builder.appName(app_name).getOrCreate()
 
 
 def trino(sql: str):
@@ -59,7 +61,7 @@ def trino(sql: str):
     import pandas as pd
     import trino as trino_client
 
-    conn = trino_client.dbapi.connect(host=TRINO_HOST, port=TRINO_PORT, user="lab", catalog=TRINO_CATALOG)
+    conn = trino_client.dbapi.connect(host=endpoint("TRINO_HOST"), port=TRINO_PORT, user="lab", catalog=TRINO_CATALOG)
     cur = conn.cursor()
     cur.execute(sql)
     rows = cur.fetchall()
@@ -70,8 +72,8 @@ def trino(sql: str):
 def s3_client():
     import boto3
 
-    return boto3.client("s3", endpoint_url=S3_ENDPOINT, aws_access_key_id=S3_KEY,
-                        aws_secret_access_key=S3_SECRET, region_name="us-east-1")
+    return boto3.client("s3", endpoint_url=endpoint("S3_ENDPOINT"), aws_access_key_id=endpoint("S3_ACCESS_KEY"),
+                        aws_secret_access_key=endpoint("S3_SECRET_KEY"), region_name="us-east-1")
 
 
 def parquet_footer(s3a_path: str):
@@ -172,8 +174,7 @@ def semantic_available() -> bool:
 
 def require_semantic() -> None:
     if not semantic_available():
-        raise RuntimeError("The semantic layer runs only on the Helm chart with semantic.enabled=true "
-                           "(Docker Compose is frozen and does not include it).")
+        raise RuntimeError("The semantic layer is off in this deployment: set semantic.enabled=true in the chart values.")
     if os.environ.get("SEMANTIC_AUTH_MODE", "header") != "header":
         raise RuntimeError("The semantic server runs with semantic.server.auth.mode=jwt; these helpers send identity "
                            "headers (X-Semantic-User / X-Semantic-Role) and need header mode.")
@@ -265,7 +266,7 @@ def wait_for_model(model_id: str, timeout_s: int = 180) -> None:
 def _ollama_client():
     import ollama
 
-    return ollama.Client(host=OLLAMA_URL)
+    return ollama.Client(host=endpoint("OLLAMA_URL"))
 
 
 def _as_dict(obj):
@@ -358,8 +359,7 @@ def ops_servers() -> dict:
 def require_ops() -> None:
     if not ops_servers():
         raise RuntimeError("The Airflow and Spark History MCP servers run only on the Helm chart (airflowMcp.enabled, "
-                           "sparkHistoryMcp.enabled; the workstation profile turns both on). Docker Compose is "
-                           "frozen and does not include them.")
+                           "sparkHistoryMcp.enabled; the workstation profile turns both on).")
 
 
 def ops_tools(server: str) -> list:

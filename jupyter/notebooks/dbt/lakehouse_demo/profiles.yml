@@ -1,5 +1,5 @@
 # dbt connects to the lab's Trino, catalog `iceberg` (Iceberg tables in the HMS Iceberg REST catalog, data in SeaweedFS).
-# Same host name on Docker Compose and Kubernetes (the Service/container is called `trino`).
+# TRINO_HOST is set by the chart (Jupyter and the Airflow lab image).
 lakehouse:
   target: lab
   outputs:
@@ -7,7 +7,7 @@ lakehouse:
       type: trino
       method: none                         # the lab's Trino has no authentication
       user: dbt
-      host: "{{ env_var('TRINO_HOST', 'trino') }}"
+      host: "{{ env_var('TRINO_HOST') }}"
       port: "{{ env_var('TRINO_PORT', '8080') | as_number }}"
       database: iceberg                    # Trino catalog
       schema: dbt_demo

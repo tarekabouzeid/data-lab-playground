@@ -1,17 +1,15 @@
 ---
-description: "Use when editing Spark configuration, spark-defaults.conf, or any Spark settings. Covers the duplicate config file pitfall and key version constraints."
-applyTo: "**/spark-defaults.conf"
+description: "Use when editing Spark configuration, the Spark ConfigMap, or any Spark settings. Covers where the config lives and key version constraints."
+applyTo: "charts/data-lab/templates/spark-configmap.yaml"
 ---
 
 # Spark Configuration Rules
 
-## CRITICAL: Two Identical Config Files — Keep In Sync
+## Where Spark config lives
 
-The following two files must always be **identical**:
-- `spark/conf/spark-defaults.conf` — used by Spark master/worker containers
-- `jupyter/spark-defaults.conf` — used by the JupyterLab PySpark driver
-
-**When modifying Spark config, always update both files.**
+Spark settings exist once, in `charts/data-lab/templates/spark-configmap.yaml` (Spark Connect, workers and the
+Spark History Server read it). There is no `spark-defaults.conf` in the repo any more. The e2e copy of the settings
+is `charts/data-lab/files/e2e_lakehouse.py`.
 
 ## Key Versions
 

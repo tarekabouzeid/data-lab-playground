@@ -33,7 +33,7 @@ class FakeTrino:
 def test_dag_id_and_trino_from_env():
     src = DAG_FILE.read_text()
     assert 'dag_id="northwind_daily"' in src
-    assert "os.environ.get('TRINO_HOST', 'trino')" in src      # Compose default, airflow.labPipelines sets TRINO_HOST
+    assert "os.environ.get('TRINO_HOST', 'trino')" in src      # airflow.labPipelines sets TRINO_HOST
     assert dagmod.NOTEBOOKS.name == "notebooks" and (dagmod.DBT_PROJECT / "dbt_project.yml").exists()
 
 
