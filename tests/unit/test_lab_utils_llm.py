@@ -147,3 +147,26 @@ def test_tool_model_defaults_only_for_ollama(monkeypatch):
     assert lab_utils.tool_model() == ""
     monkeypatch.setenv("LLM_TOOL_MODEL", "m")
     assert lab_utils.tool_model() == "m"
+
+
+def test_skip_unless_embeddings_reasons(monkeypatch, capsys):
+    monkeypatch.setenv("LLM_PROVIDER", "none")
+    assert lab_utils.skip_unless_embeddings("index") is False
+    assert capsys.readouterr().out.startswith("skipped (no LLM configured): index")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.delenv("LLM_EMBED_MODEL", raising=False)
+    assert lab_utils.skip_unless_embeddings("index") is False
+    assert capsys.readouterr().out.startswith("skipped (no embeddings model configured): index")
+    monkeypatch.setenv("LLM_EMBED_MODEL", "e")
+    assert lab_utils.skip_unless_embeddings("index") is True
+
+
+def test_langchain_models_use_the_lab_endpoints(env):
+    env.setenv("LLM_CHAT_MODEL", "chat-m")
+    env.setenv("LLM_EMBED_MODEL", "emb-m")
+    env.setenv("LLM_EMBED_BASE_URL", "https://other.example/v1")
+    chat = lab_utils.langchain_chat()
+    assert chat.model_name == "chat-m" and "llm.example" in str(chat.openai_api_base) and chat.max_tokens == 1024
+    emb = lab_utils.langchain_embeddings()
+    assert emb.model == "emb-m" and "other.example" in str(emb.openai_api_base)
+    assert emb.openai_api_key.get_secret_value() == "unused"          # the chat key stays with the chat endpoint

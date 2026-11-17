@@ -339,6 +339,34 @@ def embed(texts: list) -> list:
     return [d.embedding for d in out.data]
 
 
+def skip_unless_embeddings(section: str) -> bool:
+    """Like skip_unless_llm, for sections that also need an embeddings model (llm.embeddingModel)."""
+    if not skip_unless_llm(section):
+        return False
+    if not embed_model():
+        print(f"skipped (no embeddings model configured): {section}. Set llm.embeddingModel "
+              "(and llm.embeddingBaseUrl when another endpoint serves it).")
+        return False
+    return True
+
+
+def langchain_chat(temperature: float = 0.1, model: str | None = None):
+    """A LangChain chat model on the lab's LLM endpoint (traced by the OpenInference LangChain instrumentor)."""
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(base_url=endpoint("LLM_BASE_URL"), api_key=os.environ.get("LLM_API_KEY") or "unused",
+                      model=model or chat_model(), temperature=temperature, max_tokens=MAX_TOKENS)
+
+
+def langchain_embeddings():
+    """LangChain embeddings on the embeddings endpoint (chat's unless LLM_EMBED_BASE_URL is set)."""
+    from langchain_openai import OpenAIEmbeddings
+
+    c = embeddings_config()
+    # check_embedding_ctx_length=False sends plain strings: non-OpenAI servers do not accept token arrays
+    return OpenAIEmbeddings(base_url=c["base_url"], api_key=c["api_key"], model=c["model"], check_embedding_ctx_length=False)
+
+
 def _llm_error(e: Exception, model: str) -> RuntimeError:
     import openai
 
