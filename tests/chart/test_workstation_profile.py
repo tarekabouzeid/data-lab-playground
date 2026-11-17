@@ -38,3 +38,38 @@ def test_semantic_and_spark_apps_on():
     docs = ws()
     assert by_kind(docs, "SemanticModel")
     assert "datalab-data-lab-spark-apps" in {s["metadata"]["name"] for s in by_kind(docs, "ServiceAccount")}
+
+
+def _render_two(values=None):
+    import json
+    import subprocess
+
+    from conftest import CHART, KUBE_VERSION
+    cmd = ["helm", "template", "datalab", str(CHART), "-n", "datalab", "--kube-version", KUBE_VERSION,
+           "-f", str(CHART / "ci" / "workstation-values.yaml"), "-f", str(CHART / "ci" / "workstation-nogpu-values.yaml"),
+           "-f", "-"] + [x for a in API for x in ("--api-versions", a)]
+    p = subprocess.run(cmd, input=json.dumps(values or {}), capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    import yaml
+    return [d for d in yaml.safe_load_all(p.stdout) if d]
+
+
+def test_nogpu_profile_has_no_ollama_and_llm_off():
+    import pytest
+    if __import__("shutil").which("helm") is None:
+        pytest.skip("helm is not installed")
+    docs = _render_two()
+    assert not [d for d in docs if d.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/component") == "ollama"]
+    from conftest import configmap
+    assert configmap(docs, "datalab-data-lab-endpoints")["LLM_PROVIDER"] == "none"
+
+
+def test_nogpu_profile_with_openrouter():
+    import pytest
+    if __import__("shutil").which("helm") is None:
+        pytest.skip("helm is not installed")
+    from conftest import configmap, env_of
+    docs = _render_two({"llm": {"provider": "openai", "baseUrl": "https://openrouter.ai/api/v1", "chatModel": "a",
+                                "toolModel": "b", "embeddingModel": "e", "auth": {"existingSecret": "llm-key"}}})
+    assert env_of(docs, "jupyter")["LLM_API_KEY"]["valueFrom"]["secretKeyRef"] == {"name": "llm-key", "key": "api-key"}
+    assert configmap(docs, "datalab-data-lab-endpoints")["LLM_EMBED_MODEL"] == "e"

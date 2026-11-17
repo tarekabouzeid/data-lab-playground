@@ -97,10 +97,12 @@ helm uninstall lab1 -n lab1   # leaves nothing behind
 ```bash
 hack/workstation/setup-minikube.sh      # minikube + Spark Operator + Envoy Gateway + SemanticModel CRD + Headlamp (--gpu-mode none for CPU only)
 hack/workstation/build-images.sh        # build the lab images inside minikube
-hack/workstation/deploy.sh              # charts/data-lab with ci/workstation-values.yaml (release/namespace datalab)
+hack/workstation/deploy.sh              # charts/data-lab with ci/workstation-values.yaml (release/namespace datalab); --profile nogpu for no GPU
 hack/workstation/e2e.sh                 # helm test, the 19 checks as a SparkApplication, every notebook, the northwind_daily DAG, every URL
 hack/workstation/gateway-forward.sh     # http://jupyter.datalab.localhost:8080, trino.…, airflow.…, headlamp.…
 ```
+
+No GPU: `deploy.sh --profile nogpu` turns Ollama off and AI off (notebooks skip their AI sections); add `--set llm.provider=openai --set llm.baseUrl=... --set llm.auth.existingSecret=...` to use OpenRouter or any OpenAI-compatible endpoint (steps in [docs/WORKSTATION_TESTING.md](docs/WORKSTATION_TESTING.md) §4b).
 
 Jupyter edits the repo's `jupyter/notebooks` folder directly. Headlamp (with the Kubeflow plugin) logs in with a token
 from `hack/workstation/headlamp-token.sh`. Test checklist: [docs/WORKSTATION_TESTING.md](docs/WORKSTATION_TESTING.md).
@@ -163,10 +165,10 @@ The notebooks talk to one OpenAI-compatible API through `lab_utils`. Pick one wi
 - **Example notebooks**:
   - [`jupyter/notebooks/iceberg/`](jupyter/notebooks/iceberg/) — Iceberg 1.12 techniques on the Northwind shop: `00` what's new + live support matrix, `01` Hilbert vs Z-order on delivery points ("orders near Berlin"), `02` the clickstream as VARIANT (format v3) + funnel per product, `03` a customer's right to be forgotten (deletion vectors, row lineage, snapshot expiry), `04` the order stream into `shop_bronze.order_events` (streaming merge-append, Parquet tuning)
   - [`jupyter/notebooks/dbt/`](jupyter/notebooks/dbt/) — dbt (dbt-core 1.12.5 + dbt-trino 1.10.6 on Trino catalog `iceberg`): `01` getting started, `02` incremental merge + snapshots, `03` tests/contracts/unit tests. Project: `jupyter/notebooks/dbt/lakehouse_demo/`
-  - [`jupyter/notebooks/semantic/`](jupyter/notebooks/semantic/) — `01` chat with your data, step by step: the dbt shop's seven tables (split payments, refunds in installments, costs and regions joins away), its Apache Ossie model, the Kubeflow Semantic Operator's MCP tools by hand, then a local LLM (`qwen3:4b-instruct`) answering through them vs writing raw SQL, scored against ground truth, plus row-level governance (Helm chart with `semantic.enabled` only)
+  - [`jupyter/notebooks/semantic/`](jupyter/notebooks/semantic/) — `01` chat with your data, step by step: the dbt shop's seven tables (split payments, refunds in installments, costs and regions joins away), its Apache Ossie model, the Kubeflow Semantic Operator's MCP tools by hand, then a Strands agent answering through them (traced in Phoenix) vs the LLM writing raw SQL, scored against ground truth, plus row-level governance (Helm chart with `semantic.enabled` only)
   - `jupyter/notebooks/lab_data.py` — Northwind Gear, the one shop the notebooks share: clickstream, deliveries, order stream and product documents derived deterministically from the dbt seeds
   - `jupyter/notebooks/data_lab_playground.ipynb` (the tour: pipeline map, bronze snapshot, cross-catalog Trino join, rows per layer) and `rag_demo.ipynb` (why customers send products back: refund rate per product from the semantic layer, Trino or the seeds, plus support tickets retrieved from Qdrant)
-  - [`jupyter/notebooks/ops/`](jupyter/notebooks/ops/) — the Airflow DAG `dags/northwind_daily.py` (Spark Connect ingest of the day's order events into `shop_bronze.order_events` → `dbt build` on Trino → quality checks → `shop_gold.product_kpis`, and a wait for the SemanticModel's `Published` condition; runs on the lab Airflow image `airflow/Dockerfile` with `airflow.labPipelines.enabled`) and `01_pipeline_agent.ipynb`, an LLM agent over the Airflow and Spark History MCP servers (Helm chart only; the workstation profile turns all of it on and mounts `ops/dags` as the DAG folder)
+  - [`jupyter/notebooks/ops/`](jupyter/notebooks/ops/) — the Airflow DAG `dags/northwind_daily.py` (Spark Connect ingest of the day's order events into `shop_bronze.order_events` → `dbt build` on Trino → quality checks → `shop_gold.product_kpis`, and a wait for the SemanticModel's `Published` condition; runs on the lab Airflow image `airflow/Dockerfile` with `airflow.labPipelines.enabled`) and `01_pipeline_agent.ipynb` and `02_spark_history_agent.ipynb`, AWS Strands agents over the Airflow and Spark History MCP servers (Helm chart only; the workstation profile turns all of it on and mounts `ops/dags` as the DAG folder)
   - `jupyter/notebooks/lab_utils.py` — shared helper: every service endpoint (env set by the chart), `get_spark()` (Spark Connect), `trino()`, `dbt()`, `reset_dbt_demo()`, the semantic-layer chat helpers
 - **Default Kernel**: GenAI Analytics (Python 3.12)
 - **Access**: `http://localhost:8888` (password: 123456)

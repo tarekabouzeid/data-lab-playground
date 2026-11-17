@@ -127,6 +127,7 @@ Chart `0.4.0`, `appVersion` **3.0.0** (the lab release these versions ship in). 
 | Airflow, lab pipelines (`airflow.labPipelines`, workstation profile) | `ghcr.io/tarekabouzeid/data-lab-playground/airflow` (built from `airflow/Dockerfile`: `apache/airflow:3.3.2-python3.12` + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`) | `3.0.0` |
 | Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` |
 | Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` |
+| Jupyter agents (Strands) | pip in `jupyter/Dockerfile` | `strands-agents[openai]==1.65.0`, `openinference-instrumentation-strands-agents==0.1.20`, `opentelemetry-exporter-otlp-proto-http`, `openai`, `langchain-openai` |
 | Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` |
 | git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` |
 | Ollama | `ollama/ollama` | `0.40.3` |

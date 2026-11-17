@@ -48,6 +48,26 @@ built from upstream source by `hack/build-semantic-operator.sh` included.
 
 If it fails, paste back the last 60 lines of the failing scenario. The script prints pod logs and events on failure.
 
+## 4b. Workstation lab without a GPU
+
+```bash
+hack/workstation/setup-minikube.sh --gpu-mode none
+hack/workstation/build-images.sh
+# AI off: every AI section of a notebook prints "skipped (no LLM configured): ..." and the notebook finishes
+hack/workstation/deploy.sh --profile nogpu
+# or with your own OpenAI-compatible endpoint (OpenRouter shown); the key never goes into values
+kubectl -n datalab create secret generic llm-key --from-literal=api-key=<key>
+hack/workstation/deploy.sh --profile nogpu --set llm.provider=openai --set llm.baseUrl=https://openrouter.ai/api/v1 \
+  --set llm.chatModel=<model> --set llm.toolModel=<model with tool calling> --set llm.embeddingModel=<embeddings model> \
+  --set llm.auth.existingSecret=llm-key
+# embeddings from another endpoint: --set llm.embeddingBaseUrl=... [--set llm.embeddingAuth.existingSecret=...]
+hack/workstation/e2e.sh
+```
+
+Pass (AI off): `workstation e2e passed`, and the notebook logs show `skipped (no LLM configured)` lines, no errors. Pass
+(OpenRouter): all notebooks give real answers; `semantic/01` scores in the same range as with Ollama. Phoenix project
+`semantic-layer` has one trace per question with tool spans, and no other new project appears.
+
 ## 4. Workstation lab (minikube + GPU)
 
 ```bash
