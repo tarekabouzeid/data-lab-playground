@@ -15,9 +15,9 @@ Background research and rejected options: [UPGRADE_PLAN.md](UPGRADE_PLAN.md).
 | Apache Iceberg (Spark) | **1.12.0** | `iceberg-spark-runtime-4.1_2.13-1.12.0.jar`, `iceberg-aws-bundle-1.12.0.jar` | `spark/Dockerfile`, `jupyter/Dockerfile` | 1.12.0 | ✅ Latest |
 | Hive Metastore | **4.2.1** | `apache/hive:standalone-metastore-4.2.1` | `hive-metastore/Dockerfile` | 4.2.1 | ✅ Latest (Iceberg via the built-in REST catalog) |
 | dbt-core / dbt-trino | **1.12.5 / 1.10.6** | pip in `jupyter/Dockerfile` | `jupyter/Dockerfile` | — | ✅ used by `jupyter/notebooks/dbt/` against Trino catalog `iceberg` |
-| Trino | **483** | `trinodb/trino:483` | `trino/Dockerfile` | 483 | ✅ Latest |
-| SeaweedFS (S3 storage) | **4.48** | `chrislusf/seaweedfs:4.48` | `docker-compose.yaml` | 4.48 | ✅ Latest (replaced MinIO; `minio/minio` is gone from Docker Hub) |
-| PostgreSQL (HMS backend) | **13** (Compose) / **17.11** (Helm) | `postgres:13` / `postgres:17.11` | `docker-compose.yaml` (`metastore-db`), `charts/data-lab/values.yaml` | 18.6 | ⚠️ 13 is EOL. Compose keeps it because a 17 server cannot open a 13 data dir; the chart starts fresh on 17 |
+| Trino | **483** | `trinodb/trino:483` | chart (`values.yaml`) | 483 | ✅ Latest |
+| SeaweedFS (S3 storage) | **4.48** | `chrislusf/seaweedfs:4.48` | `charts/data-lab/values.yaml` | 4.48 | ✅ Latest (replaced MinIO; `minio/minio` is gone from Docker Hub) |
+| PostgreSQL (HMS backend) | **17.11** | `postgres:17.11` | `charts/data-lab/values.yaml` | 18.6 | ✅ chart starts fresh on 17 |
 
 ## 2. Runtimes and bundled libraries per container
 
@@ -105,30 +105,51 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | 2026-10-03 (v3.0.0, unreleased) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 |
 | 2026-10-10 (`helm/datalab` minikube chart) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Spark Operator 2.5.2, Envoy Gateway 1.9.2, Headlamp 0.45.0) |
 | 2026-10-12 (`charts/data-lab` 0.1.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Airflow 3.3.2, Postgres 17.11 in the chart) |
+| 2026-10-30 (`charts/data-lab` 0.2.0, `helm/datalab` merged in and removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ Kubeflow Semantic Operator built from source at 4fd7057) |
+| 2026-10-31 (`charts/data-lab` 0.3.0, `airflow.labPipelines`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ lab Airflow image: pyspark-client 4.1.3, dbt-core 1.12.5 + dbt-trino 1.10.6) |
+| 2026-11-05 (`charts/data-lab` 0.3.1, workstation tool model `qwen3:4b-instruct`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (plain `qwen3:4b` became the thinking-only Qwen3-4B-Thinking-2507) |
+| 2026-11-17 (`charts/data-lab` 0.4.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (Compose removed in chart 0.4.0; `llm` values: Ollama, any OpenAI-compatible endpoint or none; Strands agents) |
 
 ## 8. Helm chart images (`charts/data-lab`)
 
-Chart `0.1.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+Chart `0.4.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
 `charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
 
-| Component | Image | Tag | Same as Compose? |
-|---|---|---|---|
-| Hive Metastore | `ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore` (built from `hive-metastore/Dockerfile`) | `3.0.0` (= appVersion; HMS 4.2.1) | ✅ same Dockerfile |
-| Spark Connect + executors + `helm test` | `ghcr.io/tarekabouzeid/data-lab-playground/spark` (built from `spark/Dockerfile`) | `3.0.0` (Spark 4.1.3, Iceberg 1.12.0, Python 3.12) | ✅ same Dockerfile |
-| JupyterLab | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` (built from `jupyter/Dockerfile`) | `3.0.0` | ✅ same Dockerfile |
-| Trino | `trinodb/trino` | `483` | ✅ (Compose builds `trino/Dockerfile` FROM it) |
-| SeaweedFS | `chrislusf/seaweedfs` | `4.48` | ✅ |
-| Postgres (HMS, Airflow) | `postgres` | `17.11` | ❌ Compose HMS uses 13 (see §1) |
-| Airflow | `apache/airflow` | `3.3.2-python3.12` | chart only |
-| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` | chart only |
-| Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` | chart only |
-| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` | chart only |
-| git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` | chart only |
-| Ollama | `ollama/ollama` | `0.40.3` | Compose: `0.40.2` (chart one patch ahead) |
-| Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` | ✅ same version (non-root variant) |
-| Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` | Compose: `version-20.20.0` (chart one minor ahead) |
+| Component | Image | Tag |
+|---|---|---|
+| Hive Metastore | `ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore` (built from `hive-metastore/Dockerfile`) | `3.0.0` (= appVersion; HMS 4.2.1) |
+| Spark Connect + executors + `helm test` | `ghcr.io/tarekabouzeid/data-lab-playground/spark` (built from `spark/Dockerfile`) | `3.0.0` (Spark 4.1.3, Iceberg 1.12.0, Python 3.12) |
+| JupyterLab | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` (built from `jupyter/Dockerfile`) | `3.0.0` |
+| Trino | `trinodb/trino` | `483` |
+| SeaweedFS | `chrislusf/seaweedfs` | `4.48` |
+| Postgres (HMS, Airflow) | `postgres` | `17.11` |
+| Airflow | `apache/airflow` | `3.3.2-python3.12` |
+| Airflow, lab pipelines (`airflow.labPipelines`, workstation profile) | `ghcr.io/tarekabouzeid/data-lab-playground/airflow` (built from `airflow/Dockerfile`: `apache/airflow:3.3.2-python3.12` + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`) | `3.0.0` |
+| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` |
+| Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` |
+| Jupyter agents (Strands) | pip in `jupyter/Dockerfile` | `strands-agents[openai]==1.65.0`, `openinference-instrumentation-strands-agents==0.1.20`, `opentelemetry-exporter-otlp-proto-http`, `openai`, `langchain-openai` |
+| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` |
+| git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` |
+| Ollama | `ollama/ollama` | `0.40.3` |
+| Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` |
+| Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` |
+| Semantic Operator manager | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-manager` (built from `kubeflow/semantic-operator@4fd7057` by `hack/build-semantic-operator.sh`) | `3.0.0` (= appVersion) |
+| Semantic Operator server | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-server` (same) | `3.0.0` |
+| SemanticModel CRD | `hack/crds/semantic.ossie.io_semanticmodels.yaml` (vendored from `kubeflow/semantic-operator@4fd7057`, `semantic.ossie.io/v1alpha1`) | commit `4fd7057` (2026-10-23) |
 
-The four `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp) are pushed by `.github/workflows/chart-release.yaml` on the
+Semantic layer notes: no upstream GitHub release exists yet (chart 0.1.0 in the repo). The public
+`public.ecr.aws/data-on-eks/semantic-operator/*:v0.1.1` images predate the config-file layout of `4fd7057` (env-based
+config, no `--config` flag), so the lab builds both images from that commit. Move the pin (`COMMIT` in
+`hack/build-semantic-operator.sh`, the CRD header, `_semantic.tpl`) together. Ossie expressions use
+`ANSI_SQL` because `TRINO` is not an Ossie dialect yet (apache/ossie#607, open). The chat notebook's tool-calling model is
+**`qwen3:4b-instruct`** (Qwen3-4B-Instruct-2507, pulled by Ollama in the workstation profile; `gemma3` has no tool
+calling). It replaced plain `qwen3:4b` in chart 0.3.1: that tag now resolves to Qwen3-4B-Thinking-2507, which is
+thinking-only (`think=False` is ignored), so its reasoning leaked into the reply, it never reached a tool call, and
+without a generation cap it ran until the Ollama runner was OOM-killed. `lab_utils._chat` caps every turn at
+`num_predict=2048`. The Jupyter image pins
+`ollama==0.6.3` (Python client); MCP is spoken with the standard library (no `mcp` SDK).
+
+The six `ghcr.io/.../data-lab-playground/*` images (hive-metastore, spark, jupyter, airflow-mcp, semantic-operator-manager, semantic-operator-server) are pushed by `.github/workflows/chart-release.yaml` on the
 `v<appVersion>` tag. The workflow refuses to run if the values tags differ from `appVersion`. The kind e2e builds
 them locally instead. Locally `hack/kind-up.sh` creates the kind cluster and loads the images; with `--calico` it installs
 Calico v3.32.2 in place of kindnet (WSL2 kernels lack NFQUEUE, so kindnet cannot enforce NetworkPolicy there).
@@ -138,24 +159,23 @@ The Spark image also carries the PySpark Connect client deps (`pandas==2.3.3`, `
 pinned by pyspark 4.1's `connect` extra.
 
 
-## 9. minikube chart tooling (`helm/`)
+## 9. Workstation tooling (`hack/workstation/`)
 
-Same images and Spark config as compose (enforced by `helm/scripts/check-parity.sh`); only the tooling below is new. Checked 2026-10-10.
+The workstation lab is `charts/data-lab` with `ci/workstation-values.yaml` (images and versions as in §8). The scripts install
+the cluster-wide prerequisites below; pins live in `hack/workstation/versions.env`. Checked 2026-10-10, real-node run 2026-10-27.
 
 | Component | Version | Where |
 |---|---|---|
-| Kubernetes | v1.37.0 (minikube default; latest patch v1.37.1) | `helm/scripts/versions.env`, `Chart.yaml` `kubeVersion >=1.36.0-0` |
-| minikube | v1.39.0 (`nvidia-device-plugin` addon v0.20.0) | `helm/scripts/versions.env` |
-| Helm | v4.x, tested with v4.2.4 (chart `apiVersion: v2`; `versions.env` checks the major version only) | `helm/scripts/versions.env` |
-| Kubeflow Spark Operator | 2.5.2 (chart = app version; its own image is based on Spark 4.0.4, our Spark Connect server uses our 4.1.3 image) | `helm/scripts/versions.env` |
-| Envoy Gateway / Gateway API | v1.9.2 / v1.6.3 (CRDs come with the Envoy Gateway chart) | `helm/scripts/versions.env` |
-| Headlamp (Kubernetes UI) | 0.45.0 (chart = app), image `ghcr.io/headlamp-k8s/headlamp:v0.45.0`; plugin-manager sidecar `node:lts-alpine` (rolling, chart default) running `@headlamp-k8s/pluginctl@0.1.1` | `helm/scripts/versions.env`, `helm/headlamp-values.yaml` |
-| Headlamp Kubeflow plugin | `headlamp_kubeflow` 0.2.0-alpha (Artifact Hub `headlamp-plugins/headlamp_kubeflow`; covers `SparkApplication`/`ScheduledSparkApplication`, not `SparkConnect`; archive SHA-256 `e8d3369b…06ac` verified) | `helm/headlamp-values.yaml` |
-| NVIDIA DRA driver (optional, experimental) | 0.5.0, DeviceClass `gpu.nvidia.com`, `resource.k8s.io/v1` | `helm/scripts/versions.env` |
+| Kubernetes | v1.37.0 (minikube default; latest patch v1.37.1) | `versions.env` (the chart needs `>=1.29`) |
+| minikube | v1.39.0 (`nvidia-device-plugin` addon v0.20.0) | `versions.env` |
+| Helm | v4.x, tested with v4.2.4 (`versions.env` checks the major version only) | `versions.env` |
+| Kubeflow Spark Operator | 2.5.2 (watches the lab namespace; runs SparkApplications with our Spark 4.1.3 image) | `versions.env` |
+| Envoy Gateway / Gateway API | v1.9.2 / v1.6.3 (CRDs come with the Envoy Gateway chart; GatewayClass `datalab` from `setup-minikube.sh`) | `versions.env` |
+| Headlamp (Kubernetes UI) | 0.45.0 (chart = app), image `ghcr.io/headlamp-k8s/headlamp:v0.45.0`; plugin-manager sidecar `node:lts-alpine` (rolling, chart default) running `@headlamp-k8s/pluginctl@0.1.1` | `versions.env`, `headlamp-values.yaml` |
+| Headlamp Kubeflow plugin | `headlamp_kubeflow` 0.2.0-alpha (Artifact Hub `headlamp-plugins/headlamp_kubeflow`; covers `SparkApplication`/`ScheduledSparkApplication`, not `SparkConnect`; archive SHA-256 `e8d3369b…06ac` verified) | `headlamp-values.yaml` |
+| NVIDIA DRA driver (optional, experimental) | 0.5.0, DeviceClass `gpu.nvidia.com`, `resource.k8s.io/v1` | `versions.env` |
+| SemanticModel CRD | §8 | `hack/crds/` |
 
-Headlamp: the official chart renders with our values and is accepted by a real kube-apiserver v1.37.0 (`lint.sh --server-dry-run`); pluginctl 0.1.1 parses our plugin config and reaches the Artifact Hub fetch; the plugin archive matches its published checksum. Verified on minikube (2026-10-27): Headlamp runs, pluginctl installs the plugin, and the sidebar shows *Kubeflow → Spark*.
-
-Verification status of the chart: manifests are validated against a real kube-apiserver v1.37.0 with the real CRDs (`helm/scripts/lint.sh --server-dry-run`), the
-Spark Connect server was run in our image with the chart's rendered conf and passed the 19-check e2e through Spark Connect, and the Kubeflow SDK
-`connect(base_url)`/`list_sessions` paths were exercised. The end-to-end run on a live minikube node (`helm/scripts/e2e-k8s.sh`, GPU checks, notebooks) is still to be done on a machine
-with a working Kubernetes node: see [K8S_HELM_PLAN.md](K8S_HELM_PLAN.md) §12.
+Verified on minikube (2026-10-27) with the former `helm/datalab` chart: device-plugin GPU, Headlamp + plugin, Gateway routes
+(Trino needs forwarded headers), SparkApplication and Spark Connect e2e 19/19, all notebooks. The merged chart's own
+workstation run is the checklist in [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).

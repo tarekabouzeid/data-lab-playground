@@ -44,6 +44,15 @@ Flat UPPER_CASE keys work with envFrom; ENDPOINTS_JSON has the same data structu
 {{- if $v.ollama.enabled -}}
 {{- $_ := set $e "ollama" (dict "url" (printf "http://%s:11434" (include "datalab.host" (list . "ollama"))) "auth" "none") -}}
 {{- end -}}
+{{- $cfg := include "datalab.llmConfig" . | fromYaml -}}
+{{- $llm := dict "provider" $cfg.LLM_PROVIDER -}}
+{{- range $k, $f := dict "LLM_BASE_URL" "baseUrl" "LLM_CHAT_MODEL" "chatModel" "LLM_TOOL_MODEL" "toolModel" "LLM_EMBED_MODEL" "embeddingModel" "LLM_EMBED_BASE_URL" "embeddingBaseUrl" -}}
+{{- if hasKey $cfg $k -}}{{- $_ := set $llm $f (get $cfg $k) -}}{{- end -}}
+{{- end -}}
+{{- range (include "datalab.llmSecretEnv" . | fromYamlArray) -}}
+{{- $_ := set $llm (ternary "credentials" "embeddingCredentials" (eq .name "LLM_API_KEY")) (dict "secret" .valueFrom.secretKeyRef.name "apiKeyKey" .valueFrom.secretKeyRef.key) -}}
+{{- end -}}
+{{- $_ := set $e "llm" $llm -}}
 {{- if $v.qdrant.enabled -}}
 {{- $_ := set $e "qdrant" (dict "url" (printf "http://%s:6333" (include "datalab.host" (list . "qdrant"))) "grpcUrl" (printf "http://%s:6334" (include "datalab.host" (list . "qdrant"))) "credentials" (dict "secret" (include "datalab.qdrantSecretName" .) "apiKeyKey" $v.qdrant.auth.apiKeyKey)) -}}
 {{- end -}}
@@ -66,6 +75,9 @@ data:
   DATALAB_RELEASE: {{ .Release.Name | quote }}
   DATALAB_NAMESPACE: {{ .Release.Namespace | quote }}
   DATALAB_VERSION: {{ .Chart.AppVersion | quote }}
+  {{- range $k, $val := (include "datalab.llmConfig" . | fromYaml) }}
+  {{ $k }}: {{ $val | quote }}
+  {{- end }}
   {{- with $e.s3 }}
   S3_ENDPOINT: {{ .endpoint | quote }}
   S3_BUCKET: {{ .bucket | quote }}
@@ -92,6 +104,10 @@ data:
   SPARK_CONNECT_CREDENTIALS_SECRET: {{ .secret | quote }}
   SPARK_CONNECT_CREDENTIALS_TOKEN_KEY: {{ .tokenKey | quote }}
   {{- end }}
+  {{- end }}
+  {{- if and $v.spark.enabled $v.spark.applications.enabled }}
+  SPARK_APPLICATION_SERVICE_ACCOUNT: {{ include "datalab.componentName" (list . "spark-apps") | quote }}
+  SPARK_DEFAULTS_CONFIGMAP: {{ include "datalab.componentName" (list . "spark-connect") | quote }}
   {{- end }}
   {{- with $e.sparkHistory }}
   SPARK_HISTORY_URL: {{ .url | quote }}
@@ -135,6 +151,20 @@ data:
   {{- with .credentials }}
   PHOENIX_CREDENTIALS_SECRET: {{ .secret | quote }}
   PHOENIX_CREDENTIALS_ADMIN_PASSWORD_KEY: {{ .adminPasswordKey | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if $v.semantic.enabled }}
+  SEMANTIC_MCP_URL: {{ printf "http://%s:8090/mcp" (include "datalab.host" (list . "semantic")) | quote }}
+  SEMANTIC_REST_URL: {{ printf "http://%s:8090/v1" (include "datalab.host" (list . "semantic")) | quote }}
+  SEMANTIC_DEFAULT_ROLE: "analyst"
+  SEMANTIC_AUTH_MODE: {{ $v.semantic.server.auth.mode | quote }}
+  {{- if $v.semantic.models.dbtDemo.enabled }}
+  SEMANTIC_DEMO_MODEL: "dbt_demo"
+  {{- end }}
+  {{- end }}
+  {{- if $v.gateway.enabled }}
+  {{- range (include "datalab.gatewayRoutes" . | fromYamlArray) }}
+  GATEWAY_URL_{{ .name | upper | replace "-" "_" }}: {{ printf "http://%s" .host | quote }}
   {{- end }}
   {{- end }}
   ENDPOINTS_JSON: |

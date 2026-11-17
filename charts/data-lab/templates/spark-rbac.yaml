@@ -43,3 +43,44 @@ subjects:
     namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- end }}
+{{- if and .Values.spark.enabled .Values.spark.applications.enabled }}
+{{- $apps := include "datalab.componentName" (list . "spark-apps") }}
+---
+# Drivers of SparkApplications (Kubeflow Spark Operator) run under this ServiceAccount. Namespaced only:
+# a driver manages its executor pods, its Service, ConfigMaps and on-demand PVCs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $apps }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-apps") | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $apps }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-apps") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $apps }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "spark-apps") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $apps }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $apps }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

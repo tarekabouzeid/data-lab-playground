@@ -1,0 +1,12 @@
+# No-GPU overlay for the workstation lab: use it on top of workstation-values.yaml
+#   hack/workstation/deploy.sh --profile nogpu            # AI off: the notebooks skip their AI sections
+#   hack/workstation/deploy.sh --profile nogpu \          # or bring your own OpenAI-compatible endpoint (OpenRouter, ...)
+#     --set llm.provider=openai --set llm.baseUrl=https://openrouter.ai/api/v1 \
+#     --set llm.chatModel=<model> --set llm.toolModel=<tool-calling model> --set llm.embeddingModel=<embeddings model> \
+#     --set llm.auth.existingSecret=llm-key
+# (kubectl -n datalab create secret generic llm-key --from-literal=api-key=<key>). Alone, this file is a valid values
+# file too: Ollama is off and no key is needed.
+ollama:
+  enabled: false
+llm:
+  provider: none

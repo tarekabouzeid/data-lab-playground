@@ -19,6 +19,12 @@ seeds:
     raw_customers:
       +column_types:
         signup_date: date
+    raw_payments:
+      +column_types:
+        paid_at: timestamp(6)
+    raw_refunds:
+      +column_types:
+        refunded_at: timestamp(6)
 
 models:
   lakehouse_demo:
