@@ -3,6 +3,15 @@
 Chart versions follow semver. `appVersion` is the lab release the chart deploys (see
 [RELEASE_NOTES.md](../../RELEASE_NOTES.md) and [docs/VERSIONS.md](../../docs/VERSIONS.md)).
 
+## 0.4.1 — unreleased (appVersion 3.0.0)
+
+Test fix. No change to `values.yaml`; the only rendered change is the `test-iceberg` helm test pod's script.
+
+### Fixed
+- `helm test` failed on every run after the first: the Iceberg round trip dropped its fixed `helm_test` namespace,
+  and HMS 4.2.1 + SeaweedFS cannot re-create a dropped namespace (the `managed/helm_test.db` marker stays behind).
+  Each run now uses a fresh `helm_test_<8 hex>` namespace and leaves one empty marker in S3.
+
 ## 0.4.0 — unreleased (appVersion 3.0.0)
 
 An `llm` block for the notebooks' AI parts. Additive only: with default values every resource is unchanged (the

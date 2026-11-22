@@ -68,8 +68,10 @@ spec:
           if os.environ.get("SPARK_CONNECT_TOKEN"):
               # ";token=" makes the Python client require TLS; send the bearer header as metadata instead.
               url += f"/;authorization=Bearer {os.environ['SPARK_CONNECT_TOKEN']}"
-          cat, ns = os.environ["ICEBERG_CATALOG"], "helm_test"
-          tbl = f"roundtrip_{uuid.uuid4().hex[:8]}"
+          # A fresh namespace per run: HMS 4.2.1 + SeaweedFS cannot re-create a dropped one (its managed/<ns>.db
+          # marker stays behind), so a fixed name failed every run after the first. Each run leaves one empty marker.
+          cat, ns = os.environ["ICEBERG_CATALOG"], f"helm_test_{uuid.uuid4().hex[:8]}"
+          tbl = "roundtrip"
           fq = f"{cat}.{ns}.{tbl}"
 
           def trino(sql):

@@ -55,3 +55,12 @@ def test_lakehouse_test_passes_helm_lint():
     p = subprocess.run(["helm", "lint", "--strict", str(REPO / "charts" / "data-lab"), "--kube-version", "1.34.0",
                         "--set", "tests.lakehouseE2e.enabled=true,spark.applications.enabled=true"], capture_output=True, text=True)
     assert p.returncode == 0, p.stdout + p.stderr
+
+
+def test_iceberg_roundtrip_uses_a_fresh_namespace_each_run():
+    """HMS 4.2.1 + SeaweedFS cannot re-create a dropped namespace (the managed/<ns>.db marker stays; AGENTS.md
+    pitfall 18). A fixed `helm_test` namespace made every `helm test` after the first one fail."""
+    pod = next(d for d in by_kind(render(), "Pod") if d["metadata"]["name"] == "r-data-lab-test-iceberg")
+    script = pod["spec"]["containers"][0]["command"][-1]
+    assert 'f"helm_test_{uuid.uuid4().hex[:8]}"' in script
+    assert '"helm_test"' not in script

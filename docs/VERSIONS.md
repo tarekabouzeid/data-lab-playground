@@ -109,10 +109,11 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | 2026-10-31 (`charts/data-lab` 0.3.0, `airflow.labPipelines`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (+ lab Airflow image: pyspark-client 4.1.3, dbt-core 1.12.5 + dbt-trino 1.10.6) |
 | 2026-11-05 (`charts/data-lab` 0.3.1, workstation tool model `qwen3:4b-instruct`) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (plain `qwen3:4b` became the thinking-only Qwen3-4B-Thinking-2507) |
 | 2026-11-17 (`charts/data-lab` 0.4.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (Compose removed in chart 0.4.0; `llm` values: Ollama, any OpenAI-compatible endpoint or none; Strands agents) |
+| 2026-11-22 (`charts/data-lab` 0.4.1, helm test fix) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (no version changes) |
 
 ## 8. Helm chart images (`charts/data-lab`)
 
-Chart `0.4.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+Chart `0.4.1`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
 `charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
 
 | Component | Image | Tag |
