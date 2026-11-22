@@ -3,6 +3,15 @@
 Chart versions follow semver. `appVersion` is the lab release the chart deploys (see
 [RELEASE_NOTES.md](../../RELEASE_NOTES.md) and [docs/VERSIONS.md](../../docs/VERSIONS.md)).
 
+## 0.4.2 — unreleased (appVersion 3.0.0)
+
+Fix. No change to `values.yaml`.
+
+### Fixed
+- Jupyter kept its old settings after a `helm upgrade` that only changed the endpoints ConfigMap (for example
+  `llm.embeddingModel` or `llm.embeddingBaseUrl`): it reads the ConfigMap through `envFrom`, and a pod does not see a
+  changed ConfigMap. The Jupyter pod template now carries `checksum/endpoints`, so such an upgrade restarts it.
+
 ## 0.4.1 — unreleased (appVersion 3.0.0)
 
 Test fix. No change to `values.yaml`; the only rendered change is the `test-iceberg` helm test pod's script.

@@ -57,5 +57,7 @@ livenessProbe:
   httpGet: {path: /api, port: http}
   periodSeconds: 20
   failureThreshold: 6` (include "datalab.componentName" (list . "endpoints")) (include "datalab.jupyterSecretName" .) $c.auth.tokenKey (ternary "" (toYaml $env | indent 2 | printf "\n%s") (empty $env)) -}}
-{{ include "datalab.simpleComponent" (dict "root" . "component" "jupyter" "values" $c "ports" (list (dict "name" "http" "port" 8888)) "container" $container "dataPath" "/home/jovyan/work") }}
+{{- /* envFrom does not follow a changed ConfigMap: the checksum restarts Jupyter when the endpoints (e.g. llm.*) change */ -}}
+{{- $ann := dict "checksum/endpoints" (include (print $.Template.BasePath "/endpoints-configmap.yaml") . | sha256sum) -}}
+{{ include "datalab.simpleComponent" (dict "root" . "component" "jupyter" "values" $c "ports" (list (dict "name" "http" "port" 8888)) "container" $container "dataPath" "/home/jovyan/work" "podAnnotations" $ann) }}
 {{- end }}

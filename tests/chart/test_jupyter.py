@@ -46,3 +46,15 @@ def test_existing_claim():
     vols = workload(docs, "jupyter")["spec"]["template"]["spec"]["volumes"]
     assert {"name": "data", "persistentVolumeClaim": {"claimName": "nb"}} in vols
     assert not [p for p in by_kind(docs, "PersistentVolumeClaim") if p["metadata"]["name"] == "r-data-lab-jupyter"]
+
+
+def test_jupyter_restarts_when_the_endpoints_change():
+    """Jupyter reads the endpoints ConfigMap through envFrom; a pod does not see a changed ConfigMap. A real
+    `helm upgrade --set llm.embeddingModel=...` left the running pod on the old model until it was restarted."""
+    def checksum(values):
+        dep = workload(render({"jupyter": {"enabled": True}, **values}), "jupyter")
+        return dep["spec"]["template"]["metadata"].get("annotations", {}).get("checksum/endpoints")
+
+    a = checksum({"llm": {"provider": "openai", "baseUrl": "http://x/v1", "chatModel": "a", "toolModel": "a", "auth": {"existingSecret": "k"}}})
+    b = checksum({"llm": {"provider": "openai", "baseUrl": "http://x/v1", "chatModel": "b", "toolModel": "a", "auth": {"existingSecret": "k"}}})
+    assert a and b and a != b

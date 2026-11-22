@@ -2,7 +2,7 @@
 Deployment + Service + optional PVC for a single-container component.
 Usage: include "datalab.simpleComponent" (dict "root" $ "component" "qdrant" "values" .Values.qdrant
          "ports" (list (dict "name" "http" "port" 6333)) "container" "<container YAML without name/image/securityContext/ports/resources>"
-         "dataPath" "/qdrant/storage")
+         "dataPath" "/qdrant/storage" ["podAnnotations" (dict "checksum/..." "...")])
 */}}
 {{- define "datalab.simpleComponent" -}}
 {{- $root := .root -}}
@@ -46,7 +46,7 @@ spec:
       {{- include "datalab.componentSelectorLabels" (list $root .component) | nindent 6 }}
   template:
     metadata:
-      {{- include "datalab.podMetadata" (list $root .component $c) | nindent 6 }}
+      {{- include "datalab.podMetadata" (list $root .component $c (.podAnnotations | default dict)) | nindent 6 }}
     spec:
       {{- include "datalab.podSpecCommon" (list $root $c) | nindent 6 }}
       automountServiceAccountToken: false
