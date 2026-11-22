@@ -262,7 +262,7 @@ def wait_for_model(model_id: str, timeout_s: int = 180) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# LLM access: one OpenAI-compatible API (a hosted endpoint such as OpenRouter, or the chart's Ollama at /v1), or none.
+# LLM access: one OpenAI-compatible API (a hosted or self-hosted endpoint, or the chart's Ollama at /v1), or none.
 # The chart sets LLM_PROVIDER (ollama | openai | none), LLM_BASE_URL, LLM_CHAT_MODEL, LLM_TOOL_MODEL, LLM_EMBED_MODEL
 # and, from a Secret, LLM_API_KEY. Embeddings may live elsewhere: LLM_EMBED_BASE_URL / LLM_EMBED_API_KEY.
 # ---------------------------------------------------------------------------------------------------------------

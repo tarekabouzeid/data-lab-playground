@@ -5,7 +5,7 @@ import pytest
 from conftest import RenderError, by_kind, configmap, env_of, render
 
 ENDPOINTS = "r-data-lab-endpoints"
-OPENAI = {"provider": "openai", "baseUrl": "https://openrouter.ai/api/v1", "chatModel": "a", "toolModel": "b",
+OPENAI = {"provider": "openai", "baseUrl": "https://llm.example.com/v1", "chatModel": "a", "toolModel": "b",
           "auth": {"existingSecret": "k"}}
 
 
@@ -36,7 +36,7 @@ def test_auto_is_ollama_with_ollama():
 def test_openai_mode():
     docs = jupyter({"llm": OPENAI})
     c, env = cfg(docs), env_of(docs, "jupyter")
-    assert c["LLM_PROVIDER"] == "openai" and c["LLM_BASE_URL"] == "https://openrouter.ai/api/v1"
+    assert c["LLM_PROVIDER"] == "openai" and c["LLM_BASE_URL"] == "https://llm.example.com/v1"
     assert c["LLM_CHAT_MODEL"] == "a" and c["LLM_TOOL_MODEL"] == "b"
     assert env["LLM_API_KEY"]["valueFrom"]["secretKeyRef"] == {"name": "k", "key": "api-key"}
     assert "LLM_EMBED_MODEL" not in c      # set llm.embeddingModel to enable rag_demo's vector sections

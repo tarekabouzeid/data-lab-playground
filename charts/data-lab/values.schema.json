@@ -2015,11 +2015,11 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Where the notebooks' AI parts get their models. `\"\"` picks `ollama` when `ollama.enabled`, else `none`. `ollama`: the chart's Ollama (OpenAI-compatible API at `/v1`). `openai`: any OpenAI-compatible endpoint (OpenRouter, a hosted API, ...; no GPU needed) set by `baseUrl`. `none`: AI is off and notebooks skip their AI sections."
+          "description": "Where the notebooks' AI parts get their models. `\"\"` picks `ollama` when `ollama.enabled`, else `none`. `ollama`: the chart's Ollama (OpenAI-compatible API at `/v1`). `openai`: any OpenAI-compatible endpoint (hosted or self-hosted; no GPU needed) set by `baseUrl`. `none`: AI is off and notebooks skip their AI sections."
         },
         "baseUrl": {
           "type": "string",
-          "description": "`openai` only: base URL of the chat endpoint, including the version path (for example `https://openrouter.ai/api/v1`)."
+          "description": "`openai` only: base URL of the chat endpoint, including the version path (for example `https://llm.example.com/v1`)."
         },
         "auth": {
           "type": "object",
@@ -2049,7 +2049,7 @@
         },
         "embeddingBaseUrl": {
           "type": "string",
-          "description": "Embeddings endpoint when it differs from the chat endpoint (for example chat on OpenRouter, embeddings on a local Ollama at `http://<release>-data-lab-ollama:11434/v1`). Empty uses the chat endpoint. Needs `embeddingModel`."
+          "description": "Embeddings endpoint when it differs from the chat endpoint (for example chat on a hosted endpoint, embeddings on a local Ollama at `http://<release>-data-lab-ollama:11434/v1`). Empty uses the chat endpoint. Needs `embeddingModel`."
         },
         "embeddingAuth": {
           "type": "object",

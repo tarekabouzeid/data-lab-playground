@@ -55,20 +55,23 @@ hack/workstation/setup-minikube.sh --gpu-mode none
 hack/workstation/build-images.sh
 # AI off: every AI section of a notebook prints "skipped (no LLM configured): ..." and the notebook finishes
 hack/workstation/deploy.sh --profile nogpu
-# or with your own OpenAI-compatible endpoint (OpenRouter shown); the key never goes into values
+# or with your own OpenAI-compatible endpoint (hosted or self-hosted; the URL below is a placeholder); the key never goes into values
 # (type the key at the hidden prompt: it stays out of shell history and every file)
 read -rs -p 'API key: ' K && printf %s "$K" | kubectl -n datalab create secret generic llm-key --from-file=api-key=/dev/stdin; unset K
-hack/workstation/deploy.sh --profile nogpu --set llm.provider=openai --set llm.baseUrl=https://openrouter.ai/api/v1 \
+hack/workstation/deploy.sh --profile nogpu --set llm.provider=openai --set llm.baseUrl=https://llm.example.com/v1 \
   --set llm.chatModel=<model> --set llm.toolModel=<model with tool calling> --set llm.embeddingModel=<embeddings model> \
   --set llm.auth.existingSecret=llm-key
 # embeddings from another endpoint: --set llm.embeddingBaseUrl=... [--set llm.embeddingAuth.existingSecret=...]
-# a local OpenAI-compatible server (LiteLLM, vLLM, llama.cpp) on the host: --set llm.baseUrl=http://host.minikube.internal:<port>/v1;
-# the GPU profile works too (Ollama stays deployed, unused). The ops agents need >= 16k context (AGENTS.md pitfall 18a).
+# a self-hosted server on the host (vLLM, llama.cpp, a LiteLLM proxy, ...): --set llm.baseUrl=http://host.minikube.internal:<port>/v1;
+# the GPU profile works too (Ollama stays deployed, unused).
+# What the endpoint needs: llm.toolModel must support tool calling (require_tool_model() probes it); >= 16k context for
+# the ops agents (AGENTS.md pitfall 18a); the notebooks send one request at a time. Reasoning models work: the lab
+# reads message.content and caps each reply at 1,024 tokens.
 hack/workstation/e2e.sh
 ```
 
 Pass (AI off): `workstation e2e passed`, and the notebook logs show `skipped (no LLM configured)` lines, no errors. Pass
-(OpenRouter): all notebooks give real answers; `semantic/01` scores in the same range as with Ollama. Phoenix project
+(your endpoint): all notebooks give real answers; `semantic/01` scores in the same range as with Ollama. Phoenix project
 `semantic-layer` has one trace per question with tool spans, and no other new project appears.
 
 ## 4. Workstation lab (minikube + GPU)

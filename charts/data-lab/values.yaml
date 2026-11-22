@@ -838,9 +838,9 @@ jupyter:
 llm:
   # -- Where the notebooks' AI parts get their models. `""` picks `ollama` when `ollama.enabled`, else `none`.
   # `ollama`: the chart's Ollama (OpenAI-compatible API at `/v1`). `openai`: any OpenAI-compatible endpoint
-  # (OpenRouter, a hosted API, ...; no GPU needed) set by `baseUrl`. `none`: AI is off and notebooks skip their AI sections.
+  # (hosted or self-hosted; no GPU needed) set by `baseUrl`. `none`: AI is off and notebooks skip their AI sections.
   provider: ""
-  # -- `openai` only: base URL of the chat endpoint, including the version path (for example `https://openrouter.ai/api/v1`).
+  # -- `openai` only: base URL of the chat endpoint, including the version path (for example `https://llm.example.com/v1`).
   baseUrl: ""
   auth:
     # -- `openai` only: existing Secret holding the API key (never put a key in values).
@@ -854,7 +854,7 @@ llm:
   # -- Embeddings model. Empty uses `mxbai-embed-large:latest` with `ollama`; with `openai` empty means no embeddings
   # (the vector-search sections of `rag_demo` are skipped).
   embeddingModel: ""
-  # -- Embeddings endpoint when it differs from the chat endpoint (for example chat on OpenRouter, embeddings on a local
+  # -- Embeddings endpoint when it differs from the chat endpoint (for example chat on a hosted endpoint, embeddings on a local
   # Ollama at `http://<release>-data-lab-ollama:11434/v1`). Empty uses the chat endpoint. Needs `embeddingModel`.
   embeddingBaseUrl: ""
   embeddingAuth:

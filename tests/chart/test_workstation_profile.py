@@ -64,12 +64,12 @@ def test_nogpu_profile_has_no_ollama_and_llm_off():
     assert configmap(docs, "datalab-data-lab-endpoints")["LLM_PROVIDER"] == "none"
 
 
-def test_nogpu_profile_with_openrouter():
+def test_nogpu_profile_with_an_openai_compatible_endpoint():
     import pytest
     if __import__("shutil").which("helm") is None:
         pytest.skip("helm is not installed")
     from conftest import configmap, env_of
-    docs = _render_two({"llm": {"provider": "openai", "baseUrl": "https://openrouter.ai/api/v1", "chatModel": "a",
+    docs = _render_two({"llm": {"provider": "openai", "baseUrl": "https://llm.example.com/v1", "chatModel": "a",
                                 "toolModel": "b", "embeddingModel": "e", "auth": {"existingSecret": "llm-key"}}})
     assert env_of(docs, "jupyter")["LLM_API_KEY"]["valueFrom"]["secretKeyRef"] == {"name": "llm-key", "key": "api-key"}
     assert configmap(docs, "datalab-data-lab-endpoints")["LLM_EMBED_MODEL"] == "e"

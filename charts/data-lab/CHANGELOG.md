@@ -3,6 +3,13 @@
 Chart versions follow semver. `appVersion` is the lab release the chart deploys (see
 [RELEASE_NOTES.md](../../RELEASE_NOTES.md) and [docs/VERSIONS.md](../../docs/VERSIONS.md)).
 
+## 0.5.0 — unreleased
+
+### Changed
+- The `llm` docs and the no-GPU overlay name no specific provider: `llm.provider=openai` is any OpenAI-compatible
+  endpoint, hosted or self-hosted (examples use the placeholder `https://llm.example.com/v1`). The overlay's comment
+  creates the key Secret from a hidden prompt instead of `--from-literal` (which lands in shell history).
+
 ## 0.4.2 — unreleased (appVersion 3.0.0)
 
 Fix. No change to `values.yaml`.
@@ -29,10 +36,10 @@ endpoints ConfigMap gains `LLM_PROVIDER=none`, or the Ollama settings when `olla
 ### Added
 - `llm.provider` (`""` auto | `ollama` | `openai` | `none`), `llm.baseUrl`, `llm.chatModel`, `llm.toolModel`,
   `llm.embeddingModel`, and the API key from `llm.auth.existingSecret` (key `llm.auth.apiKeyKey`). With `openai`, any
-  OpenAI-compatible endpoint (OpenRouter, a hosted API) replaces Ollama, so no GPU is needed; with `none` the
+  OpenAI-compatible endpoint (hosted or self-hosted) replaces Ollama, so no GPU is needed; with `none` the
   notebooks skip their AI sections.
 - `llm.embeddingBaseUrl` and `llm.embeddingAuth` let embeddings come from a different endpoint (and key) than chat,
-  for example chat on OpenRouter and embeddings on the chart's Ollama. The default is the chat endpoint.
+  for example chat on a hosted endpoint and embeddings on the chart's Ollama. The default is the chat endpoint.
 - The Jupyter pod gets `LLM_*` (non-secret ones from the endpoints ConfigMap, keys from Secrets) and ENDPOINTS_JSON
   an `llm` entry. Render-time validation of the combinations.
 - `ollama.contextLength` (default 16384, `OLLAMA_CONTEXT_LENGTH`): Ollama's 4,096-token default cannot hold an

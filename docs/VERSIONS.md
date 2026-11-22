@@ -114,7 +114,7 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 
 ## 8. Helm chart images (`charts/data-lab`)
 
-Chart `0.4.2`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+Chart `0.5.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
 `charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
 
 | Component | Image | Tag |

@@ -33,7 +33,7 @@ A Kubernetes lakehouse for exploring data analytics and AI tools, shipped as one
 - **Trino**: SQL query interface
 
 ### AI & ML Tools
-- **LLM**: any OpenAI-compatible endpoint (OpenRouter, a hosted API, ...) or a local Ollama (needs a GPU); or none, and the notebooks skip their AI parts
+- **LLM**: any OpenAI-compatible endpoint (hosted or self-hosted) or a local Ollama (needs a GPU); or none, and the notebooks skip their AI parts
 - **Phoenix**: Basic AI monitoring 
 - **Qdrant**: Vector database for AI experiments
 - **Jupyter**: Notebook environment with common libraries
@@ -59,7 +59,7 @@ Full matrix (runtimes, bundled libraries, access paths, upgrade blockers): **[do
 | AWS SDK v2 bundle | 2.41.1 (Spark) · 2.24.6 (HMS) | | |
 | Jupyter base | `quay.io/jupyter/base-notebook:python-3.12` | rolling | `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` (no `[spark]` extra) |
 | Phoenix · Ollama · Qdrant | non-root tags pinned by the chart | pinned | see docs/VERSIONS.md §8 |
-| Helm chart `charts/data-lab` | 0.4.2 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator (`4fd7057`, built from source) | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
+| Helm chart `charts/data-lab` | 0.5.0 (appVersion 3.0.0) · Kubernetes ≥ 1.29 · Kubeflow Semantic Operator (`4fd7057`, built from source) | | see [docs/VERSIONS.md](docs/VERSIONS.md) §8 |
 | Workstation lab (`hack/workstation/`) | K8s 1.37 · minikube 1.39 · Helm 4.x · Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 | | §9 |
 
 See [docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md) for the compatibility research behind these pins.
@@ -102,7 +102,7 @@ hack/workstation/e2e.sh                 # helm test, the 19 checks as a SparkApp
 hack/workstation/gateway-forward.sh     # http://jupyter.datalab.localhost:8080, trino.…, airflow.…, headlamp.…
 ```
 
-No GPU: `deploy.sh --profile nogpu` turns Ollama off and AI off (notebooks skip their AI sections); add `--set llm.provider=openai --set llm.baseUrl=... --set llm.auth.existingSecret=...` to use OpenRouter or any OpenAI-compatible endpoint (steps in [docs/WORKSTATION_TESTING.md](docs/WORKSTATION_TESTING.md) §4b).
+No GPU: `deploy.sh --profile nogpu` turns Ollama off and AI off (notebooks skip their AI sections); add `--set llm.provider=openai --set llm.baseUrl=... --set llm.auth.existingSecret=...` to use any OpenAI-compatible endpoint (steps in [docs/WORKSTATION_TESTING.md](docs/WORKSTATION_TESTING.md) §4b).
 
 Jupyter edits the repo's `jupyter/notebooks` folder directly. Headlamp (with the Kubeflow plugin) logs in with a token
 from `hack/workstation/headlamp-token.sh`. Test checklist: [docs/WORKSTATION_TESTING.md](docs/WORKSTATION_TESTING.md).
@@ -141,7 +141,7 @@ Secret that holds its credential is listed in the `<release>-data-lab-endpoints`
 ### LLM (Ollama, or any OpenAI-compatible endpoint, or none)
 The notebooks talk to one OpenAI-compatible API through `lab_utils`. Pick one with the chart's `llm` values:
 - **Local Ollama** (`ollama.enabled=true`, GPU): defaults `gemma3:4b` (chat), `qwen3:4b-instruct` (tools) and `mxbai-embed-large` (embeddings).
-- **Your own endpoint** (OpenRouter or any OpenAI-compatible server, no GPU): `llm.provider=openai`, `llm.baseUrl`, models, and the key in an existing Secret. Embeddings can use a different endpoint (`llm.embeddingBaseUrl`).
+- **Your own endpoint** (any OpenAI-compatible server, hosted or self-hosted, no GPU): `llm.provider=openai`, `llm.baseUrl`, models, and the key in an existing Secret. Embeddings can use a different endpoint (`llm.embeddingBaseUrl`).
 - **No AI** (`llm.provider=none`): every AI section of a notebook prints `skipped (no LLM configured): ...` and the rest runs.
 
 ### Vector Database (Qdrant)  

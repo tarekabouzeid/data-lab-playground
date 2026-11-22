@@ -30,7 +30,7 @@ criterion. Full checklist: [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).
   including `ok ops/01_pipeline_agent.ipynb` and `ok ops/02_spark_history_agent.ipynb`. `semantic/01` still scores 6/6
   with the Strands agent.
 - [ ] **No GPU, AI off** (skipped on 2026-11-22 at the maintainer's request: switching profiles deletes the lab's Ollama volume): `deploy.sh --profile nogpu`, then `e2e.sh`. Pass: every notebook finishes with `skipped (no LLM configured)` lines.
-- [x] **No GPU, OpenRouter** (done with a local LiteLLM gateway instead, the same `llm.provider=openai` path; see below): see `WORKSTATION_TESTING.md` §4b (chat + tool model, embeddings from the same endpoint and,
+- [x] **Your own OpenAI-compatible endpoint** (`llm.provider=openai`; see below): see `WORKSTATION_TESTING.md` §4b (chat + tool model, embeddings from the same endpoint and,
   once, from a different one via `llm.embeddingBaseUrl`). Pass: real answers in `rag_demo`, `semantic/01`, `ops/01`.
 - [x] **Phoenix**: project `semantic-layer` shows one trace per `semantic/01` question with tool spans (the Strands spans go
   through `openinference-instrumentation-strands-agents`; if they render as plain spans, tell me) and no other new project.
@@ -56,13 +56,15 @@ criterion. Full checklist: [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).
     agent names the stage and the byte counts.
   - Fixed on the way: `helm test` failed on every run after the first (chart 0.4.1), `ops/02` against the live
     server, `test_no_compose` with Jupyter checkpoints.
-- 2026-11-22, `llm.provider=openai` against a local LiteLLM gateway on the host (`http://host.minikube.internal:4100/v1`,
-  chat and tools `inkling-2-mini`, embeddings `embeddinggemma`, key in the Secret `llm-gateway`, Ollama still deployed):
+- 2026-11-22, `llm.provider=openai` against a self-hosted OpenAI-compatible server on the host (reached at
+  `http://host.minikube.internal:<port>/v1`; a reasoning chat model also used for tools, a separate embeddings model,
+  key in an existing Secret, Ollama still deployed):
   - `semantic/01` 6/6 (raw 1/6), governance unchanged; `rag_demo` (firmware 2.4.1, dead SSDs); the tour; `ops/01`;
     `ops/02` (exact input bytes, a good explanation of the slower join).
-  - The ops agents need >= 16k context: at the gateway's first 8k they were refused (11.3k / 9.7k tokens).
+  - The ops agents need >= 16k context: at the server's first 8k they were refused (11.3k / 9.7k tokens).
   - Embeddings from a different endpoint (`llm.embeddingBaseUrl` = the chart's Ollama, `mxbai-embed-large`): `rag_demo` passes.
-  - Fixed on the way: agents fit a strict-context endpoint (tool result cap, LiteLLM overflow wording), and Jupyter
+  - Fixed on the way: agents fit a strict-context endpoint (tool result cap, the overflow wording of LiteLLM and
+    llama.cpp), and Jupyter
     restarts when the endpoints ConfigMap changes (chart 0.4.2).
 - 2026-11-22, chart 0.4.2 back on Ollama: `hack/workstation/e2e.sh` passed in one pass again (peak lab 14.2 GiB).
 
