@@ -1,7 +1,7 @@
 # Version Matrix
 
-Single source of truth for every version in the platform. **Last verified: 2026-10-03** on branch
-`claude/upgrade-iceberg-spark-hive-trino-yc0p1s` (`tests/e2e/run-e2e.sh`: 19/19).
+Single source of truth for every version in the platform. **Last verified: 2026-11-22** on branch
+`claude/upgrade-iceberg-spark-hive-trino-yc0p1s` (chart 0.4.1, `hack/workstation/e2e.sh` on minikube + GPU: passed, lakehouse e2e 19/19).
 Background research and rejected options: [UPGRADE_PLAN.md](UPGRADE_PLAN.md).
 
 > When you change any version: update this file first, then the short tables in
