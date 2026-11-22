@@ -14,7 +14,9 @@ def test_compose_files_are_gone():
 
 
 def test_living_docs_do_not_mention_compose():
-    files = [REPO / d for d in DOCS] + sorted((REPO / "jupyter/notebooks").rglob("*.ipynb"))
+    notebooks = [f for f in sorted((REPO / "jupyter/notebooks").rglob("*.ipynb"))
+                 if ".ipynb_checkpoints" not in f.parts]   # Jupyter's gitignored autosaves, not the shipped notebooks
+    files = [REPO / d for d in DOCS] + notebooks
     bad = []
     for f in files:
         text = f.read_text().replace(ALLOWED, "")
