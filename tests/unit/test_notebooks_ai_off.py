@@ -5,7 +5,8 @@ import re
 from pathlib import Path
 
 NB = Path(__file__).resolve().parents[2] / "jupyter" / "notebooks"
-AI = re.compile(r"langchain_chat|langchain_embeddings|openai_client|embeddings_client|\b_chat\(|\bembed\(|lu\.ask_raw_sql|ask_raw_sql\(|semantic_agent|ops_agent")
+# A vector search embeds its query too: rag_demo's search cell failed with AI off ('NoneType' has no similarity_search).
+AI = re.compile(r"langchain_chat|langchain_embeddings|openai_client|embeddings_client|\b_chat\(|\bembed\(|lu\.ask_raw_sql|ask_raw_sql\(|semantic_agent|ops_agent|similarity_search|as_retriever")
 GUARD = re.compile(r"skip_unless_llm|skip_unless_embeddings|llm_available|embeddings_available|require_llm|if store is None|llm_ready")
 
 
