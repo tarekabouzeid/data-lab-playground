@@ -103,6 +103,7 @@ Then check by hand with `hack/workstation/gateway-forward.sh` running in another
 | `data_lab_playground.ipynb` (after the other notebooks) | the *Rows per layer* table shows a count for every table except `shop_gold.product_kpis` until the DAG has run. |
 | `http://airflow.datalab.localhost:8080` | DAG `northwind_daily` is listed, unpaused, and its e2e run is green: `ingest` returns a new `replay`, `build` logs `Done. PASS=50`, `published` succeeds; `shop_gold.product_kpis` exists in Trino. |
 | `ops/01_pipeline_agent.ipynb` | the first answer names the latest `northwind_daily` run and its tasks; the steps table shows Airflow tool calls. |
+| `ops/02_spark_history_agent.ipynb` | section 3 names a join stage whose slowest task reads tens of times the median records (≈72×); the filtered scan reads about a third of the full scan's input bytes; the agent's first answer names the same stage and its second the same byte counts (steps noted `server 'live' added`). |
 
 If it fails, paste back the script's last lines, or for a UI the HTTP status from `curl -sI -H 'Host: <host>' http://127.0.0.1:8080/`.
 

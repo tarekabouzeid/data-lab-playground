@@ -213,3 +213,28 @@ def test_tracing_never_raises(stack, monkeypatch, capsys):
 def test_only_semantic_notebook_traces():
     hits = [f.name for f in NB.rglob("*.ipynb") if ".ipynb_checkpoints" not in f.parts and "trace_to_phoenix(" in f.read_text()]
     assert hits == ["01_chat_with_your_data.ipynb"]
+
+
+def test_spark_server_guard_fills_a_missing_server(stack):
+    """A real run: qwen3:4b-instruct called get_sql_execution on the live app without `server`, so the MCP server used
+    its default backend (history) and answered 404 for every call. ops_agent(spark_server="live") fills it in."""
+    mp, calls = stack
+
+    @tool(name="get_sql_execution")
+    def get_sql_execution(app_id: str, execution_id: int, server: str = "") -> str:
+        """fake Spark History tool"""
+        calls.append(("get_sql_execution", {"app_id": app_id, "server": server}))
+        return "{}"
+
+    FakeMCP.tools_by_url["http://sh/mcp"] = [get_sql_execution]
+    script(mp, ("tool", "get_sql_execution", {"app_id": "spark-1", "execution_id": 3}),
+           ("tool", "get_sql_execution", {"app_id": "spark-0", "execution_id": 1, "server": "history"}), ("text", "x"))
+    with lab_agents.ops_agent(("spark_history",), spark_server="live") as agent:
+        out = lab_agents.ask(agent, "q")
+    assert [c[1]["server"] for c in calls] == ["live", "history"]       # an explicit server is never overridden
+    assert "server" in out["steps"][0]["note"] and "note" not in out["steps"][1]
+    calls.clear()
+    script(mp, ("tool", "get_sql_execution", {"app_id": "spark-1", "execution_id": 3}), ("text", "x"))
+    with lab_agents.ops_agent(("spark_history",)) as agent:              # default: no guard, the server decides
+        lab_agents.ask(agent, "q")
+    assert calls[0][1]["server"] == ""

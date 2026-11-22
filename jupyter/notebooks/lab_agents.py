@@ -94,8 +94,8 @@ def _tools(client, only=None) -> list:
 class _Guards:
     """Strands hook: fixes a small model's habitual mistakes before a tool runs, and records what it changed."""
 
-    def __init__(self, published=(), time_dims=()):
-        self.published, self.time_dims = list(published), set(time_dims)
+    def __init__(self, published=(), time_dims=(), spark_server=None):
+        self.published, self.time_dims, self.spark_server = list(published), set(time_dims), spark_server
         self.calls, self.notes = 0, {}
 
     def register_hooks(self, registry, **kwargs) -> None:
@@ -114,6 +114,11 @@ class _Guards:
         if event.tool_use["name"] == "query_metric" and args.get("grain") and self.time_dims and \
                 not self.time_dims & set(args.get("dimensions") or []):
             notes.append(f"grain dropped: {args.pop('grain')!r} needs a time dimension ({', '.join(sorted(self.time_dims))})")
+        # A Spark History call without `server` goes to the MCP server's default backend (history); a real run asked
+        # it for the live Spark Connect application and got 404 on every call. An explicit server is kept.
+        if self.spark_server and event.tool_use["name"] in lu.OPS_TOOLS["spark_history"] and not args.get("server"):
+            args["server"] = self.spark_server
+            notes.append(f"server {self.spark_server!r} added")
         event.tool_use["input"] = args
         if notes:
             self.notes[event.tool_use["toolUseId"]] = "; ".join(notes)
@@ -146,8 +151,9 @@ def semantic_agent(role: str = "analyst"):
 
 
 @contextlib.contextmanager
-def ops_agent(servers=("airflow", "spark_history")):
-    """On-call data engineer: the read-only tools (lab_utils.OPS_TOOLS) of the Airflow and Spark History MCP servers."""
+def ops_agent(servers=("airflow", "spark_history"), spark_server=None):
+    """On-call data engineer: the read-only tools (lab_utils.OPS_TOOLS) of the Airflow and Spark History MCP servers.
+    spark_server ("live" or "history") is used for Spark History calls that name no server."""
     lu.require_ops()
     lu.require_llm()
     urls = lu.ops_servers()
@@ -159,7 +165,7 @@ def ops_agent(servers=("airflow", "spark_history")):
         for server, client in clients:
             stack.enter_context(client)
             tools += _tools(client, only=lu.OPS_TOOLS.get(server, ()))
-        yield _agent(tools, f"{OPS_PROMPT} Today is {today} (UTC).", _Guards())
+        yield _agent(tools, f"{OPS_PROMPT} Today is {today} (UTC).", _Guards(spark_server=spark_server))
 
 
 # --- asking ---------------------------------------------------------------------------------------------------------
