@@ -59,11 +59,11 @@ Notes:
 | Trino | `lakehouse` (Lakehouse connector) | HMS `:9083` | Thrift | ✅ | ✅ |
 | Spark | `iceberg_catalog` (`type=rest`, `io-impl=HadoopFileIO`) | HMS `:9084/iceberg` | Iceberg REST | — | ✅ read/write, snapshots, time travel |
 | Spark | path-based `spark.read/write.parquet("s3a://warehouse/...")` | SeaweedFS `:8333` | S3A | ✅ (also reads Trino-written Hive files and Iceberg data files by path) | — |
-| HMS, Spark, Trino | — | SeaweedFS `:8333` | S3 (path-style, `seaweedadmin` / `seaweedadmin123`) | storage | storage |
+| HMS, Spark, Trino | — | SeaweedFS `:8333` | S3 (path-style, keys from the chart's S3 Secret) | storage | storage |
 
 ⚠️ Spark `type=hive` (Thrift HiveCatalog) does **not** work with HMS 4.2.1 (`Invalid method name: 'get_table'`).
 
-Every ✅ above is covered by `tests/e2e/run-e2e.sh`.
+Every ✅ above is covered by the 19-check lakehouse e2e (`charts/data-lab/files/e2e_lakehouse.py`, run by `helm test`: `hack/workstation/e2e.sh` or `hack/chart-e2e-kind.sh default`).
 
 ## 5. Other services (not part of the lakehouse matrix)
 

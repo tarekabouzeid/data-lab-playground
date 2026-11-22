@@ -7,7 +7,7 @@
 **After any change to the platform** (versions, services, ports, credentials, architecture, config, or notebooks), you must:
 1. Update [README.md](README.md) to reflect the new state.
 2. Update [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) — versions, pitfalls, and any affected section — so future agents have accurate context.
-3. For any version change, update [docs/VERSIONS.md](docs/VERSIONS.md) (authoritative version matrix) and re-run `tests/e2e/run-e2e.sh`.
+3. For any version change, update [docs/VERSIONS.md](docs/VERSIONS.md) (authoritative version matrix) and re-run the lakehouse e2e (`hack/workstation/e2e.sh`, or `hack/chart-e2e-kind.sh default` without a GPU).
 4. If the Helm chart ships the changed component, mirror the change in `charts/data-lab`. Then bump the chart version, add a `charts/data-lab/CHANGELOG.md` entry and run `hack/gen-chart-schema.py` + `helm-docs -c charts -s file`.
 
 Do not leave these files stale after a change.
