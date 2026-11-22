@@ -255,4 +255,4 @@ For the agent framework, Strands was the maintainer's choice, for the chat-with-
 - **Q1. Phoenix scope.** "Only the Strands chat-with-your-data agent goes to Phoenix": should the ops agents (`ops/01`,
   `ops/02`, also Strands) send **no** traces, and should `rag_demo` and the playground keep their **existing** Phoenix
   tracing (projects `northwind-rag`, `ai-platform-demo`), or drop it too? This design assumes: ops agents untraced,
-  existing tracing kept.
+  existing tracing kept. **Answered (maintainer, 2026-11-22): `rag_demo` keeps sending traces to Phoenix.**
