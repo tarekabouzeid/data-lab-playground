@@ -56,11 +56,14 @@ hack/workstation/build-images.sh
 # AI off: every AI section of a notebook prints "skipped (no LLM configured): ..." and the notebook finishes
 hack/workstation/deploy.sh --profile nogpu
 # or with your own OpenAI-compatible endpoint (OpenRouter shown); the key never goes into values
-kubectl -n datalab create secret generic llm-key --from-literal=api-key=<key>
+# (type the key at the hidden prompt: it stays out of shell history and every file)
+read -rs -p 'API key: ' K && printf %s "$K" | kubectl -n datalab create secret generic llm-key --from-file=api-key=/dev/stdin; unset K
 hack/workstation/deploy.sh --profile nogpu --set llm.provider=openai --set llm.baseUrl=https://openrouter.ai/api/v1 \
   --set llm.chatModel=<model> --set llm.toolModel=<model with tool calling> --set llm.embeddingModel=<embeddings model> \
   --set llm.auth.existingSecret=llm-key
 # embeddings from another endpoint: --set llm.embeddingBaseUrl=... [--set llm.embeddingAuth.existingSecret=...]
+# a local OpenAI-compatible server (LiteLLM, vLLM, llama.cpp) on the host: --set llm.baseUrl=http://host.minikube.internal:<port>/v1;
+# the GPU profile works too (Ollama stays deployed, unused). The ops agents need >= 16k context (AGENTS.md pitfall 18a).
 hack/workstation/e2e.sh
 ```
 

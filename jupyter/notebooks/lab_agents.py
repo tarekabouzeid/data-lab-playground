@@ -6,7 +6,8 @@
 * ask(agent, question)   one independent question -> {answer, steps, sql, rows}.
 
 The model is the lab's tool model on its OpenAI-compatible endpoint (lab_utils: llm.toolModel). Guards learned in real
-runs with small models are Strands hooks: the model-name guard and the grain guard, plus a cap on tool calls.
+runs with small models are Strands hooks: the model-name guard, the grain guard and the Spark server guard, plus caps
+on tool calls and on the size of each tool result.
 """
 import contextlib
 import datetime
@@ -15,12 +16,14 @@ import os
 import re
 
 from strands import Agent
-from strands.hooks import BeforeToolCallEvent
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.models.openai import OpenAIModel
 from strands.tools.mcp import MCPClient
+from strands.types.exceptions import ContextWindowOverflowException
 
 import lab_utils as lu
 
+MAX_TOOL_RESULT_CHARS = 8000   # per tool result the model sees (a strict endpoint refuses an over-long request)
 MAX_TOOL_CALLS = 12          # per question: a small model that keeps calling tools is stopped, not left to loop
 
 SEMANTIC_PROMPT = ("You answer business questions with the semantic layer's tools only. Find certified metrics with "
@@ -36,10 +39,27 @@ OPS_PROMPT = ("You are the on-call data engineer for Northwind Gear's lakehouse.
               "server=\"history\" for finished applications. Reply in at most five sentences with the facts you found.")
 
 
+class _LabOpenAIModel(OpenAIModel):
+    """Strands' OpenAI provider, plus the context-overflow wording of LiteLLM and llama.cpp ("exceeds the available
+    context size"), which Strands 1.65 does not recognize. As an overflow, Strands' conversation manager truncates old
+    tool results and retries instead of failing the question."""
+
+    async def stream(self, *args, **kwargs):
+        import openai
+        try:
+            async for event in super().stream(*args, **kwargs):
+                yield event
+        except openai.BadRequestError as e:
+            text = str(e).lower()
+            if "contextwindowexceeded" in text or "exceeds the available context size" in text:
+                raise ContextWindowOverflowException(str(e)) from e
+            raise
+
+
 def strands_model() -> OpenAIModel:
     """The lab's tool model through Strands' OpenAI provider (a hosted endpoint, or Ollama at /v1)."""
     lu.require_llm()
-    return OpenAIModel(client_args={"base_url": lu.endpoint("LLM_BASE_URL"), "api_key": os.environ.get("LLM_API_KEY") or "unused"},
+    return _LabOpenAIModel(client_args={"base_url": lu.endpoint("LLM_BASE_URL"), "api_key": os.environ.get("LLM_API_KEY") or "unused"},
                        model_id=lu.tool_model(), params={"max_tokens": lu.MAX_TOKENS, "temperature": 0})
 
 
@@ -100,6 +120,7 @@ class _Guards:
 
     def register_hooks(self, registry, **kwargs) -> None:
         registry.add_callback(BeforeToolCallEvent, self.before_tool)
+        registry.add_callback(AfterToolCallEvent, self.after_tool)
 
     def before_tool(self, event) -> None:
         self.calls += 1
@@ -122,6 +143,19 @@ class _Guards:
         event.tool_use["input"] = args
         if notes:
             self.notes[event.tool_use["toolUseId"]] = "; ".join(notes)
+
+
+    def after_tool(self, event) -> None:
+        """Cap what the model sees of a tool result. A real run (ops/02, get_sql_execution with stages) grew one question
+        to 35k tokens: a strict endpoint refuses that, Ollama silently drops the oldest context instead."""
+        content = (event.result or {}).get("content") or []
+        text = "".join(c["text"] if "text" in c else json.dumps(c["json"], default=str) if "json" in c else "" for c in content)
+        if len(text) <= MAX_TOOL_RESULT_CHARS:
+            return
+        event.result = {**event.result, "content": [{"text": text[:MAX_TOOL_RESULT_CHARS] + f"\n... (cut: {len(text)} characters)"}]}
+        note = f"result cut to {MAX_TOOL_RESULT_CHARS} of {len(text)} characters"
+        key = event.tool_use["toolUseId"]
+        self.notes[key] = f"{self.notes[key]}; {note}" if key in self.notes else note
 
 
 def _agent(tools, prompt, guards) -> Agent:

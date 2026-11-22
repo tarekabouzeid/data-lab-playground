@@ -238,3 +238,57 @@ def test_spark_server_guard_fills_a_missing_server(stack):
     with lab_agents.ops_agent(("spark_history",)) as agent:              # default: no guard, the server decides
         lab_agents.ask(agent, "q")
     assert calls[0][1]["server"] == ""
+
+
+def test_tool_results_are_capped(stack):
+    """A real run against a strict 20k-context endpoint: ops/02's get_sql_execution results grew one question to 35k
+    tokens. (Ollama silently drops old context instead.) Each tool result reaches the model as at most
+    MAX_TOOL_RESULT_CHARS characters, and the step says it was cut."""
+    mp, calls = stack
+
+    @tool(name="get_sql_execution")
+    def get_sql_execution(app_id: str = "") -> str:
+        """fake Spark History tool with a huge result"""
+        return "x" * 50_000
+
+    FakeMCP.tools_by_url["http://sh/mcp"] = [get_sql_execution]
+    script(mp, ("tool", "get_sql_execution", {"app_id": "a"}), ("text", "done"))
+    with lab_agents.ops_agent(("spark_history",)) as agent:
+        out = lab_agents.ask(agent, "q")
+        sent = [c["text"] for m in agent.messages for b in m["content"] if "toolResult" in b
+                for c in b["toolResult"]["content"] if "text" in c]
+    assert sent and all(len(t) <= lab_agents.MAX_TOOL_RESULT_CHARS + 100 for t in sent)
+    assert "cut" in out["steps"][0]["note"]
+
+
+def test_litellm_context_overflow_lets_strands_recover(monkeypatch):
+    """LiteLLM / llama.cpp say "exceeds the available context size", which Strands 1.65 does not classify as a context
+    overflow, so its conversation manager never truncated old tool results and the request just failed (ops/02 on a
+    20k-context gateway). The lab's model raises ContextWindowOverflowException for it."""
+    import asyncio
+    import httpx
+    import openai
+    from strands.models.openai import OpenAIModel
+    from strands.types.exceptions import ContextWindowOverflowException
+
+    def raising(message):
+        async def stream(self, *a, **kw):
+            raise openai.BadRequestError(message, response=httpx.Response(400, request=httpx.Request("POST", "http://x")), body=None)
+            yield
+        return stream
+
+    async def drain(model):
+        async for _ in model.stream([], None, None):
+            pass
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_BASE_URL", "http://x/v1")
+    monkeypatch.setenv("LLM_TOOL_MODEL", "m")
+    model = lab_agents.strands_model()
+    monkeypatch.setattr(OpenAIModel, "stream", raising(
+        "litellm.ContextWindowExceededError: request (24871 tokens) exceeds the available context size (20480 tokens)"))
+    with pytest.raises(ContextWindowOverflowException):
+        asyncio.run(drain(model))
+    monkeypatch.setattr(OpenAIModel, "stream", raising("model not found"))
+    with pytest.raises(openai.BadRequestError):            # other errors pass through unchanged
+        asyncio.run(drain(model))
