@@ -34,10 +34,16 @@ jobs:
             v*)       [ "$GITHUB_REF_NAME" = "v$APP" ] || { echo "::error::tag $GITHUB_REF_NAME != v$APP (Chart.yaml appVersion)"; exit 1; } ;;
           esac
           # custom image tags in values.yaml must equal appVersion
-          for c in hms spark jupyter airflowMcp; do
+          for c in hms spark jupyter airflowMcp semantic.manager semantic.server; do
             t=$(yq ".$c.image.tag" charts/data-lab/values.yaml)
             [ "$t" = "$APP" ] || { echo "::error::$c.image.tag=$t but appVersion=$APP"; exit 1; }
           done
+
+      - name: Free disk space (the Jupyter image alone is ~17 GB)
+        if: startsWith(github.ref_name, 'v')
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
 
       - uses: docker/login-action@v4.6.0
         with:
@@ -48,12 +54,23 @@ jobs:
       - name: Build and push lab images
         if: startsWith(github.ref_name, 'v')
         run: |
-          for c in hive-metastore spark jupyter airflow-mcp; do
+          # jupyter last: it is the largest. Each image is removed after its push so the runner's disk holds one at a time.
+          for c in hive-metastore spark airflow-mcp airflow jupyter; do
             img="$REGISTRY/$OWNER/data-lab-playground/$c:$APP"
             # source label links the GHCR package to this repo
-            docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c"
+            # up to 3 tries: the Jupyter build downloads Spark from archive.apache.org, which is slow and sometimes drops;
+            # finished layers are reused, so a retry resumes after the failed step
+            for try in 1 2 3; do
+              docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c" && break
+              [ "$try" = 3 ] && { echo "::error::docker build $c failed 3 times"; exit 1; }
+              echo "::warning::docker build $c failed (try $try), retrying in 60 s"; sleep 60
+            done
             docker push "$img"
+            docker rmi "$img" >/dev/null; docker builder prune -af >/dev/null; df -h / | tail -1
           done
+          # Semantic Operator, built from upstream source at the pinned commit
+          hack/build-semantic-operator.sh "$APP"
+          for c in manager server; do docker push "$REGISTRY/$OWNER/data-lab-playground/semantic-operator-$c:$APP"; done
 
       - name: Package and push the chart (OCI)
         run: |

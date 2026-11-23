@@ -19,6 +19,8 @@ env:
     value: /data/home
   - name: OLLAMA_MODELS
     value: /data/models
+  - name: OLLAMA_CONTEXT_LENGTH
+    value: %s
 startupProbe:
   exec: {command: ["test", "-f", "/tmp/models-ready"]}
   periodSeconds: 5
@@ -29,10 +31,37 @@ readinessProbe:
 livenessProbe:
   httpGet: {path: /api/version, port: http}
   periodSeconds: 20
-  failureThreshold: 6` $models -}}
+  failureThreshold: 6` $models ($c.contextLength | toString | quote) -}}
 {{- $gpu := dict -}}
-{{- if $c.gpu.enabled -}}
-{{- $gpu = dict "limits" (dict $c.gpu.resourceName $c.gpu.count) -}}
+{{- $podExtra := "" -}}
+{{- if and $c.gpu.dra.enabled (not $c.gpu.enabled) -}}
+{{- fail "data-lab: ollama.gpu.dra.enabled=true requires ollama.gpu.enabled=true" -}}
 {{- end -}}
-{{ include "datalab.simpleComponent" (dict "root" . "component" "ollama" "values" $c "ports" (list (dict "name" "http" "port" 11434)) "container" $container "dataPath" "/data" "extraResources" $gpu) }}
+{{- if and $c.gpu.enabled $c.gpu.dra.enabled -}}
+{{- if and .Values.global.apiChecks (not (.Capabilities.APIVersions.Has "resource.k8s.io/v1/ResourceClaimTemplate")) -}}
+{{- fail "data-lab: ollama.gpu.dra.enabled=true needs Dynamic Resource Allocation (resource.k8s.io/v1, Kubernetes >= 1.34) and a DRA driver" -}}
+{{- end -}}
+{{- $gpu = dict "claims" (list (dict "name" "gpu")) -}}
+{{- $podExtra = printf "resourceClaims:\n  - name: gpu\n    resourceClaimTemplateName: %s" (include "datalab.componentName" (list . "ollama-gpu")) -}}
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: {{ include "datalab.componentName" (list . "ollama-gpu") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "ollama") | nindent 4 }}
+spec:
+  spec:
+    devices:
+      requests:
+        - name: gpu
+          exactly:
+            deviceClassName: {{ $c.gpu.dra.deviceClassName }}
+            allocationMode: ExactCount
+            count: {{ $c.gpu.count }}
+---
+{{- else if $c.gpu.enabled -}}
+{{- $gpu = dict "limits" (dict $c.gpu.resourceName $c.gpu.count) -}}
+{{- end }}
+{{ include "datalab.simpleComponent" (dict "root" . "component" "ollama" "values" $c "ports" (list (dict "name" "http" "port" 11434)) "container" $container "dataPath" "/data" "extraResources" $gpu "podExtra" $podExtra) }}
 {{- end }}

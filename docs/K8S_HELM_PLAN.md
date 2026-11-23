@@ -1,3 +1,8 @@
+> **Superseded (2026-10-30).** `helm/datalab` was merged into [`charts/data-lab`](../charts/data-lab/README.md) and removed;
+> the minikube lab is now `charts/data-lab/ci/workstation-values.yaml` plus `hack/workstation/` (see
+> [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md)). This document is kept for its design notes and the real-node findings
+> in §16, which still apply. Paths below that start with `helm/` no longer exist.
+
 # Kubernetes / Helm Deployment Plan
 
 Status: **IMPLEMENTED, live-node run pending** (see §16). Originally a draft, reviewed 2026-10-10, review fixes applied: §0, seaweedfs headless Service, Spark Connect static conf/`.master()` conflict, phase order, offline lint, Gateway caveats). Nothing in `helm/` exists yet. This document is the plan to build it.

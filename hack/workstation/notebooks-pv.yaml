@@ -1,0 +1,25 @@
+# The repo's jupyter/notebooks folder, mounted into minikube at /datalab/notebooks (setup-minikube.sh), as a
+# PersistentVolume + claim. The chart only references the claim (jupyter.persistence.existingClaim), so its Jupyter
+# pod keeps Pod Security "restricted" (no hostPath volume in the pod). Namespace: replaced by setup-minikube.sh.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: datalab-notebooks-NAMESPACE
+spec:
+  capacity: {storage: 1Gi}
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: datalab-notebooks
+  claimRef: {namespace: NAMESPACE, name: datalab-notebooks}
+  hostPath: {path: /datalab/notebooks, type: Directory}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: datalab-notebooks
+  namespace: NAMESPACE
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: datalab-notebooks
+  volumeName: datalab-notebooks-NAMESPACE
+  resources: {requests: {storage: 1Gi}}

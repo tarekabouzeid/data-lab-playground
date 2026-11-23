@@ -2,9 +2,9 @@ name: chart-e2e
 
 on:
   pull_request:
-    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", "airflow/**", "jupyter/notebooks/ops/dags/**", ".github/workflows/chart-e2e.yaml"]
   push:
-    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", ".github/workflows/chart-e2e.yaml"]
+    paths: ["charts/**", "hack/**", "spark/**", "hive-metastore/**", "airflow-mcp/**", "airflow/**", "jupyter/notebooks/ops/dags/**", ".github/workflows/chart-e2e.yaml"]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [minimal, default, parallel]
+        scenario: [minimal, default, parallel, semantic]
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -61,6 +61,17 @@ jobs:
             rm -f /tmp/img.tar; docker rmi "$i" >/dev/null || true
           done
           df -h /
+
+      - name: Semantic Operator images (semantic scenario only)
+        if: matrix.scenario == 'semantic'
+        run: |
+          # built from upstream source at the pinned commit (the public v0.1.1 images predate the config layout)
+          hack/build-semantic-operator.sh "$APP"
+          for c in manager server; do
+            docker save --platform linux/amd64 -o /tmp/img.tar "ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-$c:$APP"
+            kind load image-archive --name datalab /tmp/img.tar
+            rm -f /tmp/img.tar
+          done
 
       - name: e2e (${{ matrix.scenario }})
         id: e2e

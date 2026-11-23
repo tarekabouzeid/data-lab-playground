@@ -22,6 +22,13 @@ Spark History MCP: http://{{ include "datalab.host" (list . "spark-history-mcp")
 {{- if and .Values.airflow.enabled .Values.airflowMcp.enabled }}
 Airflow MCP: http://{{ include "datalab.host" (list . "airflow-mcp") }}:8000/mcp{{ if .Values.airflowMcp.readOnly }} (read-only){{ end }}
 {{- end }}
+{{- if and .Values.gateway.enabled .Values.networkPolicy.enabled (empty .Values.gateway.allowFromNamespaces) }}
+WARNING: gateway.enabled with the NetworkPolicy on but gateway.allowFromNamespaces empty: the gateway's proxy pods
+cannot reach this release (HTTP 503). Add the proxy namespace (e.g. envoy-gateway-system).
+{{- end }}
+{{- if .Values.semantic.enabled }}
+Semantic layer (MCP): http://{{ include "datalab.host" (list . "semantic") }}:8090/mcp, REST: /v1 (identity headers X-Semantic-User / X-Semantic-Role{{ if eq .Values.semantic.server.auth.mode "jwt" }}; JWT required{{ end }})
+{{- end }}
 {{- if .Values.airflow.enabled }}
 Airflow: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datalab.componentName" (list . "airflow") }} 8080
          user {{ .Values.airflow.auth.username }}, password in Secret {{ include "datalab.airflowAuthSecretName" . }} (key {{ .Values.airflow.auth.passwordKey }})

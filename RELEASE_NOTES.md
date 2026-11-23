@@ -39,6 +39,62 @@ One-paragraph description.
 
 ---
 
+## [v4.0.0] — 2026-11-23
+
+**Tag:** `v4.0.0`  
+**Branch merged:** `main`
+
+### Summary
+The lab now runs only as the Helm chart `charts/data-lab`: Docker Compose is removed, and the former `helm/datalab` minikube chart is merged into it as a workstation profile (minikube + GPU, `hack/workstation/`). The notebooks tell one story about a single shop, Northwind Gear: Spark Connect ingest, dbt on Trino, an Airflow 3 pipeline, a Kubeflow Semantic Operator layer with certified metrics and row-level governance, RAG over support tickets, and agents that inspect Airflow and Spark through MCP. The AI parts work with the chart's Ollama (default), with any OpenAI-compatible endpoint (hosted or self-hosted, no GPU needed), or with AI turned off. The agents are built on AWS Strands. Component versions are unchanged from v3.0.0. The lab images are tagged 4.0.0.
+
+### Component Version Changes
+| Component | Before | After |
+|---|---|---|
+| Docker Compose stack | `docker-compose.yaml`, `start-platform.sh` | **removed** |
+| minikube chart `helm/datalab` | separate chart | **removed** (merged into `charts/data-lab` as `ci/workstation-values.yaml`) |
+| Helm chart `charts/data-lab` | 0.1.0 | **0.5.0** |
+| Lab images (`hive-metastore`, `spark`, `jupyter`, `airflow-mcp`, `airflow`, `semantic-operator-*`) | `3.0.0` | **`4.0.0`** (unchanged content) |
+| Kubeflow Semantic Operator | — | **@4fd7057** (built from source; manager + server) |
+| Lab Airflow image (`airflow/Dockerfile`) | — | Airflow 3.3.2 + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 |
+| Agents (Jupyter image) | Ollama client, `langchain-ollama` 1.0.1 | **`strands-agents[openai]` 1.65.0**, `openinference-instrumentation-strands-agents` 0.1.20, the `openai` SDK |
+| Workstation tool model | `qwen3:4b` | **`qwen3:4b-instruct`** (Qwen3-4B-Instruct-2507) |
+
+### Breaking Changes
+- **Docker Compose is gone.** `docker-compose.yaml`, `start-platform.sh`, `trino/`, `seaweedfs/`, `tests/e2e/run-e2e.sh` and `hack/check-compose-parity.py` are removed. Run the lab with the chart: `hack/workstation/setup-minikube.sh`, `build-images.sh`, `deploy.sh`, `e2e.sh`. The 19-check lakehouse e2e is `charts/data-lab/files/e2e_lakehouse.py` (run by `helm test` and as a SparkApplication).
+- **`helm/datalab` is gone.** Its features live in `charts/data-lab` (`ci/workstation-values.yaml`), and its scripts moved to `hack/workstation/`.
+- **Notebooks run only in the chart's Jupyter.** Endpoints come from the chart's environment; there are no Compose host defaults any more.
+- **The notebooks' LLM access changed.** `lab_utils` talks to one OpenAI-compatible API (the chart's Ollama at `/v1`, or `llm.provider=openai`); there is no Ollama client any more. Agents use `lab_agents.py` (Strands).
+- The lab image tags are `4.0.0`; images tagged `3.0.0` do not match this chart.
+
+### What's New
+- **`llm` values**: `llm.provider` (`ollama` | `openai` | `none`), models for chat, tools and embeddings, the API key from `llm.auth.existingSecret` only, and an optional separate embeddings endpoint (`llm.embeddingBaseUrl`). `none` makes every AI section print `skipped (no LLM configured)` and the notebook run to the end. No-GPU profile: `hack/workstation/deploy.sh --profile nogpu`.
+- **Semantic layer** (`semantic`): the Kubeflow Semantic Operator serves the dbt demo shop over MCP and REST, with 10 certified metrics (including a fan-out-safe refund rate) and roles `analyst`, `marketing` (no e-mail) and `dach_sales` (row filter). `semantic/01_chat_with_your_data.ipynb` compares a Strands agent on the semantic layer with raw text-to-SQL (6/6 against 1/6 on the workstation) and traces each question to Phoenix (project `semantic-layer`).
+- **Northwind Gear data story**: `lab_data.py` derives one shop from the dbt seeds for every notebook; the tour (`data_lab_playground.ipynb`) shows the pipeline map and rows per layer; `rag_demo` combines certified metrics with support tickets in Qdrant and keeps its Phoenix tracing (`northwind-rag`).
+- **Airflow lab pipeline** (`airflow.labPipelines`): DAG `northwind_daily` ingests order events over Spark Connect, runs `dbt build`, checks the data, publishes `shop_gold.product_kpis` and waits for the SemanticModel `Published`.
+- **Ops agents**: `ops/01_pipeline_agent.ipynb` (Airflow + Spark History MCP) and the new `ops/02_spark_history_agent.ipynb`, which runs a Spark workload, reads its metrics with the Spark History MCP tools by hand (live session and History Server), then lets the agent find a skewed join stage and compare a partition-filtered scan with a full one.
+- **Chart**: Gateway API routes for every UI (`gateway`), GPU through DRA (`ollama.gpu.dra`), SparkApplications for the Kubeflow Spark Operator (`spark.applications`), the 19-check lakehouse e2e as a second `helm test` pod, `ollama.contextLength` (16384), and Jupyter restarts when the endpoints change.
+- **Tests and CI**: render and unit tests (`tests/chart`, `tests/unit`), a kind e2e scenario `semantic`, and an AI-off test that every AI notebook cell is guarded.
+
+### Bug Fixes / Config Changes
+- `helm test` failed on every run after the first: it dropped its Iceberg namespace, and HMS 4.2.1 with SeaweedFS cannot re-create a dropped one. Each run now uses a fresh namespace.
+- A `helm upgrade` that only changed `llm.*` values left Jupyter on its old settings (envFrom does not follow a ConfigMap). The pod now carries a checksum of the endpoints ConfigMap.
+- The agents fit endpoints with a strict context window: each tool result is capped at 8,000 characters, and the "exceeds the available context size" error of LiteLLM and llama.cpp is passed to Strands as a context overflow, so it trims old tool results and retries.
+- `northwind_daily`: manual Airflow 3 runs have no logical date (the date now comes from `run_date()`), and `max_active_runs=1`, because two catch-up runs collided in `dbt seed`.
+- `qwen3:4b` became the thinking-only Qwen3-4B-Thinking-2507 model; it never reached a tool call and, without a token cap, generated until the Ollama runner was OOM-killed. The workstation uses `qwen3:4b-instruct`, and every model call is capped.
+- `ops/02`: correct `compare_sql_executions` arguments, its own queries found by the Spark Connect session id, the skew read from task quantiles with partition coalescing off, and a guard that adds `server="live"` when a small model leaves it out.
+- `rag_demo` ran into an unguarded vector search with AI off; the tour's Spark-on-Kubernetes cell no longer needs a ServiceAccount token.
+
+### Known Limitations
+- The ops agents need at least 16k tokens of context; an 8k endpoint refuses their first request.
+- Answers from small local models vary: a 4B model sometimes names the right stage without its numbers, or calls milliseconds seconds. The step tables under each answer show the tool results.
+- A dropped Iceberg namespace cannot be re-created (HMS 4.2.1 + SeaweedFS keep the `managed/<name>.db` marker). Notebooks never `DROP SCHEMA`, and each `helm test` run leaves one empty marker.
+- Switching the workstation to `--profile nogpu` deletes the Ollama volume, so its models are downloaded again when you switch back.
+- The OpenAI-compatible path was verified against a self-hosted server only, not against a hosted provider.
+- The ops agents send no traces to Phoenix; only `semantic/01` (Strands), `rag_demo` and the tour do.
+- The lab images exist on GHCR only after the `v4.0.0` tag triggers `chart-release`.
+
+---
+
 ## [v3.0.0] — 2026-10-27
 
 **Tag:** `v3.0.0`  

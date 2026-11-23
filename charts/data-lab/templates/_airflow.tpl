@@ -45,6 +45,34 @@
   value: /opt/airflow/logs
 - name: CONNECTION_CHECK_MAX_COUNT
   value: "0"
+{{- if $c.labPipelines.enabled }}
+{{- $v := $root.Values }}
+{{- if $v.spark.enabled }}
+{{- $sc := include "datalab.host" (list $root "spark-connect") }}
+{{- if $v.spark.auth.enabled }}
+- name: SPARK_CONNECT_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "datalab.sparkSecretName" $root }}
+      key: {{ $v.spark.auth.tokenKey }}
+- name: SPARK_REMOTE
+  value: "sc://{{ $sc }}:15002/;authorization=Bearer $(SPARK_CONNECT_TOKEN)"
+{{- else }}
+- name: SPARK_REMOTE
+  value: "sc://{{ $sc }}:15002"
+{{- end }}
+{{- end }}
+{{- if $v.trino.enabled }}
+- name: TRINO_HOST
+  value: {{ include "datalab.host" (list $root "trino") | quote }}
+- name: TRINO_PORT
+  value: "8080"
+{{- end }}
+{{- if and $v.semantic.enabled $v.semantic.models.dbtDemo.enabled }}
+- name: SEMANTIC_MODEL_RESOURCE
+  value: {{ include "datalab.componentName" (list $root "dbt-demo") | quote }}
+{{- end }}
+{{- end }}
 {{- with $c.extraEnv }}
 {{ toYaml . }}
 {{- end }}

@@ -1,0 +1,41 @@
+{{- if and .Values.airflow.enabled .Values.airflow.labPipelines.enabled .Values.semantic.enabled }}
+{{- $name := include "datalab.componentName" (list . "airflow") }}
+# Lab pipelines (airflow.labPipelines): DAG tasks wait for this release's SemanticModels to be Published.
+# Namespaced and read-only.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "airflow") | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "airflow") | nindent 4 }}
+rules:
+  - apiGroups: ["semantic.ossie.io"]
+    resources: ["semanticmodels"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datalab.componentLabels" (list . "airflow") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
