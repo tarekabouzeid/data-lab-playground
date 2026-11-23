@@ -58,7 +58,13 @@ jobs:
           for c in hive-metastore spark airflow-mcp airflow jupyter; do
             img="$REGISTRY/$OWNER/data-lab-playground/$c:$APP"
             # source label links the GHCR package to this repo
-            docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c"
+            # up to 3 tries: the Jupyter build downloads Spark from archive.apache.org, which is slow and sometimes drops;
+            # finished layers are reused, so a retry resumes after the failed step
+            for try in 1 2 3; do
+              docker build -t "$img" --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" "$c" && break
+              [ "$try" = 3 ] && { echo "::error::docker build $c failed 3 times"; exit 1; }
+              echo "::warning::docker build $c failed (try $try), retrying in 60 s"; sleep 60
+            done
             docker push "$img"
             docker rmi "$img" >/dev/null; docker builder prune -af >/dev/null; df -h / | tail -1
           done
