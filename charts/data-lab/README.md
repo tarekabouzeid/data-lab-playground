@@ -1,6 +1,6 @@
 # data-lab Helm chart
 
-![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.0.0](https://img.shields.io/badge/AppVersion-3.0.0-informational?style=flat-square)
+![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 4.0.0](https://img.shields.io/badge/AppVersion-4.0.0-informational?style=flat-square)
 
 Ephemeral lakehouse lab: Hive Metastore (Thrift + Iceberg REST), SeaweedFS S3, Spark Connect, Trino and Airflow, with optional Jupyter and GenAI services (Ollama, Qdrant, Phoenix). Built for many parallel releases on one cluster.
 
@@ -336,7 +336,7 @@ Kubernetes: `>=1.29.0-0`
 | hms.enabled | bool | `true` | Deploy the Hive Metastore (Thrift on 9083, built-in Iceberg REST catalog on 9084) and its Postgres. |
 | hms.image.registry | string | `"ghcr.io"` | Image registry. |
 | hms.image.repository | string | `"tarekabouzeid/data-lab-playground/hive-metastore"` | Image repository (built from `hive-metastore/Dockerfile`, published by the release workflow). |
-| hms.image.tag | string | `"3.0.0"` | Image tag (lab release; HMS 4.2.1 inside). |
+| hms.image.tag | string | `"4.0.0"` | Image tag (lab release; HMS 4.2.1 inside). |
 | hms.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | hms.heapSize | string | `"1G"` | JVM max heap passed as `-Xmx`. |
 | hms.resources | object | `{"limits":{"memory":"1536Mi"},"requests":{"cpu":"200m","memory":"1Gi"}}` | Container resources. |
@@ -373,7 +373,7 @@ Kubernetes: `>=1.29.0-0`
 | spark.enabled | bool | `true` | Deploy a Spark Connect server (gRPC 15002). Requires `hms.enabled`. |
 | spark.image.registry | string | `"ghcr.io"` | Image registry. |
 | spark.image.repository | string | `"tarekabouzeid/data-lab-playground/spark"` | Image repository (built from `spark/Dockerfile`; also used for executors and `helm test`). |
-| spark.image.tag | string | `"3.0.0"` | Image tag (lab release; Spark 4.1.3 + Iceberg 1.12.0 inside). |
+| spark.image.tag | string | `"4.0.0"` | Image tag (lab release; Spark 4.1.3 + Iceberg 1.12.0 inside). |
 | spark.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | spark.master | string | `"kubernetes"` | Where executors run: `kubernetes` (executor pods in the release namespace, namespaced RBAC) or `local` (threads inside the server pod, no RBAC). |
 | spark.auth.enabled | bool | `true` | Require a bearer token from Spark Connect clients (`sc://host:15002/;token=...`). |
@@ -436,7 +436,7 @@ Kubernetes: `>=1.29.0-0`
 | airflowMcp.enabled | bool | `false` | Deploy the Astronomer Airflow MCP server (streamable HTTP on 8000, path `/mcp`). Logs in to Airflow as its own least-privilege user (`username`). No caller authentication: reachable only through the NetworkPolicy. Requires `airflow.enabled`. |
 | airflowMcp.image.registry | string | `"ghcr.io"` | Image registry. |
 | airflowMcp.image.repository | string | `"tarekabouzeid/data-lab-playground/airflow-mcp"` | Image repository (built from `airflow-mcp/Dockerfile`: astro-airflow-mcp 0.9.1, published by the release workflow). |
-| airflowMcp.image.tag | string | `"3.0.0"` | Image tag (lab release). |
+| airflowMcp.image.tag | string | `"4.0.0"` | Image tag (lab release). |
 | airflowMcp.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | airflowMcp.readOnly | bool | `true` | Read-only mode. `true`: the MCP's Airflow user gets the `viewer` role and the MCP blocks write tools, so Airflow itself rejects writes too. `false`: the user gets the `op` role (trigger, pause, clear; no admin settings). |
 | airflowMcp.username | string | `"mcp"` | Dedicated Airflow user the MCP logs in as (added to Airflow's SimpleAuthManager users). |
@@ -534,7 +534,7 @@ Kubernetes: `>=1.29.0-0`
 | semantic.enabled | bool | `false` | Deploy the Semantic Operator manager and server. |
 | semantic.manager.image.registry | string | `"ghcr.io"` | Image registry. |
 | semantic.manager.image.repository | string | `"tarekabouzeid/data-lab-playground/semantic-operator-manager"` | Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh). |
-| semantic.manager.image.tag | string | `"3.0.0"` | Image tag (= appVersion). |
+| semantic.manager.image.tag | string | `"4.0.0"` | Image tag (= appVersion). |
 | semantic.manager.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | semantic.manager.resyncPeriod | string | `"30s"` | How often every SemanticModel is re-checked against Trino (a model applied before its tables exist turns Ready within this period once they do). |
 | semantic.manager.engineUser | string | `"semantic-manager"` | Trino user the manager introspects metadata as. |
@@ -549,7 +549,7 @@ Kubernetes: `>=1.29.0-0`
 | semantic.manager.podAnnotations | object | `{}` | Extra pod annotations. |
 | semantic.server.image.registry | string | `"ghcr.io"` | Image registry. |
 | semantic.server.image.repository | string | `"tarekabouzeid/data-lab-playground/semantic-operator-server"` | Image repository (built from kubeflow/semantic-operator@4fd7057 by hack/build-semantic-operator.sh). |
-| semantic.server.image.tag | string | `"3.0.0"` | Image tag (= appVersion). |
+| semantic.server.image.tag | string | `"4.0.0"` | Image tag (= appVersion). |
 | semantic.server.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | semantic.server.replicas | int | `1` | Server replicas. |
 | semantic.server.engineUser | string | `"semantic-server"` | Trino user queries run as (static identity). |
@@ -577,7 +577,7 @@ Kubernetes: `>=1.29.0-0`
 | jupyter.enabled | bool | `false` | Deploy JupyterLab (connects to Spark Connect, Trino and the GenAI services that are enabled). |
 | jupyter.image.registry | string | `"ghcr.io"` | Image registry. |
 | jupyter.image.repository | string | `"tarekabouzeid/data-lab-playground/jupyter"` | Image repository (built from `jupyter/Dockerfile`, published by the release workflow). |
-| jupyter.image.tag | string | `"3.0.0"` | Image tag (lab release). |
+| jupyter.image.tag | string | `"4.0.0"` | Image tag (lab release). |
 | jupyter.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | jupyter.auth.existingSecret | string | `""` | Existing Secret holding the Jupyter token. Empty: the chart generates `<fullname>-jupyter`. |
 | jupyter.auth.tokenKey | string | `"token"` | Key in the Secret holding the token. |

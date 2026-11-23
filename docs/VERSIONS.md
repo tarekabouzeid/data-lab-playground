@@ -111,32 +111,33 @@ curl -s "https://hub.docker.com/v2/repositories/apache/hive/tags?page_size=8&ord
 | 2026-11-17 (`charts/data-lab` 0.4.0) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (Compose removed in chart 0.4.0; `llm` values: Ollama, any OpenAI-compatible endpoint or none; Strands agents) |
 | 2026-11-22 (`charts/data-lab` 0.4.1, helm test fix) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (no version changes) |
 | 2026-11-22 (`charts/data-lab` 0.4.2, Jupyter restarts on endpoint changes) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (no version changes) |
+| 2026-11-23 (`charts/data-lab` 0.5.0, lab release **v4.0.0**: Compose removed) | 4.1.3 | 1.12.0 | 4.2.1 | 483 | SeaweedFS 4.48 (no component version changes; image tags 4.0.0) |
 
 ## 8. Helm chart images (`charts/data-lab`)
 
-Chart `0.5.0`, `appVersion` **3.0.0** (the lab release these versions ship in). Every tag is pinned in
+Chart `0.5.0`, `appVersion` **4.0.0** (the lab release these versions ship in). Every tag is pinned in
 `charts/data-lab/values.yaml`. Bump this table, the values file and `charts/data-lab/CHANGELOG.md` together.
 
 | Component | Image | Tag |
 |---|---|---|
 | Hive Metastore | `ghcr.io/tarekabouzeid/data-lab-playground/hive-metastore` (built from `hive-metastore/Dockerfile`) | `3.0.0` (= appVersion; HMS 4.2.1) |
 | Spark Connect + executors + `helm test` | `ghcr.io/tarekabouzeid/data-lab-playground/spark` (built from `spark/Dockerfile`) | `3.0.0` (Spark 4.1.3, Iceberg 1.12.0, Python 3.12) |
-| JupyterLab | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` (built from `jupyter/Dockerfile`) | `3.0.0` |
+| JupyterLab | `ghcr.io/tarekabouzeid/data-lab-playground/jupyter` (built from `jupyter/Dockerfile`) | `4.0.0` |
 | Trino | `trinodb/trino` | `483` |
 | SeaweedFS | `chrislusf/seaweedfs` | `4.48` |
 | Postgres (HMS, Airflow) | `postgres` | `17.11` |
 | Airflow | `apache/airflow` | `3.3.2-python3.12` |
-| Airflow, lab pipelines (`airflow.labPipelines`, workstation profile) | `ghcr.io/tarekabouzeid/data-lab-playground/airflow` (built from `airflow/Dockerfile`: `apache/airflow:3.3.2-python3.12` + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`) | `3.0.0` |
-| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `3.0.0` |
+| Airflow, lab pipelines (`airflow.labPipelines`, workstation profile) | `ghcr.io/tarekabouzeid/data-lab-playground/airflow` (built from `airflow/Dockerfile`: `apache/airflow:3.3.2-python3.12` + pyspark-client 4.1.3 + dbt-core 1.12.5 / dbt-trino 1.10.6 in `/opt/dbt`) | `4.0.0` |
+| Spark History Server | same as Spark (`spark-class org.apache.spark.deploy.history.HistoryServer`) | `4.0.0` |
 | Spark History MCP | `ghcr.io/kubeflow/mcp-apache-spark-history-server` (official) | `1.0.1` |
 | Jupyter agents (Strands) | pip in `jupyter/Dockerfile` | `strands-agents[openai]==1.65.0`, `openinference-instrumentation-strands-agents==0.1.20`, `opentelemetry-exporter-otlp-proto-http`, `openai`, `langchain-openai` |
-| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `3.0.0` |
+| Airflow MCP | `ghcr.io/tarekabouzeid/data-lab-playground/airflow-mcp` (built from `airflow-mcp/Dockerfile`: `python:3.12.15-slim-bookworm` + `astro-airflow-mcp==0.9.1`) | `4.0.0` |
 | git-sync (Airflow DAGs) | `registry.k8s.io/git-sync/git-sync` | `v4.7.1` |
 | Ollama | `ollama/ollama` | `0.40.3` |
 | Qdrant | `qdrant/qdrant` | `v1.19.2-unprivileged` |
 | Phoenix | `arizephoenix/phoenix` | `version-20.21.0-nonroot` |
 | Semantic Operator manager | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-manager` (built from `kubeflow/semantic-operator@4fd7057` by `hack/build-semantic-operator.sh`) | `3.0.0` (= appVersion) |
-| Semantic Operator server | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-server` (same) | `3.0.0` |
+| Semantic Operator server | `ghcr.io/tarekabouzeid/data-lab-playground/semantic-operator-server` (same) | `4.0.0` |
 | SemanticModel CRD | `hack/crds/semantic.ossie.io_semanticmodels.yaml` (vendored from `kubeflow/semantic-operator@4fd7057`, `semantic.ossie.io/v1alpha1`) | commit `4fd7057` (2026-10-23) |
 
 Semantic layer notes: no upstream GitHub release exists yet (chart 0.1.0 in the repo). The public

@@ -33,7 +33,7 @@ airflow:
   image:                                 # airflow/Dockerfile: Airflow + pyspark-client + dbt (hack/workstation/build-images.sh)
     registry: ghcr.io
     repository: tarekabouzeid/data-lab-playground/airflow
-    tag: "3.0.0"
+    tag: "4.0.0"
   labPipelines:
     enabled: true                        # northwind_daily: SPARK_REMOTE, TRINO_HOST, read access to the SemanticModels
   dags:

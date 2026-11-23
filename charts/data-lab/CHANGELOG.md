@@ -3,9 +3,14 @@
 Chart versions follow semver. `appVersion` is the lab release the chart deploys (see
 [RELEASE_NOTES.md](../../RELEASE_NOTES.md) and [docs/VERSIONS.md](../../docs/VERSIONS.md)).
 
-## 0.5.0 — unreleased
+## 0.5.0 — unreleased (appVersion 4.0.0)
+
+Lab release v4.0.0: the repository's Docker Compose stack is gone (chart 0.4.0), a breaking change for anyone who ran
+the lab with Compose. The chart's own values are backward compatible.
 
 ### Changed
+- `appVersion` 4.0.0, and every lab image tag with it (`hms`, `spark`, `jupyter`, `airflowMcp`,
+  `semantic.manager`, `semantic.server`; the workstation profile's lab Airflow image). The images are unchanged.
 - The `llm` docs and the no-GPU overlay name no specific provider: `llm.provider=openai` is any OpenAI-compatible
   endpoint, hosted or self-hosted (examples use the placeholder `https://llm.example.com/v1`). The overlay's comment
   creates the key Secret from a hidden prompt instead of `--from-literal` (which lands in shell history).

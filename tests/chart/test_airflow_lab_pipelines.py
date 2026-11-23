@@ -50,6 +50,6 @@ def test_workstation_profile_runs_the_lab_pipelines():
     docs = render(profile="workstation-values.yaml", api_versions=API + ["gateway.networking.k8s.io/v1/Gateway",
                                                                          "gateway.networking.k8s.io/v1/HTTPRoute"])
     pod, env = scheduler_env(docs)
-    assert pod["containers"][0]["image"].endswith("data-lab-playground/airflow:3.0.0")
+    assert pod["containers"][0]["image"].endswith("data-lab-playground/airflow:4.0.0")
     assert env["AIRFLOW__CORE__DAGS_FOLDER"]["value"] == "/opt/airflow/dags/ops/dags"
     assert "SEMANTIC_MODEL_RESOURCE" in env

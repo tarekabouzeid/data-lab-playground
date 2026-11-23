@@ -119,7 +119,7 @@ Authoritative matrix: **[docs/VERSIONS.md](docs/VERSIONS.md)** (runtimes, bundle
 | Postgres JDBC (HMS) | 42.7.5 |
 | Jupyter base image | `quay.io/jupyter/base-notebook:python-3.12` (rolling tag), `pyspark[connect]==4.1.3`, `kubeflow==0.5.0` + `kubeflow-spark-api==2.4.0` (**no** `[spark]` extra) |
 | Phoenix · Ollama · Qdrant | non-root tags in VERSIONS.md §8 |
-| Helm chart | `charts/data-lab` 0.5.0 (appVersion 3.0.0): Airflow 3.3.2 (+ lab image `airflow/` for `airflow.labPipelines`), Postgres 17.11, Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1, Kubeflow Semantic Operator built from source at `4fd7057` (`hack/build-semantic-operator.sh`; CRD from the same commit) |
+| Helm chart | `charts/data-lab` 0.5.0 (appVersion 4.0.0): Airflow 3.3.2 (+ lab image `airflow/` for `airflow.labPipelines`), Postgres 17.11, Spark History MCP 1.0.1, astro-airflow-mcp 0.9.1, Kubeflow Semantic Operator built from source at `4fd7057` (`hack/build-semantic-operator.sh`; CRD from the same commit) |
 | Workstation lab | Kubernetes 1.37 · minikube 1.39.0 · Helm 4.x (4.2.4 tested) · Kubeflow Spark Operator 2.5.2 · Envoy Gateway v1.9.2 · Headlamp 0.45.0 + `headlamp_kubeflow` 0.2.0-alpha (pluginctl 0.1.1) · NVIDIA DRA driver 0.5.0 (optional) |
 
 ---
