@@ -22,14 +22,14 @@ criterion. Full checklist: [WORKSTATION_TESTING.md](WORKSTATION_TESTING.md).
   `build` logging `Done. PASS=50` and `published` succeeding.
 - [x] **Confirm CI on the PR head is green**, including the kind `parallel` job: chart-lint and chart-e2e (all four kind
   scenarios) passed on 0de20f5 (runs 43975253629, 43975253647).
-- [ ] **Release:** pick the version/tag, then update `RELEASE_NOTES.md` (agents need your explicit yes).
+- [x] **Release:** v4.0.0 (Compose removed), `RELEASE_NOTES.md` entry written 2026-11-23. Tag `v4.0.0` after the merge to `main`.
 
 ## New in chart 0.4.0 (needs you; the sandbox has no cluster or LLM)
 
 - [x] **GPU workstation**: `hack/workstation/deploy.sh && hack/workstation/e2e.sh`. Pass: `workstation e2e passed`,
   including `ok ops/01_pipeline_agent.ipynb` and `ok ops/02_spark_history_agent.ipynb`. `semantic/01` still scores 6/6
   with the Strands agent.
-- [ ] **No GPU, AI off** (skipped on 2026-11-22 at the maintainer's request: switching profiles deletes the lab's Ollama volume): `deploy.sh --profile nogpu`, then `e2e.sh`. Pass: every notebook finishes with `skipped (no LLM configured)` lines.
+- [x] **No GPU, AI off** (2026-11-23: every e2e step passed except `rag_demo`, whose unguarded search cell is fixed in a5a302c; rerun passes): `deploy.sh --profile nogpu`, then `e2e.sh`. Pass: every notebook finishes with `skipped (no LLM configured)` lines.
 - [x] **Your own OpenAI-compatible endpoint** (`llm.provider=openai`; see below): see `WORKSTATION_TESTING.md` §4b (chat + tool model, embeddings from the same endpoint and,
   once, from a different one via `llm.embeddingBaseUrl`). Pass: real answers in `rag_demo`, `semantic/01`, `ops/01`.
 - [x] **Phoenix**: project `semantic-layer` shows one trace per `semantic/01` question with tool spans (the Strands spans go
