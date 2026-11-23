@@ -223,4 +223,4 @@ Found a bug or have an idea? Feel free to:
 
 **Built with AI Assistance**
 
-This project was developed with GitHub Copilot (powered by Claude Sonnet 4), demonstrating the power of human-AI partnership in creating comprehensive data platforms.
+This project is co-developed with AI coding assistants, demonstrating the power of human-AI partnership in creating comprehensive data platforms.
